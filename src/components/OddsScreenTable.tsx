@@ -19,11 +19,11 @@ type Row = { game: Game; books: DisplayLine[]; homeLogo: string | null; awayLogo
 
 function TeamLogo({ src, alt }: { src: string | null; alt: string }) {
   if (!src) {
-    return <div className="h-7 w-7 shrink-0 rounded-full bg-surface-raised ring-1 ring-border" />;
+    return <div className="h-7 w-7 shrink-0 rounded-full bg-white/90 ring-1 ring-black/10" />;
   }
   return (
-    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-raised ring-1 ring-border">
-      <Image src={src} alt={alt} width={22} height={22} className="h-[22px] w-[22px] object-contain drop-shadow-[0_0_3px_rgba(0,0,0,0.6)]" unoptimized />
+    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/90 ring-1 ring-black/10">
+      <Image src={src} alt={alt} width={22} height={22} className="h-[22px] w-[22px] object-contain" unoptimized />
     </div>
   );
 }
