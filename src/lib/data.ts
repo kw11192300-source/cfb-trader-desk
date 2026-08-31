@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { BettingLine, BoardRow, Game, LineSnapshot, Team } from "./types";
+import type { BettingLine, BoardRow, Game, LineSnapshot, OddsApiLine, Team } from "./types";
 
 /**
  * Same idea as the Python side's current_week.py: the earliest
@@ -27,15 +27,20 @@ async function buildBoardRows(games: Game[]): Promise<BoardRow[]> {
   const gameIds = games.map((g) => g.id);
   const teamIds = Array.from(new Set(games.flatMap((g) => [g.home_id, g.away_id]).filter((id): id is number => id !== null)));
 
-  const [{ data: lines, error: linesError }, { data: teams, error: teamsError }] = await Promise.all([
-    gameIds.length > 0
-      ? supabase.from("betting_lines").select("*").in("game_id", gameIds)
-      : Promise.resolve({ data: [] as BettingLine[], error: null }),
-    teamIds.length > 0
-      ? supabase.from("teams").select("*").in("id", teamIds)
-      : Promise.resolve({ data: [] as Team[], error: null }),
-  ]);
+  const [{ data: lines, error: linesError }, { data: oddsApiLines, error: oddsApiError }, { data: teams, error: teamsError }] =
+    await Promise.all([
+      gameIds.length > 0
+        ? supabase.from("betting_lines").select("*").in("game_id", gameIds)
+        : Promise.resolve({ data: [] as BettingLine[], error: null }),
+      gameIds.length > 0
+        ? supabase.from("odds_api_lines").select("*").in("game_id", gameIds)
+        : Promise.resolve({ data: [] as OddsApiLine[], error: null }),
+      teamIds.length > 0
+        ? supabase.from("teams").select("*").in("id", teamIds)
+        : Promise.resolve({ data: [] as Team[], error: null }),
+    ]);
   if (linesError) throw new Error(linesError.message);
+  if (oddsApiError) throw new Error(oddsApiError.message);
   if (teamsError) throw new Error(teamsError.message);
 
   const linesByGame = new Map<number, BettingLine[]>();
@@ -44,11 +49,18 @@ async function buildBoardRows(games: Game[]): Promise<BoardRow[]> {
     list.push(line);
     linesByGame.set(line.game_id, list);
   }
+  const oddsApiByGame = new Map<number, OddsApiLine[]>();
+  for (const line of (oddsApiLines ?? []) as OddsApiLine[]) {
+    const list = oddsApiByGame.get(line.game_id) ?? [];
+    list.push(line);
+    oddsApiByGame.set(line.game_id, list);
+  }
   const teamById = new Map((teams as Team[]).map((t) => [t.id, t]));
 
   return games.map((game) => ({
     game,
     lines: linesByGame.get(game.id) ?? [],
+    oddsApiLines: oddsApiByGame.get(game.id) ?? [],
     homeLogo: game.home_id !== null ? (teamById.get(game.home_id)?.logo_url ?? null) : null,
     awayLogo: game.away_id !== null ? (teamById.get(game.away_id)?.logo_url ?? null) : null,
   }));
@@ -85,6 +97,7 @@ export async function getCurrentWeekBoard(): Promise<{
 export type GameDetail = {
   game: Game;
   lines: BettingLine[];
+  oddsApiLines: OddsApiLine[];
   homeTeam: Team | null;
   awayTeam: Team | null;
 };
@@ -95,17 +108,24 @@ export async function getGame(id: number): Promise<GameDetail | null> {
   if (!game) return null;
 
   const teamIds = [game.home_id, game.away_id].filter((tid): tid is number => tid !== null);
-  const [{ data: lines, error: linesError }, { data: teams, error: teamsError }] = await Promise.all([
+  const [
+    { data: lines, error: linesError },
+    { data: oddsApiLines, error: oddsApiError },
+    { data: teams, error: teamsError },
+  ] = await Promise.all([
     supabase.from("betting_lines").select("*").eq("game_id", id),
+    supabase.from("odds_api_lines").select("*").eq("game_id", id),
     teamIds.length > 0 ? supabase.from("teams").select("*").in("id", teamIds) : Promise.resolve({ data: [] as Team[], error: null }),
   ]);
   if (linesError) throw new Error(linesError.message);
+  if (oddsApiError) throw new Error(oddsApiError.message);
   if (teamsError) throw new Error(teamsError.message);
 
   const teamById = new Map((teams as Team[]).map((t) => [t.id, t]));
   return {
     game: game as Game,
     lines: (lines ?? []) as BettingLine[],
+    oddsApiLines: (oddsApiLines ?? []) as OddsApiLine[],
     homeTeam: game.home_id !== null ? (teamById.get(game.home_id) ?? null) : null,
     awayTeam: game.away_id !== null ? (teamById.get(game.away_id) ?? null) : null,
   };

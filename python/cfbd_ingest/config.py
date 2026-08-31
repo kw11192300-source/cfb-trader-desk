@@ -14,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(REPO_ROOT / ".env.local")
 
 CFBD_API_KEY = os.environ.get("CFBD_API_KEY")
+ODDS_API_KEY = os.environ.get("ODDS_API_KEY")
 SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
 SUPABASE_SECRET_KEY = os.environ.get("SUPABASE_SECRET_KEY")
 

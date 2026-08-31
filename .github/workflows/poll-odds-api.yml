@@ -1,0 +1,27 @@
+name: Poll The Odds API (juice + book breadth)
+
+# Every 6 hours, 24/7 = ~360 credits/month — comfortably inside the free
+# tier's 500 credits/mo (one run = 3 credits: spreads+totals+h2h, us
+# region). See python/README.md for the cadence-vs-credits table if this
+# ever needs tightening (requires upgrading past the free tier).
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r python/requirements.txt
+      - name: Poll odds
+        working-directory: python
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: python -m cfbd_ingest.sync_odds_api

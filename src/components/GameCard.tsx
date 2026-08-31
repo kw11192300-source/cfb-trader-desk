@@ -1,7 +1,8 @@
 import Link from "next/link";
 import Image from "next/image";
 import LocalDateTime from "./LocalDateTime";
-import { formatSpread, normalizeProviderName, pickHeadlineLine, realBookLines, sortLines, spreadMovement, totalMovement } from "@/lib/lines";
+import { pickHeadlineLine as pickCfbdHeadline, spreadMovement, totalMovement } from "@/lib/lines";
+import { bestOverTotal, bestUnderTotal, formatPrice, formatSpread, mergeLines, pickHeadlineLine } from "@/lib/mergedLines";
 import type { BoardRow } from "@/lib/types";
 
 function TeamLogo({ src, alt, size = 28 }: { src: string | null; alt: string; size?: number }) {
@@ -21,11 +22,20 @@ function MoveTag({ delta, direction }: { delta: number; direction: "up" | "down"
 }
 
 export default function GameCard({ row }: { row: BoardRow }) {
-  const { game, lines, homeLogo, awayLogo } = row;
-  const headline = pickHeadlineLine(lines);
-  const books = sortLines(realBookLines(lines));
-  const sMove = headline ? spreadMovement(headline) : null;
-  const tMove = headline ? totalMovement(headline) : null;
+  const { game, lines, oddsApiLines, homeLogo, awayLogo } = row;
+  const books = mergeLines(lines, oddsApiLines);
+  const headline = pickHeadlineLine(books);
+
+  // Movement still comes from CFBD's own tracked open/close (the only
+  // source with that history) — a slightly different book than the
+  // "current" headline below in rare cases, but the only real signal we
+  // have for direction/size of the move.
+  const cfbdHeadline = pickCfbdHeadline(lines);
+  const sMove = cfbdHeadline ? spreadMovement(cfbdHeadline) : null;
+  const tMove = cfbdHeadline ? totalMovement(cfbdHeadline) : null;
+
+  const bestOver = bestOverTotal(books);
+  const bestUnder = bestUnderTotal(books);
 
   return (
     <Link
@@ -54,14 +64,20 @@ export default function GameCard({ row }: { row: BoardRow }) {
       <div className="flex items-center justify-between border-t border-border pt-3">
         <div>
           <div className="font-mono text-base text-foreground">
-            {headline ? formatSpread(game.home_team, game.away_team, headline.spread) : "—"}
+            {headline ? formatSpread(game.home_team, game.away_team, headline.homeSpread) : "—"}
           </div>
+          {headline?.homeSpreadPrice !== null && headline?.homeSpreadPrice !== undefined && (
+            <div className="font-mono text-[11px] text-muted">{formatPrice(headline.homeSpreadPrice)}</div>
+          )}
           {sMove && <MoveTag delta={sMove.delta} direction={sMove.direction} />}
         </div>
         <div className="text-right">
-          <div className="font-mono text-base text-foreground">
-            {headline?.over_under !== null && headline?.over_under !== undefined ? `O/U ${headline.over_under.toFixed(1)}` : "—"}
-          </div>
+          <div className="font-mono text-base text-foreground">{headline?.total !== null && headline?.total !== undefined ? `O/U ${headline.total.toFixed(1)}` : "—"}</div>
+          {headline?.overPrice !== null && headline?.overPrice !== undefined && (
+            <div className="font-mono text-[11px] text-muted">
+              o{formatPrice(headline.overPrice)} / u{formatPrice(headline.underPrice)}
+            </div>
+          )}
           {tMove && <MoveTag delta={tMove.delta} direction={tMove.direction} />}
         </div>
       </div>
@@ -69,10 +85,17 @@ export default function GameCard({ row }: { row: BoardRow }) {
       {books.length > 1 && (
         <div className="flex flex-wrap gap-x-3 gap-y-1 border-t border-border pt-2 text-[11px] text-muted">
           {books.map((l) => (
-            <span key={l.provider} className="font-mono">
-              {normalizeProviderName(l.provider)} {l.spread !== null ? l.spread.toFixed(1) : "—"}
+            <span key={l.bookKey} className="font-mono">
+              {l.bookName} {l.homeSpread !== null ? l.homeSpread.toFixed(1) : "—"}
+              {l.homeSpreadPrice !== null ? ` (${formatPrice(l.homeSpreadPrice)})` : ""}
             </span>
           ))}
+        </div>
+      )}
+
+      {(bestOver !== null || bestUnder !== null) && books.length > 1 && (
+        <div className="text-[10px] text-muted">
+          Best: O {bestOver?.toFixed(1) ?? "—"} / U {bestUnder?.toFixed(1) ?? "—"}
         </div>
       )}
     </Link>

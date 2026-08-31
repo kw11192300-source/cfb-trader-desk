@@ -6,7 +6,8 @@ import LocalDateTime from "@/components/LocalDateTime";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import { getGame, getLineHistory } from "@/lib/data";
-import { formatMoneyline, formatSpread, normalizeProviderName, sortLines } from "@/lib/lines";
+import { formatSpread as formatCfbdSpread } from "@/lib/lines";
+import { bestHomeSpread, bestOverTotal, bestUnderTotal, formatMoneyline, formatPrice, formatSpread, mergeLines } from "@/lib/mergedLines";
 
 export const dynamic = "force-dynamic";
 
@@ -23,21 +24,18 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
   const [detail, history] = await Promise.all([getGame(gameId), getLineHistory(gameId)]);
   if (!detail) notFound();
 
-  const { game, lines, homeTeam, awayTeam } = detail;
-  const books = sortLines(lines);
+  const { game, lines, oddsApiLines, homeTeam, awayTeam } = detail;
+  const books = mergeLines(lines, oddsApiLines);
 
-  const bestHomeSpread = books.reduce<number | null>((best, l) => {
-    if (l.spread === null) return best;
-    return best === null || l.spread > best ? l.spread : best;
-  }, null);
-  const bestOver = books.reduce<number | null>((best, l) => {
-    if (l.over_under === null) return best;
-    return best === null || l.over_under > best ? l.over_under : best;
-  }, null);
-  const bestUnder = books.reduce<number | null>((best, l) => {
-    if (l.over_under === null) return best;
-    return best === null || l.over_under < best ? l.over_under : best;
-  }, null);
+  // "Open" only exists for books CFBD itself tracks (that's the only source
+  // with historical open data) — look it up per book by normalized key so a
+  // book that only came from The Odds API just shows "—" rather than a
+  // fabricated open value.
+  const cfbdOpenByKey = new Map(lines.map((l) => [l.provider.toLowerCase().replace(/[^a-z0-9]/g, ""), l]));
+
+  const bestSpread = bestHomeSpread(books);
+  const bestOver = bestOverTotal(books);
+  const bestUnder = bestUnderTotal(books);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -85,7 +83,7 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
           <div className="rounded-lg border border-border bg-surface p-6 text-center text-muted">No lines available for this game yet.</div>
         ) : (
           <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full min-w-[600px] border-collapse text-sm">
+            <table className="w-full min-w-[700px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
                   <th className="px-4 py-3 font-medium">Book</th>
@@ -97,33 +95,42 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
                 </tr>
               </thead>
               <tbody>
-                {books.map((l) => (
-                  <tr key={l.provider} className="border-b border-border last:border-0 odd:bg-surface/50">
-                    <td className="px-4 py-3 text-foreground">{normalizeProviderName(l.provider)}</td>
-                    <td className={`px-4 py-3 font-mono ${l.spread === bestHomeSpread ? "text-up" : "text-foreground"}`}>
-                      {formatSpread(game.home_team, game.away_team, l.spread)}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-muted">
-                      {l.spread_open !== null ? formatSpread(game.home_team, game.away_team, l.spread_open) : "—"}
-                    </td>
-                    <td
-                      className={`px-4 py-3 font-mono ${
-                        l.over_under === bestOver || l.over_under === bestUnder ? "text-up" : "text-foreground"
-                      }`}
-                    >
-                      {l.over_under !== null ? l.over_under.toFixed(1) : "—"}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-muted">{l.over_under_open !== null ? l.over_under_open.toFixed(1) : "—"}</td>
-                    <td className="px-4 py-3 font-mono text-muted">
-                      {formatMoneyline(l.home_moneyline)} / {formatMoneyline(l.away_moneyline)}
-                    </td>
-                  </tr>
-                ))}
+                {books.map((l) => {
+                  const cfbdOpen = cfbdOpenByKey.get(l.bookKey);
+                  return (
+                    <tr key={l.bookKey} className="border-b border-border last:border-0 odd:bg-surface/50">
+                      <td className="px-4 py-3 text-foreground">{l.bookName}</td>
+                      <td className={`px-4 py-3 font-mono ${l.homeSpread === bestSpread ? "text-up" : "text-foreground"}`}>
+                        {formatSpread(game.home_team, game.away_team, l.homeSpread)}
+                        {l.homeSpreadPrice !== null && <span className="text-muted"> ({formatPrice(l.homeSpreadPrice)})</span>}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-muted">
+                        {cfbdOpen?.spread_open != null ? formatCfbdSpread(game.home_team, game.away_team, cfbdOpen.spread_open) : "—"}
+                      </td>
+                      <td className={`px-4 py-3 font-mono ${l.total === bestOver || l.total === bestUnder ? "text-up" : "text-foreground"}`}>
+                        {l.total !== null ? l.total.toFixed(1) : "—"}
+                        {l.overPrice !== null && (
+                          <span className="text-muted">
+                            {" "}
+                            (o{formatPrice(l.overPrice)}/u{formatPrice(l.underPrice)})
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-muted">{cfbdOpen?.over_under_open != null ? cfbdOpen.over_under_open.toFixed(1) : "—"}</td>
+                      <td className="px-4 py-3 font-mono text-muted">
+                        {formatMoneyline(l.homeMoneyline)} / {formatMoneyline(l.awayMoneyline)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
-        <p className="mt-2 text-xs text-muted">Green highlights the best number across books for that side.</p>
+        <p className="mt-2 text-xs text-muted">
+          Green highlights the best number across books for that side. Prices in parentheses are the juice (e.g. -110) where available —
+          The Odds API carries real per-book pricing; books sourced only from CFBD show points only.
+        </p>
 
         <h2 className="mt-8 mb-3 text-sm font-medium uppercase tracking-wide text-muted">Line movement</h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

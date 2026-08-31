@@ -87,6 +87,44 @@ create table if not exists line_snapshots (
 );
 create index if not exists line_snapshots_game_provider_time_idx on line_snapshots(game_id, provider, captured_at);
 
+-- Current odds from The Odds API (the-odds-api.com) — a second, separate
+-- provider from CFBD, used specifically because it carries real per-side
+-- juice/price (e.g. -110, -105) and a wider book set (FanDuel, BetMGM,
+-- BetRivers, ...) that CFBD's feed doesn't have. There's no shared game id
+-- between the two providers — game_id here is OUR id, resolved by matching
+-- team names + kickoff time (see python/cfbd_ingest/team_match.py). CFBD
+-- remains the source of truth for games/historical data/points; this table
+-- only supplements current-week pricing, "current state" only (like
+-- betting_lines, not append-only like line_snapshots — the free tier's
+-- credit budget doesn't support polling it often enough to make a
+-- snapshot history worthwhile yet).
+create table if not exists odds_api_lines (
+  game_id bigint not null references games(id) on delete cascade,
+  bookmaker text not null,               -- odds-api key, e.g. 'draftkings', 'fanduel'
+  bookmaker_title text not null,         -- display name, e.g. 'DraftKings'
+
+  home_spread numeric,
+  home_spread_price integer,             -- juice, e.g. -110
+  away_spread numeric,
+  away_spread_price integer,
+
+  total numeric,
+  over_price integer,
+  under_price integer,
+
+  home_moneyline integer,
+  away_moneyline integer,
+
+  book_last_update timestamptz,          -- the book's own last-updated time, from the API
+  fetched_at timestamptz not null default now(),
+
+  primary key (game_id, bookmaker)
+);
+create index if not exists odds_api_lines_game_id_idx on odds_api_lines(game_id);
+
+alter table odds_api_lines enable row level security;
+create policy "public read" on odds_api_lines for select using (true);
+
 -- Season-level team stats (rushing/passing/defense/etc, PPA, success rate,
 -- explosiveness, havoc...). One row per (season, team), full payload as JSONB.
 create table if not exists team_season_stats (
