@@ -55,27 +55,47 @@ function StackedCell({ top, bottom, highlightTop, highlightBottom, sub }: { top:
 
 export default function OddsScreenTable({ rows }: { rows: Row[] }) {
   const [tab, setTab] = useState<Tab>("spread");
+  const [query, setQuery] = useState("");
 
   const bookKeys = Array.from(new Map(rows.flatMap((r) => r.books).map((b) => [b.bookKey, b.bookName])).entries());
 
+  const q = query.trim().toLowerCase();
+  const filteredRows = q === "" ? rows : rows.filter((r) => r.game.home_team.toLowerCase().includes(q) || r.game.away_team.toLowerCase().includes(q));
+
   return (
     <div>
-      <div className="mb-4 flex gap-1 rounded-lg border border-border bg-surface p-1 w-fit">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`rounded px-4 py-1.5 text-xs font-medium transition-colors ${
-              tab === t.key ? "bg-accent text-background" : "text-muted hover:text-foreground"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="flex gap-1 rounded-lg border border-border bg-surface p-1 w-fit">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`rounded px-4 py-1.5 text-xs font-medium transition-colors ${
+                tab === t.key ? "bg-accent text-background" : "text-muted hover:text-foreground"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Filter by team…"
+          className="w-56 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
+        />
+        {q !== "" && (
+          <span className="text-xs text-muted">
+            {filteredRows.length} match{filteredRows.length === 1 ? "" : "es"}
+          </span>
+        )}
       </div>
 
       {rows.length === 0 || bookKeys.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">No lines available yet this week.</div>
+      ) : filteredRows.length === 0 ? (
+        <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">No matchups match &quot;{query}&quot;.</div>
       ) : (
         <div className="max-h-[75vh] overflow-auto rounded-lg border border-border">
           <table className="w-full border-collapse text-sm">
@@ -91,7 +111,7 @@ export default function OddsScreenTable({ rows }: { rows: Row[] }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ game, books, homeLogo, awayLogo }) => {
+              {filteredRows.map(({ game, books, homeLogo, awayLogo }) => {
                 const byBook = new Map(books.map((b) => [b.bookKey, b]));
 
                 let bestTop: { point: number | null; price: number | null; bookName: string } | null;
