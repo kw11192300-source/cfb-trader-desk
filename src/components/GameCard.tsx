@@ -2,7 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import LocalDateTime from "./LocalDateTime";
 import { pickHeadlineLine as pickCfbdHeadline, spreadMovement, totalMovement } from "@/lib/lines";
-import { bestOverTotal, bestUnderTotal, formatPrice, formatSpread, mergeLines, pickHeadlineLine } from "@/lib/mergedLines";
+import { formatPrice, formatSpread, mergeLines, pickHeadlineLine } from "@/lib/mergedLines";
 import type { BoardRow } from "@/lib/types";
 
 function TeamLogo({ src, alt, size = 28 }: { src: string | null; alt: string; size?: number }) {
@@ -33,9 +33,6 @@ export default function GameCard({ row }: { row: BoardRow }) {
   const cfbdHeadline = pickCfbdHeadline(lines);
   const sMove = cfbdHeadline ? spreadMovement(cfbdHeadline) : null;
   const tMove = cfbdHeadline ? totalMovement(cfbdHeadline) : null;
-
-  const bestOver = bestOverTotal(books);
-  const bestUnder = bestUnderTotal(books);
 
   return (
     <Link
@@ -90,12 +87,6 @@ export default function GameCard({ row }: { row: BoardRow }) {
               {l.homeSpreadPrice !== null ? ` (${formatPrice(l.homeSpreadPrice)})` : ""}
             </span>
           ))}
-        </div>
-      )}
-
-      {(bestOver !== null || bestUnder !== null) && books.length > 1 && (
-        <div className="text-[10px] text-muted">
-          Best: O {bestOver?.toFixed(1) ?? "—"} / U {bestUnder?.toFixed(1) ?? "—"}
         </div>
       )}
     </Link>
