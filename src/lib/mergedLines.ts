@@ -20,6 +20,10 @@ export type DisplayLine = {
   homeMoneyline: number | null;
   awayMoneyline: number | null;
   hasPrice: boolean;
+  /** When this book's line was last fetched — odds_api_lines.fetched_at when
+   * sourced from The Odds API, betting_lines.fetched_at otherwise. Powers
+   * the "data as of" freshness indicator. */
+  fetchedAt: string | null;
 };
 
 const DISPLAY_ORDER = ["draftkings", "fanduel", "betmgm", "espn bet", "caesars", "betrivers", "bovada"];
@@ -65,6 +69,7 @@ export function mergeLines(cfbdLines: BettingLine[], oddsApiLines: OddsApiLine[]
       homeMoneyline: l.home_moneyline,
       awayMoneyline: l.away_moneyline,
       hasPrice: true,
+      fetchedAt: l.fetched_at,
     });
   }
 
@@ -85,6 +90,7 @@ export function mergeLines(cfbdLines: BettingLine[], oddsApiLines: OddsApiLine[]
         total: existing.total ?? l.over_under,
         homeMoneyline: existing.homeMoneyline ?? l.home_moneyline,
         awayMoneyline: existing.awayMoneyline ?? l.away_moneyline,
+        fetchedAt: existing.fetchedAt ?? l.fetched_at,
       });
       continue;
     }
@@ -101,6 +107,7 @@ export function mergeLines(cfbdLines: BettingLine[], oddsApiLines: OddsApiLine[]
       homeMoneyline: l.home_moneyline,
       awayMoneyline: l.away_moneyline,
       hasPrice: false,
+      fetchedAt: l.fetched_at,
     });
   }
 
@@ -222,4 +229,64 @@ export function formatTotalCell(prefix: "o" | "u", point: number | null, price: 
   const base = `${prefix}${point.toFixed(1)}`;
   const priceStr = formatPrice(price);
   return priceStr ? `${base} ${priceStr}` : base;
+}
+
+// --- Freshness ---
+
+/** Most recent fetchedAt across every book on a game — "how stale is what
+ * we're showing right now." Null if nothing has a timestamp. */
+export function mostRecentFetch(lines: DisplayLine[]): string | null {
+  const times = lines.map((l) => l.fetchedAt).filter((t): t is string => t !== null);
+  if (times.length === 0) return null;
+  return times.reduce((latest, t) => (new Date(t) > new Date(latest) ? t : latest));
+}
+
+// --- Book disagreement ("line shopping is worth it here") ---
+
+/** Points between the widest and narrowest home spread on the board — a
+ * large gap usually means either stale data at one book or real
+ * disagreement worth a second look. Spread is symmetric (home = -away), so
+ * one number covers both sides. */
+export function spreadDisagreement(lines: DisplayLine[]): number | null {
+  const values = lines.map((l) => l.homeSpread).filter((v): v is number => v !== null);
+  if (values.length < 2) return null;
+  return Math.max(...values) - Math.min(...values);
+}
+
+/** Same idea for the total number itself (not the juice). */
+export function totalDisagreement(lines: DisplayLine[]): number | null {
+  const values = lines.map((l) => l.total).filter((v): v is number => v !== null);
+  if (values.length < 2) return null;
+  return Math.max(...values) - Math.min(...values);
+}
+
+export const SPREAD_WIDE_THRESHOLD = 1.5;
+export const TOTAL_WIDE_THRESHOLD = 1.5;
+
+// --- No-vig hold / arbitrage (moneyline) ---
+
+/** American odds -> implied win probability, e.g. -110 -> 0.524, +150 -> 0.4. */
+export function impliedProbability(americanOdds: number): number {
+  return americanOdds < 0 ? -americanOdds / (-americanOdds + 100) : 100 / (americanOdds + 100);
+}
+
+/**
+ * The book's built-in edge (vig/juice) when betting a two-way market at a
+ * SINGLE book: sum of both sides' implied probabilities, minus 100% (a
+ * normal book runs ~4-5% hold). Using the BEST price across different
+ * books for each side instead can push this below 0% — that's a true
+ * arbitrage: bet both sides at their respective best-price books for a
+ * guaranteed profit regardless of outcome, vanishingly rare but worth
+ * flagging when it happens.
+ */
+export function noVigHold(homePrice: number, awayPrice: number): number {
+  return impliedProbability(homePrice) + impliedProbability(awayPrice) - 1;
+}
+
+export function moneylineHold(lines: DisplayLine[]): { holdPct: number; isArbitrage: boolean } | null {
+  const home = bestMoneylineSide(lines, "home");
+  const away = bestMoneylineSide(lines, "away");
+  if (!home?.price || !away?.price) return null;
+  const hold = noVigHold(home.price, away.price);
+  return { holdPct: hold * 100, isArbitrage: hold < 0 };
 }
