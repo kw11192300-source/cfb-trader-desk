@@ -71,7 +71,23 @@ export function mergeLines(cfbdLines: BettingLine[], oddsApiLines: OddsApiLine[]
   for (const l of cfbdLines) {
     if (isModelProjection(l.provider)) continue;
     const key = bookKeyOf(l.provider === "Draft Kings" ? "DraftKings" : l.provider);
-    if (byKey.has(key)) continue; // Odds API version already has real pricing — keep it
+    const existing = byKey.get(key);
+    if (existing) {
+      // Same book in both sources — Odds API's markets win where it has
+      // them, but fill in anything it's missing from CFBD (e.g. a book with
+      // spreads/totals from Odds API but no h2h market posted there, even
+      // though CFBD does carry that book's moneyline) rather than silently
+      // dropping real data just because the row came from Odds API first.
+      byKey.set(key, {
+        ...existing,
+        homeSpread: existing.homeSpread ?? l.spread,
+        awaySpread: existing.awaySpread ?? (l.spread !== null ? -l.spread : null),
+        total: existing.total ?? l.over_under,
+        homeMoneyline: existing.homeMoneyline ?? l.home_moneyline,
+        awayMoneyline: existing.awayMoneyline ?? l.away_moneyline,
+      });
+      continue;
+    }
     byKey.set(key, {
       bookKey: key,
       bookName: titleFor(key, l.provider),
@@ -128,14 +144,82 @@ export function bestHomeSpread(lines: DisplayLine[]): number | null {
   return Math.max(...withSpread.map((l) => l.homeSpread!));
 }
 
+/** Lower is better for an over bettor — easier to clear a smaller number. */
 export function bestOverTotal(lines: DisplayLine[]): number | null {
+  const withTotal = lines.filter((l) => l.total !== null);
+  if (withTotal.length === 0) return null;
+  return Math.min(...withTotal.map((l) => l.total!));
+}
+
+/** Higher is better for an under bettor — easier to stay below a bigger number. */
+export function bestUnderTotal(lines: DisplayLine[]): number | null {
   const withTotal = lines.filter((l) => l.total !== null);
   if (withTotal.length === 0) return null;
   return Math.max(...withTotal.map((l) => l.total!));
 }
 
-export function bestUnderTotal(lines: DisplayLine[]): number | null {
-  const withTotal = lines.filter((l) => l.total !== null);
-  if (withTotal.length === 0) return null;
-  return Math.min(...withTotal.map((l) => l.total!));
+// --- "Best price" picks: best number for a given side, tie-broken by juice ---
+// (e.g. if three books all have home -7, the one with the least-negative/most-
+// positive price wins the tie — same point, better payout).
+
+export type BestPick = { bookName: string; point: number | null; price: number | null };
+
+/** Missing price sorts as worse than any real price, so a book WITH pricing
+ * wins a point-tie over one that only has CFBD's points-only data. */
+function priceRank(price: number | null): number {
+  return price === null ? -Infinity : price;
+}
+
+export function bestSpreadSide(lines: DisplayLine[], side: "home" | "away"): BestPick | null {
+  const candidates = lines
+    .map((l) => ({
+      bookName: l.bookName,
+      point: side === "home" ? l.homeSpread : l.awaySpread,
+      price: side === "home" ? l.homeSpreadPrice : l.awaySpreadPrice,
+    }))
+    .filter((c): c is BestPick & { point: number } => c.point !== null);
+  if (candidates.length === 0) return null;
+  return candidates.reduce((best, c) => {
+    if (c.point > best.point!) return c;
+    if (c.point < best.point!) return best;
+    return priceRank(c.price) > priceRank(best.price) ? c : best;
+  });
+}
+
+export function bestTotalSide(lines: DisplayLine[], side: "over" | "under"): BestPick | null {
+  const candidates = lines
+    .map((l) => ({ bookName: l.bookName, point: l.total, price: side === "over" ? l.overPrice : l.underPrice }))
+    .filter((c): c is BestPick & { point: number } => c.point !== null);
+  if (candidates.length === 0) return null;
+  return candidates.reduce((best, c) => {
+    const better = side === "over" ? c.point < best.point! : c.point > best.point!;
+    const worse = side === "over" ? c.point > best.point! : c.point < best.point!;
+    if (better) return c;
+    if (worse) return best;
+    return priceRank(c.price) > priceRank(best.price) ? c : best;
+  });
+}
+
+export function bestMoneylineSide(lines: DisplayLine[], side: "home" | "away"): BestPick | null {
+  const candidates = lines
+    .map((l) => ({ bookName: l.bookName, point: null as number | null, price: side === "home" ? l.homeMoneyline : l.awayMoneyline }))
+    .filter((c): c is BestPick & { price: number } => c.price !== null);
+  if (candidates.length === 0) return null;
+  return candidates.reduce((best, c) => (c.price > best.price! ? c : best));
+}
+
+/** "+7.5 (+100)" / "-7.5 (-110)" / "—" — bare signed number, no team name. */
+export function formatSpreadCell(point: number | null, price: number | null): string {
+  if (point === null) return "—";
+  const p = point > 0 ? `+${point}` : `${point}`;
+  const priceStr = formatPrice(price);
+  return priceStr ? `${p} (${priceStr})` : p;
+}
+
+/** "o42.5 -110" / "u42.5 -110" / "—" */
+export function formatTotalCell(prefix: "o" | "u", point: number | null, price: number | null): string {
+  if (point === null) return "—";
+  const base = `${prefix}${point.toFixed(1)}`;
+  const priceStr = formatPrice(price);
+  return priceStr ? `${base} ${priceStr}` : base;
 }

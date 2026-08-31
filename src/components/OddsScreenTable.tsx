@@ -1,0 +1,161 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import {
+  bestMoneylineSide,
+  bestSpreadSide,
+  bestTotalSide,
+  formatMoneyline,
+  formatSpreadCell,
+  formatTotalCell,
+  type DisplayLine,
+} from "@/lib/mergedLines";
+import type { Game } from "@/lib/types";
+
+type Row = { game: Game; books: DisplayLine[] };
+
+type Tab = "spread" | "total" | "ml";
+
+const TABS: { key: Tab; label: string }[] = [
+  { key: "spread", label: "Spread" },
+  { key: "total", label: "Total" },
+  { key: "ml", label: "Moneyline" },
+];
+
+/** Two lines in one cell — top/bottom always paired with the Matchup
+ * column's away-top/home-bottom (or over-top/under-bottom for totals). */
+function StackedCell({ top, bottom, highlightTop, highlightBottom, sub }: { top: string; bottom: string; highlightTop?: boolean; highlightBottom?: boolean; sub?: [string | null, string | null] }) {
+  return (
+    <div className="flex flex-col gap-1 py-1">
+      <div className={highlightTop ? "text-up" : "text-foreground"}>
+        {top}
+        {sub?.[0] && <div className="text-[10px] text-muted">{sub[0]}</div>}
+      </div>
+      <div className={highlightBottom ? "text-up" : "text-foreground"}>
+        {bottom}
+        {sub?.[1] && <div className="text-[10px] text-muted">{sub[1]}</div>}
+      </div>
+    </div>
+  );
+}
+
+export default function OddsScreenTable({ rows }: { rows: Row[] }) {
+  const [tab, setTab] = useState<Tab>("spread");
+
+  const bookKeys = Array.from(new Map(rows.flatMap((r) => r.books).map((b) => [b.bookKey, b.bookName])).entries());
+
+  return (
+    <div>
+      <div className="mb-4 flex gap-1 rounded-lg border border-border bg-surface p-1 w-fit">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`rounded px-4 py-1.5 text-xs font-medium transition-colors ${
+              tab === t.key ? "bg-accent text-background" : "text-muted hover:text-foreground"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {rows.length === 0 || bookKeys.length === 0 ? (
+        <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">No lines available yet this week.</div>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-border bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
+                <th className="sticky left-0 z-10 bg-surface-raised px-4 py-3 font-medium">Matchup</th>
+                <th className="border-l border-border px-4 py-3 font-medium">Best Price</th>
+                {bookKeys.map(([key, name]) => (
+                  <th key={key} className="border-l border-border px-4 py-3 font-medium">
+                    {name}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ game, books }) => {
+                const byBook = new Map(books.map((b) => [b.bookKey, b]));
+
+                let bestTop: { point: number | null; price: number | null; bookName: string } | null;
+                let bestBottom: { point: number | null; price: number | null; bookName: string } | null;
+                let renderCell: (b: DisplayLine | undefined) => { top: string; bottom: string };
+                let renderBest: () => { top: string; bottom: string; topBook: string | null; bottomBook: string | null };
+
+                if (tab === "spread") {
+                  bestTop = bestSpreadSide(books, "away");
+                  bestBottom = bestSpreadSide(books, "home");
+                  renderCell = (b) => ({
+                    top: b ? formatSpreadCell(b.awaySpread, b.awaySpreadPrice) : "—",
+                    bottom: b ? formatSpreadCell(b.homeSpread, b.homeSpreadPrice) : "—",
+                  });
+                  renderBest = () => ({
+                    top: bestTop ? formatSpreadCell(bestTop.point, bestTop.price) : "—",
+                    bottom: bestBottom ? formatSpreadCell(bestBottom.point, bestBottom.price) : "—",
+                    topBook: bestTop?.bookName ?? null,
+                    bottomBook: bestBottom?.bookName ?? null,
+                  });
+                } else if (tab === "total") {
+                  bestTop = bestTotalSide(books, "over");
+                  bestBottom = bestTotalSide(books, "under");
+                  renderCell = (b) => ({
+                    top: b ? formatTotalCell("o", b.total, b.overPrice) : "—",
+                    bottom: b ? formatTotalCell("u", b.total, b.underPrice) : "—",
+                  });
+                  renderBest = () => ({
+                    top: bestTop ? formatTotalCell("o", bestTop.point, bestTop.price) : "—",
+                    bottom: bestBottom ? formatTotalCell("u", bestBottom.point, bestBottom.price) : "—",
+                    topBook: bestTop?.bookName ?? null,
+                    bottomBook: bestBottom?.bookName ?? null,
+                  });
+                } else {
+                  bestTop = bestMoneylineSide(books, "away");
+                  bestBottom = bestMoneylineSide(books, "home");
+                  renderCell = (b) => ({
+                    top: b ? formatMoneyline(b.awayMoneyline) : "—",
+                    bottom: b ? formatMoneyline(b.homeMoneyline) : "—",
+                  });
+                  renderBest = () => ({
+                    top: bestTop ? formatMoneyline(bestTop.price) : "—",
+                    bottom: bestBottom ? formatMoneyline(bestBottom.price) : "—",
+                    topBook: bestTop?.bookName ?? null,
+                    bottomBook: bestBottom?.bookName ?? null,
+                  });
+                }
+
+                const best = renderBest();
+
+                return (
+                  <tr key={game.id} className="border-b border-border last:border-0 odd:bg-surface/50 hover:bg-surface-raised">
+                    <td className="sticky left-0 z-10 bg-background px-4 py-3 whitespace-nowrap">
+                      <Link href={`/games/${game.id}`} className="flex flex-col gap-1 text-foreground hover:text-accent">
+                        <span>{game.away_team}</span>
+                        <span>{game.home_team}</span>
+                      </Link>
+                    </td>
+                    <td className="border-l border-border px-4 py-3 font-mono whitespace-nowrap">
+                      <StackedCell top={best.top} bottom={best.bottom} highlightTop={best.top !== "—"} highlightBottom={best.bottom !== "—"} sub={[best.topBook, best.bottomBook]} />
+                    </td>
+                    {bookKeys.map(([key]) => {
+                      const b = byBook.get(key);
+                      const cell = renderCell(b);
+                      return (
+                        <td key={key} className="border-l border-border px-4 py-3 font-mono whitespace-nowrap text-foreground">
+                          <StackedCell top={cell.top} bottom={cell.bottom} />
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
