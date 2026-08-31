@@ -1,0 +1,30 @@
+name: Sync results & stats
+
+# Runs a few times a day: refreshes scores/completion, team stats, and
+# ratings for the current season (~11 CFBD calls per run). Deliberately
+# separate from poll-lines.yml, which runs far more often and only touches
+# betting lines.
+on:
+  schedule:
+    - cron: "0 6,14,22 * * *" # 06:00, 14:00, 22:00 UTC
+  workflow_dispatch: {} # manual "Run workflow" button in the Actions tab
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r python/requirements.txt
+      - name: Run sync
+        working-directory: python
+        env:
+          CFBD_API_KEY: ${{ secrets.CFBD_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        # config.py's load_dotenv() no-ops when .env.local doesn't exist (CI has
+        # no such file) without raising, and never overrides already-set env
+        # vars — so the `env:` values above just pass straight through.
+        run: python -m cfbd_ingest.sync_results

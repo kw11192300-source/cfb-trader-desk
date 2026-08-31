@@ -1,0 +1,30 @@
+name: Poll betting lines
+
+# Runs frequently: one CFBD call per run, current week's lines only. Default
+# cadence below (every 15 min) is a conservative starting point that fits
+# comfortably in the free CFBD tier (~2,900 calls/month at this rate) —
+# tighten the cron expression once you've upgraded your CFBD tier (see
+# python/README.md for the call-budget math per cadence). GitHub Actions
+# schedules are not guaranteed to the minute, especially under load, so
+# treat any cadence here as "about every N minutes," not exact.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r python/requirements.txt
+      - name: Poll lines
+        working-directory: python
+        env:
+          CFBD_API_KEY: ${{ secrets.CFBD_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: python -m cfbd_ingest.poll_lines
