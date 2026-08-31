@@ -163,6 +163,57 @@ create table if not exists team_ratings (
   primary key (season, team_id, source, week)
 );
 
+-- Roster-context signals, mainly to correct for a plain "prior season's
+-- rating" prior being unreliable when a team turned over a big chunk of its
+-- roster via the transfer portal (very much a live issue in the NIL/portal
+-- era). Published before the season starts, so all three are safe features
+-- for early-season predictions with no leakage risk.
+
+-- 247Sports-style recruiting+transfer talent composite, one number/team/season.
+create table if not exists team_talent (
+  season integer not null,
+  team_id integer not null references teams(id),
+  team text not null,
+  talent numeric not null,
+  primary key (season, team_id)
+);
+
+-- % of last season's production (measured in PPA) still on the roster —
+-- team_returning_production.stats mirrors team_season_stats.stats: the full
+-- payload (percentPPA, percentPassingPPA/ReceivingPPA/RushingPPA, usage
+-- splits) as JSONB rather than one column per field.
+create table if not exists team_returning_production (
+  season integer not null,
+  team_id integer not null references teams(id),
+  team text not null,
+  stats jsonb not null,
+  primary key (season, team_id)
+);
+
+-- Raw transfer portal entries. origin/destination team ids are resolved by
+-- name match against `teams` where possible (nullable — not every transfer
+-- has a resolved destination at the time CFBD records it, e.g. still
+-- undecided). Aggregation (net incoming/outgoing blue-chip talent per team)
+-- happens at feature-build time from these raw rows, not stored separately.
+create table if not exists player_transfers (
+  id bigserial primary key,
+  season integer not null,
+  first_name text,
+  last_name text,
+  position text,
+  origin_team_id integer references teams(id),
+  origin_team text,
+  destination_team_id integer references teams(id),
+  destination_team text,
+  transfer_date timestamptz,
+  rating numeric,
+  stars integer,
+  eligibility text,
+  unique (season, first_name, last_name, origin_team, transfer_date)
+);
+create index if not exists player_transfers_destination_idx on player_transfers(season, destination_team_id);
+create index if not exists player_transfers_origin_idx on player_transfers(season, origin_team_id);
+
 -- Model output. One row per (game, model_version) so backtests of an older
 -- model version stay intact even as newer versions are added.
 create table if not exists predictions (
@@ -206,6 +257,9 @@ alter table team_season_stats enable row level security;
 alter table team_game_stats enable row level security;
 alter table team_ratings enable row level security;
 alter table predictions enable row level security;
+alter table team_talent enable row level security;
+alter table team_returning_production enable row level security;
+alter table player_transfers enable row level security;
 
 create policy "public read" on teams for select using (true);
 create policy "public read" on games for select using (true);
@@ -215,3 +269,6 @@ create policy "public read" on team_season_stats for select using (true);
 create policy "public read" on team_game_stats for select using (true);
 create policy "public read" on team_ratings for select using (true);
 create policy "public read" on predictions for select using (true);
+create policy "public read" on team_talent for select using (true);
+create policy "public read" on team_returning_production for select using (true);
+create policy "public read" on player_transfers for select using (true);
