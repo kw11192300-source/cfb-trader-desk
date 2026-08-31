@@ -48,3 +48,14 @@ export type BoardRow = {
   homeLogo: string | null;
   awayLogo: string | null;
 };
+
+/** One poll_lines.py capture — append-only, never overwritten. See line_snapshots in schema.sql. */
+export type LineSnapshot = {
+  game_id: number;
+  provider: string;
+  spread: number | null;
+  over_under: number | null;
+  home_moneyline: number | null;
+  away_moneyline: number | null;
+  captured_at: string;
+};

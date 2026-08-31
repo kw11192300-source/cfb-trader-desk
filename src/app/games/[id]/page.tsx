@@ -1,10 +1,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import LineMovementChart from "@/components/LineMovementChart";
 import LocalDateTime from "@/components/LocalDateTime";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
-import { getGame } from "@/lib/data";
+import { getGame, getLineHistory } from "@/lib/data";
 import { formatMoneyline, formatSpread, normalizeProviderName, sortLines } from "@/lib/lines";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
   const gameId = Number(id);
   if (!Number.isFinite(gameId)) notFound();
 
-  const detail = await getGame(gameId);
+  const [detail, history] = await Promise.all([getGame(gameId), getLineHistory(gameId)]);
   if (!detail) notFound();
 
   const { game, lines, homeTeam, awayTeam } = detail;
@@ -123,6 +124,18 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
           </div>
         )}
         <p className="mt-2 text-xs text-muted">Green highlights the best number across books for that side.</p>
+
+        <h2 className="mt-8 mb-3 text-sm font-medium uppercase tracking-wide text-muted">Line movement</h2>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="rounded-lg border border-border bg-surface p-4">
+            <div className="mb-2 text-xs text-muted">Spread</div>
+            <LineMovementChart snapshots={history} field="spread" label="Spread" />
+          </div>
+          <div className="rounded-lg border border-border bg-surface p-4">
+            <div className="mb-2 text-xs text-muted">Total</div>
+            <LineMovementChart snapshots={history} field="over_under" label="Total" />
+          </div>
+        </div>
       </main>
 
       <SiteFooter />

@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { BettingLine, BoardRow, Game, Team } from "./types";
+import type { BettingLine, BoardRow, Game, LineSnapshot, Team } from "./types";
 
 /**
  * Same idea as the Python side's current_week.py: the earliest
@@ -109,4 +109,15 @@ export async function getGame(id: number): Promise<GameDetail | null> {
     homeTeam: game.home_id !== null ? (teamById.get(game.home_id) ?? null) : null,
     awayTeam: game.away_id !== null ? (teamById.get(game.away_id) ?? null) : null,
   };
+}
+
+/** Full poll history for a game, oldest first — what poll_lines.py has captured since it started running. */
+export async function getLineHistory(gameId: number): Promise<LineSnapshot[]> {
+  const { data, error } = await supabase
+    .from("line_snapshots")
+    .select("*")
+    .eq("game_id", gameId)
+    .order("captured_at", { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as LineSnapshot[];
 }
