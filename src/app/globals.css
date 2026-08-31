@@ -1,26 +1,39 @@
 @import "tailwindcss";
 
+/* Always-dark trader-terminal palette — deliberately not adaptive to system
+   light/dark preference, the way the rest of the site would be. A market
+   board reads like a market board: dark background, high-contrast
+   monospace numbers, sparing use of a couple of signal colors. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0a0e14;
+  --surface: #10151d;
+  --surface-raised: #161c26;
+  --border: #232b38;
+  --foreground: #e6e9ef;
+  --muted: #7d8798;
+  --accent: #3ba7ff;
+  --up: #22c55e;
+  --down: #ef4444;
+  --flat: #7d8798;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-border: var(--border);
   --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-up: var(--up);
+  --color-down: var(--down);
+  --color-flat: var(--flat);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }

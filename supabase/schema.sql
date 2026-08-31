@@ -149,3 +149,31 @@ create table if not exists predictions (
 );
 
 create index if not exists predictions_game_id_idx on predictions(game_id);
+
+-- Row Level Security: the Next.js app reads Supabase with the PUBLISHABLE
+-- key (safe to expose to the browser, unlike SUPABASE_SECRET_KEY which only
+-- the Python ingestion scripts and GitHub Actions ever see). With RLS off
+-- (the default), that publishable key could read AND write every table
+-- through the REST API directly — anyone with devtools open could see it
+-- and hit the API themselves. Since every table here is public sports data
+-- (no user accounts, nothing private), the fix is simple: turn RLS on and
+-- allow SELECT to everyone, INSERT/UPDATE/DELETE to no one. The secret key
+-- (service role) bypasses RLS entirely, so the Python ingestion scripts are
+-- unaffected — they keep writing exactly as before.
+alter table teams enable row level security;
+alter table games enable row level security;
+alter table betting_lines enable row level security;
+alter table line_snapshots enable row level security;
+alter table team_season_stats enable row level security;
+alter table team_game_stats enable row level security;
+alter table team_ratings enable row level security;
+alter table predictions enable row level security;
+
+create policy "public read" on teams for select using (true);
+create policy "public read" on games for select using (true);
+create policy "public read" on betting_lines for select using (true);
+create policy "public read" on line_snapshots for select using (true);
+create policy "public read" on team_season_stats for select using (true);
+create policy "public read" on team_game_stats for select using (true);
+create policy "public read" on team_ratings for select using (true);
+create policy "public read" on predictions for select using (true);
