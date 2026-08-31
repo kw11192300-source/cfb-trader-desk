@@ -214,7 +214,7 @@ export default function OddsScreenTable({ rows }: { rows: Row[] }) {
                   if (hold) {
                     flag = hold.isArbitrage
                       ? { label: "ARB", title: `Betting both sides at their best-price books nets a guaranteed profit (${Math.abs(hold.holdPct).toFixed(1)}% edge).`, tone: "arb" }
-                      : { label: `${hold.holdPct.toFixed(1)}% hold`, title: "Combined book edge using the best price on each side (normal is ~4-5%).", tone: "warn" };
+                      : { label: `${hold.holdPct.toFixed(1)}%`, title: "Combined book edge (hold) using the best price on each side (normal is ~4-5%).", tone: "warn" };
                   }
                 }
 
