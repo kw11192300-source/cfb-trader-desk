@@ -93,8 +93,10 @@ def _load_market_lines(game_ids: list[int]) -> pd.DataFrame:
     return _pick_market_line(raw)
 
 
-def _load_team_game_stats(seasons: list[int]) -> pd.DataFrame:
-    raw = _fetch_seasons("team_game_stats", "game_id,team_id,team,stats", seasons)
+def _load_team_game_stats(game_ids: list[int]) -> pd.DataFrame:
+    # team_game_stats has no season column of its own (keyed by game_id) -
+    # filter by the game ids we already loaded instead of season=.
+    raw = _fetch_by_game_ids("team_game_stats", "game_id,team_id,team,stats", game_ids)
     if raw.empty:
         return raw
     rows = []
@@ -136,12 +138,14 @@ def _asof_elo(elo_df: pd.DataFrame, games: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=["game_id", "team_id", "elo"])
     elo_df = elo_df.copy()
     elo_df["elo"] = elo_df["rating"].apply(lambda r: r.get("elo") if isinstance(r, dict) else None)
-    elo_df = elo_df.dropna(subset=["elo"]).sort_values(["season", "team_id", "week"])
+    # merge_asof with `by=` still requires the `on` column sorted across the
+    # WHOLE frame (not just within each by-group) - sort by week alone.
+    elo_df = elo_df.dropna(subset=["elo"]).sort_values("week")
 
     out = []
     for role, id_col in [("home", "home_id"), ("away", "away_id")]:
         g = games[["id", "season", "week", id_col]].rename(columns={id_col: "team_id", "id": "game_id"})
-        g = g.sort_values(["season", "team_id", "week"])
+        g = g.sort_values("week")
         merged = pd.merge_asof(
             g,
             elo_df.rename(columns={"week": "elo_week"}),
@@ -177,7 +181,7 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
     lines = all_lines.set_index("game_id")
 
     print("Loading team game stats...")
-    game_stats = _load_team_game_stats(history_seasons)
+    game_stats = _load_team_game_stats(all_games["id"].tolist())
     cum_stats = _cumulative_pregame_stats(all_games, game_stats) if not game_stats.empty else pd.DataFrame()
 
     print("Loading Elo...")
