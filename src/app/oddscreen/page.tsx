@@ -8,7 +8,12 @@ export const dynamic = "force-dynamic";
 
 export default async function OddsScreenPage() {
   const board = await getCurrentWeekBoard();
-  const rows = (board?.rows ?? []).map((r) => ({ game: r.game, books: mergeLines(r.lines, r.oddsApiLines) }));
+  const rows = (board?.rows ?? []).map((r) => ({
+    game: r.game,
+    books: mergeLines(r.lines, r.oddsApiLines),
+    homeLogo: r.homeLogo,
+    awayLogo: r.awayLogo,
+  }));
 
   return (
     <div className="flex min-h-screen flex-col">

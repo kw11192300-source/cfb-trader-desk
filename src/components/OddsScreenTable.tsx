@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
+import LocalDateTime from "./LocalDateTime";
 import {
   bestMoneylineSide,
   bestSpreadSide,
@@ -13,7 +15,12 @@ import {
 } from "@/lib/mergedLines";
 import type { Game } from "@/lib/types";
 
-type Row = { game: Game; books: DisplayLine[] };
+type Row = { game: Game; books: DisplayLine[]; homeLogo: string | null; awayLogo: string | null };
+
+function TeamLogo({ src, alt }: { src: string | null; alt: string }) {
+  if (!src) return <div className="h-5 w-5 shrink-0 rounded-full bg-surface-raised" />;
+  return <Image src={src} alt={alt} width={20} height={20} className="h-5 w-5 shrink-0 object-contain" unoptimized />;
+}
 
 type Tab = "spread" | "total" | "ml";
 
@@ -78,7 +85,7 @@ export default function OddsScreenTable({ rows }: { rows: Row[] }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ game, books }) => {
+              {rows.map(({ game, books, homeLogo, awayLogo }) => {
                 const byBook = new Map(books.map((b) => [b.bookKey, b]));
 
                 let bestTop: { point: number | null; price: number | null; bookName: string } | null;
@@ -132,9 +139,18 @@ export default function OddsScreenTable({ rows }: { rows: Row[] }) {
                 return (
                   <tr key={game.id} className="border-b border-border last:border-0 odd:bg-surface/50 hover:bg-surface-raised">
                     <td className="sticky left-0 z-10 bg-background px-4 py-3 whitespace-nowrap">
-                      <Link href={`/games/${game.id}`} className="flex flex-col gap-1 text-foreground hover:text-accent">
-                        <span>{game.away_team}</span>
-                        <span>{game.home_team}</span>
+                      <Link href={`/games/${game.id}`} className="group flex flex-col gap-1">
+                        <div className="text-[10px] text-muted">
+                          <LocalDateTime iso={game.start_date} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
+                        </div>
+                        <div className="flex items-center gap-1.5 text-foreground group-hover:text-accent">
+                          <TeamLogo src={awayLogo} alt={game.away_team} />
+                          <span>{game.away_team}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-foreground group-hover:text-accent">
+                          <TeamLogo src={homeLogo} alt={game.home_team} />
+                          <span>{game.home_team}</span>
+                        </div>
                       </Link>
                     </td>
                     <td className="border-l border-border px-4 py-3 font-mono whitespace-nowrap">
