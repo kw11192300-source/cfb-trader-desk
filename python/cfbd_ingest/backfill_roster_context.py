@@ -19,7 +19,7 @@ import datetime
 
 from . import cfbd_client as cfbd
 from .config import require_env
-from .supabase_client import get_client
+from .supabase_client import fetch_all, get_client
 
 CHUNK_SIZE = 500
 
@@ -92,7 +92,7 @@ def backfill_transfers(client, year: int, name_to_id: dict[str, int]) -> None:
 def run(start_year: int, end_year: int) -> None:
     require_env()
     client = get_client()
-    teams = client.table("teams").select("id,school").execute().data
+    teams = fetch_all("teams", "id,school")
     name_to_id = {t["school"]: t["id"] for t in teams}
 
     for year in range(start_year, end_year + 1):
