@@ -64,14 +64,14 @@ export default function OddsScreenTable({ rows }: { rows: Row[] }) {
       {rows.length === 0 || bookKeys.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">No lines available yet this week.</div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border">
+        <div className="max-h-[75vh] overflow-auto rounded-lg border border-border">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-border bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
-                <th className="sticky left-0 z-10 bg-surface-raised px-4 py-3 font-medium">Matchup</th>
-                <th className="border-l border-border px-4 py-3 font-medium">Best Price</th>
+                <th className="sticky top-0 left-0 z-20 bg-surface-raised px-4 py-3 font-medium">Matchup</th>
+                <th className="sticky top-0 z-10 border-l border-border bg-surface-raised px-4 py-3 font-medium">Best Price</th>
                 {bookKeys.map(([key, name]) => (
-                  <th key={key} className="border-l border-border px-4 py-3 font-medium">
+                  <th key={key} className="sticky top-0 z-10 border-l border-border bg-surface-raised px-4 py-3 font-medium">
                     {name}
                   </th>
                 ))}
