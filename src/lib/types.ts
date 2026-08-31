@@ -41,10 +41,10 @@ export type BettingLine = {
   fetched_at: string;
 };
 
-/** A game joined with its chosen betting line (see pickLine) and both teams' logos. */
+/** A game joined with every book's line for it and both teams' logos. */
 export type BoardRow = {
   game: Game;
-  line: BettingLine | null;
+  lines: BettingLine[];
   homeLogo: string | null;
   awayLogo: string | null;
 };

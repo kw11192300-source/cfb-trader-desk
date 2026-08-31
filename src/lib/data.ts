@@ -1,6 +1,5 @@
 import { supabase } from "./supabase";
 import type { BettingLine, BoardRow, Game, Team } from "./types";
-import { pickLine } from "./lines";
 
 /**
  * Same idea as the Python side's current_week.py: the earliest
@@ -21,6 +20,38 @@ async function getCurrentWeek(): Promise<{ season: number; week: number; seasonT
   if (error) throw new Error(error.message);
   if (!data) return null;
   return { season: data.season, week: data.week, seasonType: data.season_type };
+}
+
+/** Joins a list of games with every book's line for each and both teams' logos. */
+async function buildBoardRows(games: Game[]): Promise<BoardRow[]> {
+  const gameIds = games.map((g) => g.id);
+  const teamIds = Array.from(new Set(games.flatMap((g) => [g.home_id, g.away_id]).filter((id): id is number => id !== null)));
+
+  const [{ data: lines, error: linesError }, { data: teams, error: teamsError }] = await Promise.all([
+    gameIds.length > 0
+      ? supabase.from("betting_lines").select("*").in("game_id", gameIds)
+      : Promise.resolve({ data: [] as BettingLine[], error: null }),
+    teamIds.length > 0
+      ? supabase.from("teams").select("*").in("id", teamIds)
+      : Promise.resolve({ data: [] as Team[], error: null }),
+  ]);
+  if (linesError) throw new Error(linesError.message);
+  if (teamsError) throw new Error(teamsError.message);
+
+  const linesByGame = new Map<number, BettingLine[]>();
+  for (const line of (lines ?? []) as BettingLine[]) {
+    const list = linesByGame.get(line.game_id) ?? [];
+    list.push(line);
+    linesByGame.set(line.game_id, list);
+  }
+  const teamById = new Map((teams as Team[]).map((t) => [t.id, t]));
+
+  return games.map((game) => ({
+    game,
+    lines: linesByGame.get(game.id) ?? [],
+    homeLogo: game.home_id !== null ? (teamById.get(game.home_id)?.logo_url ?? null) : null,
+    awayLogo: game.away_id !== null ? (teamById.get(game.away_id)?.logo_url ?? null) : null,
+  }));
 }
 
 export async function getCurrentWeekBoard(): Promise<{
@@ -47,36 +78,35 @@ export async function getCurrentWeekBoard(): Promise<{
     .order("start_date", { ascending: true });
   if (gamesError) throw new Error(gamesError.message);
 
-  const gameIds = (games as Game[]).map((g) => g.id);
-  const teamIds = Array.from(
-    new Set((games as Game[]).flatMap((g) => [g.home_id, g.away_id]).filter((id): id is number => id !== null))
-  );
+  const rows = await buildBoardRows(games as Game[]);
+  return { season: current.season, week: current.week, seasonType: current.seasonType, rows };
+}
 
+export type GameDetail = {
+  game: Game;
+  lines: BettingLine[];
+  homeTeam: Team | null;
+  awayTeam: Team | null;
+};
+
+export async function getGame(id: number): Promise<GameDetail | null> {
+  const { data: game, error: gameError } = await supabase.from("games").select("*").eq("id", id).maybeSingle();
+  if (gameError) throw new Error(gameError.message);
+  if (!game) return null;
+
+  const teamIds = [game.home_id, game.away_id].filter((tid): tid is number => tid !== null);
   const [{ data: lines, error: linesError }, { data: teams, error: teamsError }] = await Promise.all([
-    gameIds.length > 0
-      ? supabase.from("betting_lines").select("*").in("game_id", gameIds)
-      : Promise.resolve({ data: [] as BettingLine[], error: null }),
-    teamIds.length > 0
-      ? supabase.from("teams").select("*").in("id", teamIds)
-      : Promise.resolve({ data: [] as Team[], error: null }),
+    supabase.from("betting_lines").select("*").eq("game_id", id),
+    teamIds.length > 0 ? supabase.from("teams").select("*").in("id", teamIds) : Promise.resolve({ data: [] as Team[], error: null }),
   ]);
   if (linesError) throw new Error(linesError.message);
   if (teamsError) throw new Error(teamsError.message);
 
-  const linesByGame = new Map<number, BettingLine[]>();
-  for (const line of (lines ?? []) as BettingLine[]) {
-    const list = linesByGame.get(line.game_id) ?? [];
-    list.push(line);
-    linesByGame.set(line.game_id, list);
-  }
   const teamById = new Map((teams as Team[]).map((t) => [t.id, t]));
-
-  const rows: BoardRow[] = (games as Game[]).map((game) => ({
-    game,
-    line: pickLine(linesByGame.get(game.id) ?? []),
-    homeLogo: game.home_id !== null ? (teamById.get(game.home_id)?.logo_url ?? null) : null,
-    awayLogo: game.away_id !== null ? (teamById.get(game.away_id)?.logo_url ?? null) : null,
-  }));
-
-  return { season: current.season, week: current.week, seasonType: current.seasonType, rows };
+  return {
+    game: game as Game,
+    lines: (lines ?? []) as BettingLine[],
+    homeTeam: game.home_id !== null ? (teamById.get(game.home_id) ?? null) : null,
+    awayTeam: game.away_id !== null ? (teamById.get(game.away_id) ?? null) : null,
+  };
 }
