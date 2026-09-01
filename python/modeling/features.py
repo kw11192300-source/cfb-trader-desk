@@ -35,7 +35,10 @@ from cfbd_ingest.supabase_client import fetch_all, get_client
 from .market_rating import compute_expanding_market_ratings
 
 MODEL_PROJECTIONS = {"numberfire", "teamrankings"}
-BOOK_PREFERENCE = ["DraftKings", "consensus"]
+# Bovada matters here specifically because it's the book with by far the best
+# historical spread_open coverage (2021-2024) once DraftKings isn't present
+# in older seasons - see the bug this fixed in _pick_market_line's docstring.
+BOOK_PREFERENCE = ["DraftKings", "Bovada", "consensus"]
 
 
 def _fetch_seasons(table: str, select: str, seasons: list[int]) -> pd.DataFrame:
@@ -69,27 +72,41 @@ def _load_games(seasons: list[int]) -> pd.DataFrame:
 
 
 def _pick_market_line(lines: pd.DataFrame) -> pd.DataFrame:
-    """One row per game_id: prefers DraftKings, then consensus, then
-    whichever provider has a non-null spread_open (needed for the movement
-    target) — mirrors the sibling apps' pickSpread/pickHeadlineLine
-    preference order, adapted for training-data consistency."""
+    """One row per game_id: prefers whichever book actually HAS a
+    spread_open (needed for the movement target), in BOOK_PREFERENCE order
+    among those; only falls back to "any book, open or not" when literally
+    no provider has open data for that game (true for essentially every
+    game before 2021 — a real CFBD historical gap, not a selection issue).
+
+    Earlier version checked `x is not None` instead of `pd.notna(x)` -
+    pandas silently turns SQL NULL into NaN on load, and `NaN is not None`
+    is True, so that check treated "no open data" as "has open data" and
+    kept whatever book BOOK_PREFERENCE hit first even when it was exactly
+    the book missing the open line — caught by comparing this function's
+    season-by-season coverage against a direct groupby on the raw table,
+    which showed 2021 alone should have ~493 games with a real open line
+    (all via Bovada) that were coming out as missing.
+    """
     if lines.empty:
         return lines
     lines = lines[~lines["provider"].str.lower().isin(MODEL_PROJECTIONS)]
 
     def choose(group: pd.DataFrame) -> pd.Series:
-        for book in BOOK_PREFERENCE:
-            match = group[group["provider"] == book]
-            if not match.empty and match.iloc[0]["spread_open"] is not None:
-                return match.iloc[0]
         with_open = group[group["spread_open"].notna()]
-        return (with_open.iloc[0] if not with_open.empty else group.iloc[0])
+        pool = with_open if not with_open.empty else group
+        for book in BOOK_PREFERENCE:
+            match = pool[pool["provider"] == book]
+            if not match.empty:
+                return match.iloc[0]
+        return pool.iloc[0]
 
     return lines.groupby("game_id", group_keys=False).apply(choose, include_groups=False).reset_index()
 
 
 def _load_market_lines(game_ids: list[int]) -> pd.DataFrame:
-    raw = _fetch_by_game_ids("betting_lines", "game_id,provider,spread,spread_open,over_under,over_under_open", game_ids)
+    raw = _fetch_by_game_ids(
+        "betting_lines", "game_id,provider,spread,spread_open,over_under,over_under_open,home_moneyline,away_moneyline", game_ids
+    )
     return _pick_market_line(raw)
 
 
@@ -110,7 +127,8 @@ def _load_team_game_stats(game_ids: list[int]) -> pd.DataFrame:
                 "off_ppa": off.get("ppa"),
                 "off_success_rate": off.get("successRate"),
                 "off_explosiveness": off.get("explosiveness"),
-                "def_ppa": dfn.get("ppa"),
+                "off_plays": off.get("plays"),  # pace proxy - PPA/success rate alone say nothing about how many
+                "def_ppa": dfn.get("ppa"),  # possessions a team gets, which totals depend on heavily
                 "def_success_rate": dfn.get("successRate"),
                 "def_explosiveness": dfn.get("explosiveness"),
             }
@@ -122,13 +140,32 @@ def _cumulative_pregame_stats(games: pd.DataFrame, game_stats: pd.DataFrame) -> 
     """For each (season, team, game), the mean of that team's own
     team_game_stats from STRICTLY EARLIER games in that season (shift(1)
     before the expanding mean — the game itself is never included)."""
-    stat_cols = ["off_ppa", "off_success_rate", "off_explosiveness", "def_ppa", "def_success_rate", "def_explosiveness"]
+    stat_cols = ["off_ppa", "off_success_rate", "off_explosiveness", "off_plays", "def_ppa", "def_success_rate", "def_explosiveness"]
     merged = game_stats.merge(games[["id", "season", "start_date"]], left_on="game_id", right_on="id")
     merged = merged.sort_values(["season", "team_id", "start_date"])
     grouped = merged.groupby(["season", "team_id"], group_keys=False)
     for col in stat_cols:
         merged[f"cum_{col}"] = grouped[col].apply(lambda s: s.shift(1).expanding().mean())
     return merged[["game_id", "team_id"] + [f"cum_{c}" for c in stat_cols]]
+
+
+def _cumulative_scoring(games: pd.DataFrame) -> pd.DataFrame:
+    """Cumulative points-scored/points-allowed per (season, team), same
+    strictly-prior-games-only rule as _cumulative_pregame_stats. Direct
+    scoring averages the total model was missing entirely - PPA/success
+    rate capture efficiency, not how many points actually go on the board,
+    which is what a total bet is literally about."""
+    home = games[["id", "season", "start_date", "home_id", "home_points", "away_points"]].rename(
+        columns={"home_id": "team_id", "home_points": "points_scored", "away_points": "points_allowed"}
+    )
+    away = games[["id", "season", "start_date", "away_id", "away_points", "home_points"]].rename(
+        columns={"away_id": "team_id", "away_points": "points_scored", "home_points": "points_allowed"}
+    )
+    long = pd.concat([home, away], ignore_index=True).sort_values(["season", "team_id", "start_date"])
+    grouped = long.groupby(["season", "team_id"], group_keys=False)
+    long["cum_points_scored"] = grouped["points_scored"].apply(lambda s: s.shift(1).expanding().mean())
+    long["cum_points_allowed"] = grouped["points_allowed"].apply(lambda s: s.shift(1).expanding().mean())
+    return long[["id", "team_id", "cum_points_scored", "cum_points_allowed"]].rename(columns={"id": "game_id"})
 
 
 def _asof_elo(elo_df: pd.DataFrame, games: pd.DataFrame) -> pd.DataFrame:
@@ -183,14 +220,14 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
     print("Loading team game stats...")
     game_stats = _load_team_game_stats(all_games["id"].tolist())
     cum_stats = _cumulative_pregame_stats(all_games, game_stats) if not game_stats.empty else pd.DataFrame()
+    cum_scoring = _cumulative_scoring(all_games)
 
     print("Loading Elo...")
-    elo_raw = _fetch_seasons("team_ratings", "season,week,team_id,rating", history_seasons)
-    elo_asof = _asof_elo(elo_raw[elo_raw.index.isin(elo_raw.index)], all_games) if not elo_raw.empty else pd.DataFrame()
-    # NOTE: source filter applied post-fetch since fetch_all only supports eq-per-kwarg.
+    # source filter applied post-fetch since fetch_all only supports eq-per-kwarg.
+    elo_raw = _fetch_seasons("team_ratings", "season,week,team_id,rating,source", history_seasons)
+    elo_asof = pd.DataFrame()
     if not elo_raw.empty:
-        elo_only = _fetch_seasons("team_ratings", "season,week,team_id,rating,source", history_seasons)
-        elo_only = elo_only[elo_only["source"] == "elo"]
+        elo_only = elo_raw[elo_raw["source"] == "elo"]
         elo_asof = _asof_elo(elo_only, all_games)
 
     print("Loading prior-season SP+...")
@@ -233,6 +270,7 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
         return {(row[season_col], row[team_col]): row[value_col] for _, row in df.iterrows()}
 
     cum_lookup = {(r["game_id"], r["team_id"]): r for _, r in cum_stats.iterrows()} if not cum_stats.empty else {}
+    scoring_lookup = {(r["game_id"], r["team_id"]): r for _, r in cum_scoring.iterrows()}
     elo_lookup = {(r["game_id"], r["team_id"], r["role"]): r["elo"] for _, r in elo_asof.iterrows()} if not elo_asof.empty else {}
     sp_lookup = lookup(sp_prior, "season", "team_id", "sp_plus") if not sp_prior.empty else {}
     talent_lookup = lookup(talent, "season", "team_id", "talent") if not talent.empty else {}
@@ -248,6 +286,10 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
             r = cum_lookup.get((g.id, team_id))
             return r[col] if r is not None else None
 
+        def scoring(team_id: int, col: str):
+            r = scoring_lookup.get((g.id, team_id))
+            return r[col] if r is not None else None
+
         home_elo = elo_lookup.get((g.id, g.home_id, "home"))
         away_elo = elo_lookup.get((g.id, g.away_id, "away"))
 
@@ -257,6 +299,7 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
             "week": g.week,
             "neutral_site": g.neutral_site,
             "conference_game": g.conference_game,
+            "day_of_week": g.start_date.dayofweek,  # 0=Mon..6=Sun -- public betting behavior differs Sat vs weeknight games
             "elo_diff": (home_elo - away_elo) if home_elo is not None and away_elo is not None else None,
             "home_cum_off_ppa": cum(g.home_id, "cum_off_ppa"),
             "home_cum_def_ppa": cum(g.home_id, "cum_def_ppa"),
@@ -266,6 +309,12 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
             "away_cum_def_ppa": cum(g.away_id, "cum_def_ppa"),
             "away_cum_off_success_rate": cum(g.away_id, "cum_off_success_rate"),
             "away_cum_def_success_rate": cum(g.away_id, "cum_def_success_rate"),
+            "home_cum_off_plays": cum(g.home_id, "cum_off_plays"),
+            "away_cum_off_plays": cum(g.away_id, "cum_off_plays"),
+            "home_cum_points_scored": scoring(g.home_id, "cum_points_scored"),
+            "home_cum_points_allowed": scoring(g.home_id, "cum_points_allowed"),
+            "away_cum_points_scored": scoring(g.away_id, "cum_points_scored"),
+            "away_cum_points_allowed": scoring(g.away_id, "cum_points_allowed"),
             "home_prior_sp_plus": sp_lookup.get((g.season, g.home_id)),
             "away_prior_sp_plus": sp_lookup.get((g.season, g.away_id)),
             "home_talent": talent_lookup.get((g.season, g.home_id)),
@@ -284,6 +333,12 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
             "market_spread_open": line["spread_open"] if line is not None else None,
             "market_total": line["over_under"] if line is not None else None,
             "market_total_open": line["over_under_open"] if line is not None else None,
+            "market_home_moneyline": line["home_moneyline"] if line is not None else None,
+            "market_away_moneyline": line["away_moneyline"] if line is not None else None,
+            # Not meaningful on neutral-site games (no real home-field edge to
+            # be "the favorite despite" or "the dog despite") - keep
+            # neutral_site alongside this in any analysis, don't drop it.
+            "is_home_favorite": (line["spread_open"] < 0) if line is not None and pd.notna(line["spread_open"]) else None,
             "spread_move": (line["spread"] - line["spread_open"]) if line is not None and pd.notna(line["spread_open"]) and pd.notna(line["spread"]) else None,
             "total_move": (line["over_under"] - line["over_under_open"]) if line is not None and pd.notna(line["over_under_open"]) and pd.notna(line["over_under"]) else None,
         }

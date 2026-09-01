@@ -146,6 +146,23 @@ create table if not exists team_game_stats (
   primary key (game_id, team_id)
 );
 
+-- Raw per-game box score (turnovers, time of possession, 3rd/4th down
+-- efficiency, penalties, yards) from CFBD's /games/teams — distinct from
+-- team_game_stats above, which is the PPA-derived advanced-stats endpoint.
+-- Turnover margin and time of possession specifically were a real gap: the
+-- advanced/PPA stats capture efficiency but not these, and both are
+-- classically predictive (turnovers for outcomes, possession time for
+-- pace/totals). stats holds the parsed categories as JSONB (see
+-- backfill_boxscore.py for the parsing — CFBD returns some as raw strings,
+-- e.g. possessionTime "26:14", thirdDownEff "4-12").
+create table if not exists team_game_boxscore (
+  game_id bigint not null references games(id) on delete cascade,
+  team_id integer not null references teams(id),
+  team text not null,
+  stats jsonb not null,
+  primary key (game_id, team_id)
+);
+
 -- Team ratings/power indices by season (and week, where the source
 -- publishes weekly updates — e.g. Elo can move week to week). `week` is 0
 -- for season-level/final values (SP+, FPI, SRS are season-only; Elo backfill
@@ -255,6 +272,7 @@ alter table betting_lines enable row level security;
 alter table line_snapshots enable row level security;
 alter table team_season_stats enable row level security;
 alter table team_game_stats enable row level security;
+alter table team_game_boxscore enable row level security;
 alter table team_ratings enable row level security;
 alter table predictions enable row level security;
 alter table team_talent enable row level security;
@@ -267,6 +285,7 @@ create policy "public read" on betting_lines for select using (true);
 create policy "public read" on line_snapshots for select using (true);
 create policy "public read" on team_season_stats for select using (true);
 create policy "public read" on team_game_stats for select using (true);
+create policy "public read" on team_game_boxscore for select using (true);
 create policy "public read" on team_ratings for select using (true);
 create policy "public read" on predictions for select using (true);
 create policy "public read" on team_talent for select using (true);
