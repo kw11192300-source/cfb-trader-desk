@@ -22,24 +22,28 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.metrics import mean_absolute_error, r2_score
 
+from .features import PPA_STAT_COLS
+
 FEATURE_COLUMNS = [
     "neutral_site",
     "conference_game",
+    "home_power_conf",
+    "away_power_conf",
     "elo_diff",
-    "home_cum_off_ppa",
-    "home_cum_def_ppa",
-    "home_cum_off_success_rate",
-    "home_cum_def_success_rate",
-    "away_cum_off_ppa",
-    "away_cum_def_ppa",
-    "away_cum_off_success_rate",
-    "away_cum_def_success_rate",
-    "home_cum_off_plays",
-    "away_cum_off_plays",
+    *[f"home_cum_{c}" for c in PPA_STAT_COLS],
+    *[f"away_cum_{c}" for c in PPA_STAT_COLS],
     "home_cum_points_scored",
     "home_cum_points_allowed",
     "away_cum_points_scored",
     "away_cum_points_allowed",
+    "home_cum_turnover_margin",
+    "away_cum_turnover_margin",
+    "home_cum_possession_seconds",
+    "away_cum_possession_seconds",
+    "home_cum_third_down_pct",
+    "away_cum_third_down_pct",
+    "home_cum_penalty_yards",
+    "away_cum_penalty_yards",
     "home_prior_sp_plus",
     "away_prior_sp_plus",
     "home_talent",

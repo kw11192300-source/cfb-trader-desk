@@ -40,6 +40,16 @@ MODEL_PROJECTIONS = {"numberfire", "teamrankings"}
 # in older seasons - see the bug this fixed in _pick_market_line's docstring.
 BOOK_PREFERENCE = ["DraftKings", "Bovada", "consensus"]
 
+# PPA-derived per-game advanced stats (team_game_stats) worth carrying as
+# cumulative pregame features - "cum_" prefix added by _cumulative_pregame_stats,
+# "home_"/"away_" prefix added when assembling each game's row.
+PPA_STAT_COLS = [
+    "off_ppa", "off_success_rate", "off_explosiveness", "off_plays",
+    "off_power_success", "off_stuff_rate", "off_line_yards", "off_standard_downs_sr", "off_passing_downs_sr",
+    "def_ppa", "def_success_rate", "def_explosiveness",
+    "def_power_success", "def_stuff_rate", "def_line_yards", "def_standard_downs_sr", "def_passing_downs_sr",
+]  # fmt: skip
+
 
 def _fetch_seasons(table: str, select: str, seasons: list[int]) -> pd.DataFrame:
     rows: list[dict] = []
@@ -57,6 +67,14 @@ def _fetch_by_game_ids(table: str, select: str, game_ids: list[int]) -> pd.DataF
     return pd.DataFrame(rows)
 
 
+# Covers the "Power" conferences across the full 2015-2026 window, including
+# ones that no longer exist as such (Pac-12 was a power conference through
+# 2023, before realignment folded most of its members elsewhere) - each
+# game's own home_conference/away_conference is season-specific already, so
+# this only needs to be a lookup table, not year-aware itself.
+POWER_CONFERENCES = {"SEC", "Big Ten", "Big 12", "ACC", "Pac-12", "Pac-10"}
+
+
 def _load_games(seasons: list[int]) -> pd.DataFrame:
     df = _fetch_seasons(
         "games",
@@ -67,6 +85,8 @@ def _load_games(seasons: list[int]) -> pd.DataFrame:
         return df
     df = df[df["completed"]].copy()
     df["start_date"] = pd.to_datetime(df["start_date"])
+    df["home_power_conf"] = df["home_conference"].isin(POWER_CONFERENCES)
+    df["away_power_conf"] = df["away_conference"].isin(POWER_CONFERENCES)
     df["conference_game"] = df["home_conference"] == df["away_conference"]
     return df
 
@@ -119,6 +139,8 @@ def _load_team_game_stats(game_ids: list[int]) -> pd.DataFrame:
     rows = []
     for r in raw.itertuples():
         off, dfn = r.stats.get("offense", {}), r.stats.get("defense", {})
+        off_std, off_pass = off.get("standardDowns", {}), off.get("passingDowns", {})
+        dfn_std, dfn_pass = dfn.get("standardDowns", {}), dfn.get("passingDowns", {})
         rows.append(
             {
                 "game_id": r.game_id,
@@ -128,19 +150,68 @@ def _load_team_game_stats(game_ids: list[int]) -> pd.DataFrame:
                 "off_success_rate": off.get("successRate"),
                 "off_explosiveness": off.get("explosiveness"),
                 "off_plays": off.get("plays"),  # pace proxy - PPA/success rate alone say nothing about how many
+                "off_power_success": off.get("powerSuccess"),  # short-yardage conversion rate
+                "off_stuff_rate": off.get("stuffRate"),  # run plays stopped at/behind the line
+                "off_line_yards": off.get("lineYards"),  # run-blocking-specific yardage metric
+                "off_standard_downs_sr": off_std.get("successRate"),  # 1st/early-2nd down efficiency
+                "off_passing_downs_sr": off_pass.get("successRate"),  # obvious-passing-situation efficiency
                 "def_ppa": dfn.get("ppa"),  # possessions a team gets, which totals depend on heavily
                 "def_success_rate": dfn.get("successRate"),
                 "def_explosiveness": dfn.get("explosiveness"),
+                "def_power_success": dfn.get("powerSuccess"),  # opponent's short-yardage success allowed
+                "def_stuff_rate": dfn.get("stuffRate"),  # run stops for loss/no gain forced
+                "def_line_yards": dfn.get("lineYards"),
+                "def_standard_downs_sr": dfn_std.get("successRate"),
+                "def_passing_downs_sr": dfn_pass.get("successRate"),
             }
         )
     return pd.DataFrame(rows)
+
+
+def _load_boxscore(game_ids: list[int]) -> pd.DataFrame:
+    """Raw per-game box score, with each team's TAKEAWAYS derived by
+    joining to its opponent's own turnovers row in the same game (CFBD
+    gives giveaways per team, not takeaways forced - takeaways = the other
+    team's giveaways). Turnover MARGIN (takeaways - giveaways) is the
+    classically predictive combination, not giveaways alone."""
+    raw = _fetch_by_game_ids(
+        "team_game_boxscore", "game_id,team_id,team,stats", game_ids
+    )
+    if raw.empty:
+        return raw
+    raw = raw.copy()
+    for col in ["turnovers", "possession_seconds", "third_down_made", "third_down_attempted", "penalty_yards"]:
+        raw[col] = raw["stats"].apply(lambda s, c=col: s.get(c))
+
+    # Opponent's turnovers, per game: for a 2-row-per-game table, each row's
+    # takeaways = sum of turnovers among the OTHER row(s) in that game_id.
+    game_totals = raw.groupby("game_id")["turnovers"].transform("sum")
+    raw["takeaways"] = game_totals - raw["turnovers"]
+    raw["turnover_margin"] = raw["takeaways"] - raw["turnovers"]
+
+    return raw[["game_id", "team_id", "turnover_margin", "possession_seconds", "third_down_made", "third_down_attempted", "penalty_yards"]]
+
+
+def _cumulative_boxscore(games: pd.DataFrame, boxscore: pd.DataFrame) -> pd.DataFrame:
+    """Same strictly-prior-games-only rule as _cumulative_pregame_stats.
+    Third-down % uses expanding SUM of made/attempted (not a mean of
+    per-game percentages) to avoid small-sample distortion early season."""
+    merged = boxscore.merge(games[["id", "season", "start_date"]], left_on="game_id", right_on="id")
+    merged = merged.sort_values(["season", "team_id", "start_date"])
+    grouped = merged.groupby(["season", "team_id"], group_keys=False)
+    for col in ["turnover_margin", "possession_seconds", "penalty_yards"]:
+        merged[f"cum_{col}"] = grouped[col].apply(lambda s: s.shift(1).expanding().mean())
+    made_cum = grouped["third_down_made"].apply(lambda s: s.shift(1).expanding().sum())
+    att_cum = grouped["third_down_attempted"].apply(lambda s: s.shift(1).expanding().sum())
+    merged["cum_third_down_pct"] = made_cum / att_cum.replace(0, float("nan"))
+    return merged[["game_id", "team_id", "cum_turnover_margin", "cum_possession_seconds", "cum_penalty_yards", "cum_third_down_pct"]]
 
 
 def _cumulative_pregame_stats(games: pd.DataFrame, game_stats: pd.DataFrame) -> pd.DataFrame:
     """For each (season, team, game), the mean of that team's own
     team_game_stats from STRICTLY EARLIER games in that season (shift(1)
     before the expanding mean — the game itself is never included)."""
-    stat_cols = ["off_ppa", "off_success_rate", "off_explosiveness", "off_plays", "def_ppa", "def_success_rate", "def_explosiveness"]
+    stat_cols = PPA_STAT_COLS
     merged = game_stats.merge(games[["id", "season", "start_date"]], left_on="game_id", right_on="id")
     merged = merged.sort_values(["season", "team_id", "start_date"])
     grouped = merged.groupby(["season", "team_id"], group_keys=False)
@@ -222,6 +293,10 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
     cum_stats = _cumulative_pregame_stats(all_games, game_stats) if not game_stats.empty else pd.DataFrame()
     cum_scoring = _cumulative_scoring(all_games)
 
+    print("Loading box score stats...")
+    boxscore = _load_boxscore(all_games["id"].tolist())
+    cum_box = _cumulative_boxscore(all_games, boxscore) if not boxscore.empty else pd.DataFrame()
+
     print("Loading Elo...")
     # source filter applied post-fetch since fetch_all only supports eq-per-kwarg.
     elo_raw = _fetch_seasons("team_ratings", "season,week,team_id,rating,source", history_seasons)
@@ -271,6 +346,7 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
 
     cum_lookup = {(r["game_id"], r["team_id"]): r for _, r in cum_stats.iterrows()} if not cum_stats.empty else {}
     scoring_lookup = {(r["game_id"], r["team_id"]): r for _, r in cum_scoring.iterrows()}
+    box_lookup = {(r["game_id"], r["team_id"]): r for _, r in cum_box.iterrows()} if not cum_box.empty else {}
     elo_lookup = {(r["game_id"], r["team_id"], r["role"]): r["elo"] for _, r in elo_asof.iterrows()} if not elo_asof.empty else {}
     sp_lookup = lookup(sp_prior, "season", "team_id", "sp_plus") if not sp_prior.empty else {}
     talent_lookup = lookup(talent, "season", "team_id", "talent") if not talent.empty else {}
@@ -290,6 +366,10 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
             r = scoring_lookup.get((g.id, team_id))
             return r[col] if r is not None else None
 
+        def box(team_id: int, col: str):
+            r = box_lookup.get((g.id, team_id))
+            return r[col] if r is not None else None
+
         home_elo = elo_lookup.get((g.id, g.home_id, "home"))
         away_elo = elo_lookup.get((g.id, g.away_id, "away"))
 
@@ -299,22 +379,24 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
             "week": g.week,
             "neutral_site": g.neutral_site,
             "conference_game": g.conference_game,
+            "home_power_conf": g.home_power_conf,
+            "away_power_conf": g.away_power_conf,
             "day_of_week": g.start_date.dayofweek,  # 0=Mon..6=Sun -- public betting behavior differs Sat vs weeknight games
             "elo_diff": (home_elo - away_elo) if home_elo is not None and away_elo is not None else None,
-            "home_cum_off_ppa": cum(g.home_id, "cum_off_ppa"),
-            "home_cum_def_ppa": cum(g.home_id, "cum_def_ppa"),
-            "home_cum_off_success_rate": cum(g.home_id, "cum_off_success_rate"),
-            "home_cum_def_success_rate": cum(g.home_id, "cum_def_success_rate"),
-            "away_cum_off_ppa": cum(g.away_id, "cum_off_ppa"),
-            "away_cum_def_ppa": cum(g.away_id, "cum_def_ppa"),
-            "away_cum_off_success_rate": cum(g.away_id, "cum_off_success_rate"),
-            "away_cum_def_success_rate": cum(g.away_id, "cum_def_success_rate"),
-            "home_cum_off_plays": cum(g.home_id, "cum_off_plays"),
-            "away_cum_off_plays": cum(g.away_id, "cum_off_plays"),
+            **{f"home_cum_{c}": cum(g.home_id, f"cum_{c}") for c in PPA_STAT_COLS},
+            **{f"away_cum_{c}": cum(g.away_id, f"cum_{c}") for c in PPA_STAT_COLS},
             "home_cum_points_scored": scoring(g.home_id, "cum_points_scored"),
             "home_cum_points_allowed": scoring(g.home_id, "cum_points_allowed"),
             "away_cum_points_scored": scoring(g.away_id, "cum_points_scored"),
             "away_cum_points_allowed": scoring(g.away_id, "cum_points_allowed"),
+            "home_cum_turnover_margin": box(g.home_id, "cum_turnover_margin"),
+            "away_cum_turnover_margin": box(g.away_id, "cum_turnover_margin"),
+            "home_cum_possession_seconds": box(g.home_id, "cum_possession_seconds"),
+            "away_cum_possession_seconds": box(g.away_id, "cum_possession_seconds"),
+            "home_cum_third_down_pct": box(g.home_id, "cum_third_down_pct"),
+            "away_cum_third_down_pct": box(g.away_id, "cum_third_down_pct"),
+            "home_cum_penalty_yards": box(g.home_id, "cum_penalty_yards"),
+            "away_cum_penalty_yards": box(g.away_id, "cum_penalty_yards"),
             "home_prior_sp_plus": sp_lookup.get((g.season, g.home_id)),
             "away_prior_sp_plus": sp_lookup.get((g.season, g.away_id)),
             "home_talent": talent_lookup.get((g.season, g.home_id)),

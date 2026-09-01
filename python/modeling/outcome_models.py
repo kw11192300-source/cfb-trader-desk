@@ -14,24 +14,28 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 from sklearn.metrics import accuracy_score, brier_score_loss, mean_absolute_error, r2_score
 
+from .features import PPA_STAT_COLS
+
 FEATURE_COLUMNS = [
     "neutral_site",
     "conference_game",
+    "home_power_conf",
+    "away_power_conf",
     "elo_diff",
-    "home_cum_off_ppa",
-    "home_cum_def_ppa",
-    "home_cum_off_success_rate",
-    "home_cum_def_success_rate",
-    "away_cum_off_ppa",
-    "away_cum_def_ppa",
-    "away_cum_off_success_rate",
-    "away_cum_def_success_rate",
-    "home_cum_off_plays",
-    "away_cum_off_plays",
+    *[f"home_cum_{c}" for c in PPA_STAT_COLS],
+    *[f"away_cum_{c}" for c in PPA_STAT_COLS],
     "home_cum_points_scored",
     "home_cum_points_allowed",
     "away_cum_points_scored",
     "away_cum_points_allowed",
+    "home_cum_turnover_margin",
+    "away_cum_turnover_margin",
+    "home_cum_possession_seconds",
+    "away_cum_possession_seconds",
+    "home_cum_third_down_pct",
+    "away_cum_third_down_pct",
+    "home_cum_penalty_yards",
+    "away_cum_penalty_yards",
     "home_prior_sp_plus",
     "away_prior_sp_plus",
     "home_talent",
@@ -57,6 +61,33 @@ def train_margin_model(df: pd.DataFrame, **params) -> HistGradientBoostingRegres
     model = HistGradientBoostingRegressor(random_state=42, **params)
     model.fit(X, y.astype(float))
     return model
+
+
+def train_margin_bias_model(df: pd.DataFrame, **params) -> HistGradientBoostingRegressor:
+    """Predicts the market's ERROR (actual_margin - market's own implied
+    margin) instead of the outcome independently. Final prediction =
+    market_implied_margin + predicted_bias. Structurally keeps predictions
+    close to the market by default (the training target is usually small -
+    the market is right most of the time), with a genuine edge only
+    showing up where the training data has a real, repeatable bias
+    pattern - directly targets "predictions should track the market
+    closely, with edges as small deviations" rather than an independent
+    model whose disagreement with market is somewhat arbitrary in size.
+    """
+    valid = df.dropna(subset=["actual_margin", "market_spread"])
+    market_implied_margin = -valid["market_spread"].astype(float)
+    y = valid["actual_margin"].astype(float) - market_implied_margin
+    X = valid[FEATURE_COLUMNS].astype(float)
+    model = HistGradientBoostingRegressor(random_state=42, **params)
+    model.fit(X, y)
+    return model
+
+
+def predict_margin_with_bias_correction(model: HistGradientBoostingRegressor, df: pd.DataFrame) -> pd.Series:
+    X = df[FEATURE_COLUMNS].astype(float)
+    bias = model.predict(X)
+    market_implied_margin = -df["market_spread"].astype(float)
+    return pd.Series(market_implied_margin.to_numpy() + bias, index=df.index)
 
 
 def train_total_model(df: pd.DataFrame, **params) -> HistGradientBoostingRegressor:
