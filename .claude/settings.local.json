@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(./.venv/Scripts/python -c \"import cfbd_ingest.cfbd_client; print\\('OK'\\)\")",
-      "Bash(tail -40 \"/c/Users/Kylem/AppData/Local/Temp/claude/C--Users-Kylem-OneDrive-Desktop-Claude-CFB-Pick-Em/798ca983-48ef-466a-bdb5-d2bc1fc8bd60/scratchpad/backfill_roster_context5.log\" 2>&1)"
-    ]
-  }
-}
