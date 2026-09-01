@@ -88,6 +88,17 @@ def _load_games(seasons: list[int]) -> pd.DataFrame:
     df["home_power_conf"] = df["home_conference"].isin(POWER_CONFERENCES)
     df["away_power_conf"] = df["away_conference"].isin(POWER_CONFERENCES)
     df["conference_game"] = df["home_conference"] == df["away_conference"]
+
+    # games now includes FCS-vs-FCS games too (backfill_fcs.py) alongside
+    # the original FBS-only pull - tag each side's division so callers can
+    # segment or filter by it, and so FBS-vs-FCS "buy games" (a genuinely
+    # different animal - huge, predictable mismatches) are distinguishable
+    # from same-division matchups.
+    team_class = pd.DataFrame(fetch_all("teams", "id,classification"))
+    class_map = dict(zip(team_class["id"], team_class["classification"]))
+    df["home_classification"] = df["home_id"].map(class_map)
+    df["away_classification"] = df["away_id"].map(class_map)
+    df["is_cross_division"] = (df["home_classification"] == "fbs") != (df["away_classification"] == "fbs")
     return df
 
 
@@ -306,13 +317,23 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
         elo_asof = _asof_elo(elo_only, all_games)
 
     print("Loading prior-season SP+...")
-    sp_prior = _fetch_seasons("team_ratings", "season,week,team_id,team,rating,source", prior_seasons)
-    sp_prior = sp_prior[(sp_prior["source"] == "sp_plus") & (sp_prior["week"] == 0)] if not sp_prior.empty else sp_prior
+    prior_ratings = _fetch_seasons("team_ratings", "season,week,team_id,team,rating,source", prior_seasons)
+
+    sp_prior = prior_ratings[(prior_ratings["source"] == "sp_plus") & (prior_ratings["week"] == 0)] if not prior_ratings.empty else prior_ratings
     if not sp_prior.empty:
         sp_prior = sp_prior.copy()
         sp_prior["sp_plus"] = sp_prior["rating"].apply(lambda r: r.get("rating") if isinstance(r, dict) else None)
-        sp_prior["prior_season"] = sp_prior["season"]
-        sp_prior["season"] = sp_prior["prior_season"] + 1  # index by the season it's a PRIOR for
+        sp_prior["season"] = sp_prior["season"] + 1  # index by the season it's a PRIOR for
+
+    # SRS is the one rating source that covers FCS too (Elo/SP+/FPI are
+    # FBS-only, verified live) - same season-final-only limitation as SP+
+    # (doesn't vary by week regardless of the week param), so same
+    # prior-season-only treatment to stay leakage-safe.
+    srs_prior = prior_ratings[(prior_ratings["source"] == "srs") & (prior_ratings["week"] == 0)] if not prior_ratings.empty else prior_ratings
+    if not srs_prior.empty:
+        srs_prior = srs_prior.copy()
+        srs_prior["srs"] = srs_prior["rating"].apply(lambda r: r.get("rating") if isinstance(r, dict) else None)
+        srs_prior["season"] = srs_prior["season"] + 1
 
     print("Loading team talent / returning production...")
     talent = _fetch_seasons("team_talent", "season,team_id,talent", all_seasons)
@@ -349,6 +370,7 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
     box_lookup = {(r["game_id"], r["team_id"]): r for _, r in cum_box.iterrows()} if not cum_box.empty else {}
     elo_lookup = {(r["game_id"], r["team_id"], r["role"]): r["elo"] for _, r in elo_asof.iterrows()} if not elo_asof.empty else {}
     sp_lookup = lookup(sp_prior, "season", "team_id", "sp_plus") if not sp_prior.empty else {}
+    srs_lookup = lookup(srs_prior, "season", "team_id", "srs") if not srs_prior.empty else {}
     talent_lookup = lookup(talent, "season", "team_id", "talent") if not talent.empty else {}
     returning_lookup = lookup(returning, "season", "team_id", "returning_ppa_pct") if not returning.empty else {}
     transfer_lookup = lookup(net_transfer_stars, "season", "team_id", "net_transfer_stars") if not net_transfer_stars.empty else {}
@@ -381,8 +403,15 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
             "conference_game": g.conference_game,
             "home_power_conf": g.home_power_conf,
             "away_power_conf": g.away_power_conf,
+            "home_classification": g.home_classification,  # kept for filtering/segmentation, not a numeric model feature
+            "away_classification": g.away_classification,
+            "home_is_fbs": g.home_classification == "fbs",  # numeric equivalents, usable directly as features
+            "away_is_fbs": g.away_classification == "fbs",
+            "is_cross_division": g.is_cross_division,
             "day_of_week": g.start_date.dayofweek,  # 0=Mon..6=Sun -- public betting behavior differs Sat vs weeknight games
             "elo_diff": (home_elo - away_elo) if home_elo is not None and away_elo is not None else None,
+            "home_prior_srs": srs_lookup.get((g.season, g.home_id)),
+            "away_prior_srs": srs_lookup.get((g.season, g.away_id)),
             **{f"home_cum_{c}": cum(g.home_id, f"cum_{c}") for c in PPA_STAT_COLS},
             **{f"away_cum_{c}": cum(g.away_id, f"cum_{c}") for c in PPA_STAT_COLS},
             "home_cum_points_scored": scoring(g.home_id, "cum_points_scored"),
