@@ -21,7 +21,7 @@ from .config import CFBD_API_KEY
 CFBD_BASE = "https://api.collegefootballdata.com"
 
 
-def _get(path: str, params: dict[str, Any] | None = None, retries: int = 3) -> Any:
+def _get(path: str, params: dict[str, Any] | None = None, retries: int = 5) -> Any:
     if not CFBD_API_KEY:
         raise RuntimeError("Missing CFBD_API_KEY environment variable.")
 
@@ -30,16 +30,27 @@ def _get(path: str, params: dict[str, Any] | None = None, retries: int = 3) -> A
 
     last_error: Exception | None = None
     for attempt in range(retries):
-        resp = requests.get(CFBD_BASE + path, params=clean_params, headers=headers, timeout=30)
-        if resp.status_code == 429:
-            # Rate limited — back off and retry rather than burn the request.
-            time.sleep(2 ** attempt)
+        try:
+            resp = requests.get(CFBD_BASE + path, params=clean_params, headers=headers, timeout=30)
+        except requests.exceptions.RequestException as e:
+            # Transient network hiccup (timeout, connection reset, ...) — over
+            # hundreds of sequential calls in a backfill these happen; retry
+            # rather than aborting the whole run on one bad connection.
+            last_error = e
+            time.sleep(2**attempt)
+            continue
+        if resp.status_code == 429 or resp.status_code >= 500:
+            # 429 = rate limited; 5xx = transient server/gateway error (seen
+            # live: a 502 from Cloudflare fronting CFBD's backend). Both are
+            # worth backing off and retrying rather than aborting a run over.
+            last_error = RuntimeError(f"CFBD request to {path} failed: {resp.status_code} (retrying)")
+            time.sleep(2**attempt)
             continue
         if not resp.ok:
             last_error = RuntimeError(f"CFBD request to {path} failed: {resp.status_code} {resp.text[:500]}")
             break
         return resp.json()
-    raise last_error or RuntimeError(f"CFBD request to {path} failed after {retries} retries (rate limited)")
+    raise last_error or RuntimeError(f"CFBD request to {path} failed after {retries} retries")
 
 
 def fetch_teams(classification: str | None = "fbs") -> list[dict]:
