@@ -18,6 +18,7 @@ from cfbd_ingest.supabase_client import fetch_all, get_client
 
 from .features import _load_games, build_continuity_multipliers, _fetch_seasons  # noqa: F401 - internal reuse, same package
 from .power_rating import compute_expanding_efficiency_ratings, compute_expanding_scoring_ratings
+from .preseason_projection import build_projection_dataset, predict_projection, train_projection_def_model, train_projection_off_model
 
 
 def run() -> None:
@@ -77,6 +78,30 @@ def run() -> None:
     scoring_latest = scoring.sort_values(["season", "week"]).groupby("team").tail(1).set_index("team")
     efficiency_latest = efficiency.sort_values(["season", "week"]).groupby("team").tail(1).set_index("team")
 
+    # Preseason override: for any team with zero completed games so far
+    # THIS season, replace the continuity-shrink heuristic scoring rating
+    # (power_rating._shrink_to_mean - a flat "pull toward FBS average"
+    # formula, blind to whether a coaching/roster change is an upgrade or
+    # a downgrade) with a learned projection model instead - see
+    # preseason_projection.py. Backtested walk-forward 2021-2026: beats
+    # both the shrink heuristic and a naive unmodified-carryover baseline
+    # on real early-season (weeks 1-4) game margins. Efficiency ratings
+    # aren't covered by this model yet (points-based target only) - still
+    # on the plain heuristic for now.
+    print("Training preseason projection model (scoring ratings only)...")
+    proj_seasons = list(range(year - 9, year + 1))
+    proj_df = build_projection_dataset(proj_seasons)
+    proj_train = proj_df[proj_df["season"] < year]
+    current_rows = proj_df[(proj_df["season"] == year) & proj_df["prior_off"].notna() & proj_df["prior_def"].notna()]
+    projected_by_team: dict[str, tuple[float, float]] = {}
+    if not proj_train.empty and not current_rows.empty:
+        off_model = train_projection_off_model(proj_train)
+        def_model = train_projection_def_model(proj_train)
+        projected = predict_projection(off_model, def_model, current_rows)
+        projected_by_team = {r["team"]: (r["predicted_off"], r["predicted_def"]) for _, r in projected.iterrows()}
+        print(f"  Projected {len(projected_by_team)} teams; overriding preseason (0-game) rows below.")
+    played_this_season = set(games.loc[games["season"] == year, "home_team"]) | set(games.loc[games["season"] == year, "away_team"])
+
     name_to_id = {v: k for k, v in id_to_name.items()}
     team_class = {t["id"]: t["classification"] for t in fetch_all("teams", "id,classification")}
 
@@ -95,6 +120,8 @@ def run() -> None:
         e = efficiency_latest.loc[team] if team in efficiency_latest.index else None
         scoring_off = s["scoring_off"] if s is not None else None
         scoring_def = s["scoring_def"] if s is not None else None
+        if team not in played_this_season and team in projected_by_team:
+            scoring_off, scoring_def = projected_by_team[team]
         records.append(
             {
                 "season": int(s["season"]) if s is not None else year,
