@@ -100,6 +100,14 @@ def _load_games(seasons: list[int]) -> pd.DataFrame:
     df["home_classification"] = df["home_id"].map(class_map)
     df["away_classification"] = df["away_id"].map(class_map)
     df["is_cross_division"] = (df["home_classification"] == "fbs") != (df["away_classification"] == "fbs")
+
+    # FCS teams occasionally schedule a D2/D3/unclassified opponent (or
+    # CFBD's classification=fcs filter pulls one in - see backfill_fcs.py's
+    # note that CFBD's classification param isn't fully reliable). Those
+    # games have no business in an FBS/FCS rating or model: drop anything
+    # where either side isn't actually fbs or fcs.
+    valid_class = {"fbs", "fcs"}
+    df = df[df["home_classification"].isin(valid_class) & df["away_classification"].isin(valid_class)].copy()
     return df
 
 
@@ -421,9 +429,17 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
     id_to_name.update(pd.Series(all_games["away_team"].values, index=all_games["away_id"]).to_dict())
     continuity_multipliers = build_continuity_multipliers(all_seasons, returning, net_transfer_stars, coaching, id_to_name)
 
+    # Names, not ids - power_rating.py's fit works in team-name space. Used
+    # only to pick the centering reference (0 = average FBS team), not to
+    # filter games; FBS/FCS still fit together in one linked system.
+    fbs_teams = set(all_games.loc[all_games["home_classification"] == "fbs", "home_team"]) | set(
+        all_games.loc[all_games["away_classification"] == "fbs", "away_team"]
+    )
+
     scoring_ratings = compute_expanding_scoring_ratings(
         all_games[["season", "week", "home_team", "away_team", "home_points", "away_points", "neutral_site"]],
         continuity_multipliers,
+        fbs_teams,
     )
     ppa_by_game_team = game_stats[["game_id", "team_id", "off_ppa"]] if not game_stats.empty else pd.DataFrame(columns=["game_id", "team_id", "off_ppa"])
     ppa_input = all_games.merge(
@@ -432,6 +448,7 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
     efficiency_ratings = compute_expanding_efficiency_ratings(
         ppa_input[["season", "week", "home_team", "away_team", "home_ppa", "away_ppa", "neutral_site"]],
         continuity_multipliers,
+        fbs_teams,
     )
 
     # --- Assemble ---

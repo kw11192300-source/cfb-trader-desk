@@ -53,9 +53,15 @@ def run() -> None:
     id_to_name.update(pd.Series(games["away_team"].values, index=games["away_id"]).to_dict())
     continuity_multipliers = build_continuity_multipliers(seasons, returning, net_transfer_stars, coaching, id_to_name)
 
+    # Names, not ids - used only to pick the centering reference (0 =
+    # average FBS team). See power_rating._center's docstring.
+    fbs_teams = set(games.loc[games["home_classification"] == "fbs", "home_team"]) | set(
+        games.loc[games["away_classification"] == "fbs", "away_team"]
+    )
+
     print("Computing scoring ratings...")
     scoring = compute_expanding_scoring_ratings(
-        games[["season", "week", "home_team", "away_team", "home_points", "away_points", "neutral_site"]], continuity_multipliers
+        games[["season", "week", "home_team", "away_team", "home_points", "away_points", "neutral_site"]], continuity_multipliers, fbs_teams
     )
 
     print("Computing efficiency ratings...")
@@ -64,7 +70,7 @@ def run() -> None:
         ppa_by_game_team.rename(columns={"team_id": "home_id", "off_ppa": "home_ppa"}), left_on=["id", "home_id"], right_on=["game_id", "home_id"], how="left"
     ).merge(ppa_by_game_team.rename(columns={"team_id": "away_id", "off_ppa": "away_ppa"}), left_on=["id", "away_id"], right_on=["game_id", "away_id"], how="left")
     efficiency = compute_expanding_efficiency_ratings(
-        ppa_input[["season", "week", "home_team", "away_team", "home_ppa", "away_ppa", "neutral_site"]], continuity_multipliers
+        ppa_input[["season", "week", "home_team", "away_team", "home_ppa", "away_ppa", "neutral_site"]], continuity_multipliers, fbs_teams
     )
 
     # Current snapshot = each team's LATEST (season, week) row.
@@ -79,6 +85,11 @@ def run() -> None:
     for team in all_teams:
         team_id = name_to_id.get(team)
         if team_id is None:
+            continue
+        # Defense in depth against _load_games' fbs/fcs filter: never write
+        # a rating row for a team the teams table doesn't call fbs or fcs
+        # (D2/D3 buy-game opponents, defunct/unclassified entries, etc).
+        if team_class.get(team_id) not in ("fbs", "fcs"):
             continue
         s = scoring_latest.loc[team] if team in scoring_latest.index else None
         e = efficiency_latest.loc[team] if team in efficiency_latest.index else None
@@ -103,6 +114,17 @@ def run() -> None:
     for i in range(0, len(records), 500):
         client.table("team_power_ratings").upsert(records[i : i + 500], on_conflict="team_id").execute()
     print(f"Upserted {len(records)} team power rating rows.")
+
+    # Purge anything left over from before the fbs/fcs filtering above
+    # existed (or a team that's since dropped out of the pool entirely) -
+    # upsert alone never removes stale rows.
+    current_ids = [r["team_id"] for r in records]
+    if current_ids:
+        stale = client.table("team_power_ratings").select("team_id").not_.in_("team_id", current_ids).execute()
+        stale_ids = [r["team_id"] for r in stale.data]
+        if stale_ids:
+            client.table("team_power_ratings").delete().in_("team_id", stale_ids).execute()
+            print(f"Purged {len(stale_ids)} stale rows no longer produced by this run.")
 
 
 if __name__ == "__main__":

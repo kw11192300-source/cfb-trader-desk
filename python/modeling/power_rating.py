@@ -125,19 +125,38 @@ def fit_off_def_ratings(
     return offense, defense
 
 
-def _center(off: dict[str, float], dfn: dict[str, float]) -> tuple[dict[str, float], dict[str, float]]:
-    """Centers offense and defense each around their OWN mean (0 = league
-    average unit) so the ratings read the standard, interpretable way.
-    Mathematically free: mean(off) and mean(def) are always exact negatives
-    of each other by construction (every point scored by someone is
-    allowed by someone else - same shared total), so off_centered +
-    def_centered == off + def exactly - "overall" (their sum) is
-    unaffected, only the individual O/D split becomes 0-average-anchored.
+def _center(
+    off: dict[str, float], dfn: dict[str, float], fbs_teams: set[str] | None = None
+) -> tuple[dict[str, float], dict[str, float]]:
+    """Centers offense and defense each around a reference mean (0 = that
+    reference unit) so the ratings read the standard, interpretable way -
+    "overall" differences between two teams line up with expected point
+    margin (see fit_off_def_ratings docstring math).
+
+    fbs_teams, when given, restricts the reference mean to only FBS teams'
+    ratings - so 0 means "average FBS team," not "average of every rated
+    team including FCS." FBS and FCS still share one linear system (linked
+    by real cross-division buy games, which is what lets us price those
+    games at all), but centering on the combined pool would understate how
+    far below FBS the average FCS team actually is (FCS teams pull the
+    pool average down, making FBS ratings look inflated relative to what a
+    standalone FBS-only system would show, e.g. SP+). Falls back to the
+    full pool if fbs_teams is empty/None or none of it is present yet
+    (e.g. very early in a rebuild before any FBS team has a rating).
+
+    Mathematically free either way: mean(off) and mean(def) over the SAME
+    reference set are always exact negatives of each other by construction
+    (every point scored by someone is allowed by someone else - same
+    shared total), so off_centered + def_centered == off + def exactly -
+    "overall" (their sum) is unaffected by which reference set is used,
+    only the individual O/D split's zero point moves.
     """
     if not off or not dfn:
         return off, dfn
-    mean_off = sum(off.values()) / len(off)
-    mean_def = sum(dfn.values()) / len(dfn)
+    ref_off = {t: v for t, v in off.items() if fbs_teams and t in fbs_teams} or off
+    ref_def = {t: v for t, v in dfn.items() if fbs_teams and t in fbs_teams} or dfn
+    mean_off = sum(ref_off.values()) / len(ref_off)
+    mean_def = sum(ref_def.values()) / len(ref_def)
     return {t: v - mean_off for t, v in off.items()}, {t: v - mean_def for t, v in dfn.items()}
 
 
@@ -148,10 +167,15 @@ def _compute_expanding_off_def(
     off_name: str,
     def_name: str,
     continuity_multipliers: dict[tuple[int, str], float] | None = None,
+    fbs_teams: set[str] | None = None,
 ) -> pd.DataFrame:
     """continuity_multipliers: {(season, team): multiplier} - see
     fit_off_def_ratings' prior_weight_multipliers docstring. Looked up
-    fresh each season since it reflects THAT season's roster turnover."""
+    fresh each season since it reflects THAT season's roster turnover.
+
+    fbs_teams: {team names} used only to pick the centering reference -
+    see _center's docstring. Not used to filter games (FBS/FCS still fit
+    together in one system)."""
     games = games.dropna(subset=[home_col, away_col], how="all").sort_values(["season", "week"])
     out_rows = []
     prior_off: dict[str, float] | None = None
@@ -166,10 +190,10 @@ def _compute_expanding_off_def(
                 off, dfn = fit_off_def_ratings(before, home_col, away_col, prior_off, prior_def, prior_weight_multipliers=season_multipliers)
             else:
                 off, dfn = dict(prior_off or {}), dict(prior_def or {})
-            # Centered for the OUTPUT (interpretable, 0 = average) - the
-            # uncentered off/dfn (below) keep chaining as the prior, so
+            # Centered for the OUTPUT (interpretable, 0 = average FBS team) -
+            # the uncentered off/dfn (below) keep chaining as the prior, so
             # centering here doesn't drift the internal fit across weeks.
-            off_out, dfn_out = _center(off, dfn)
+            off_out, dfn_out = _center(off, dfn, fbs_teams)
             teams = set(off_out.keys()) | set(dfn_out.keys())
             for team in teams:
                 out_rows.append({"season": season, "week": week, "team": team, off_name: off_out.get(team), def_name: dfn_out.get(team)})
@@ -178,12 +202,16 @@ def _compute_expanding_off_def(
     return pd.DataFrame(out_rows)
 
 
-def compute_expanding_scoring_ratings(games: pd.DataFrame, continuity_multipliers: dict[tuple[int, str], float] | None = None) -> pd.DataFrame:
+def compute_expanding_scoring_ratings(
+    games: pd.DataFrame, continuity_multipliers: dict[tuple[int, str], float] | None = None, fbs_teams: set[str] | None = None
+) -> pd.DataFrame:
     """games: season, week, home_team, away_team, home_points, away_points, neutral_site."""
-    return _compute_expanding_off_def(games, "home_points", "away_points", "scoring_off", "scoring_def", continuity_multipliers)
+    return _compute_expanding_off_def(games, "home_points", "away_points", "scoring_off", "scoring_def", continuity_multipliers, fbs_teams)
 
 
-def compute_expanding_efficiency_ratings(games: pd.DataFrame, continuity_multipliers: dict[tuple[int, str], float] | None = None) -> pd.DataFrame:
+def compute_expanding_efficiency_ratings(
+    games: pd.DataFrame, continuity_multipliers: dict[tuple[int, str], float] | None = None, fbs_teams: set[str] | None = None
+) -> pd.DataFrame:
     """games: season, week, home_team, away_team, home_ppa, away_ppa, neutral_site
     (home_ppa/away_ppa = that team's own offensive PPA in that specific game)."""
-    return _compute_expanding_off_def(games, "home_ppa", "away_ppa", "efficiency_off", "efficiency_def", continuity_multipliers)
+    return _compute_expanding_off_def(games, "home_ppa", "away_ppa", "efficiency_off", "efficiency_def", continuity_multipliers, fbs_teams)

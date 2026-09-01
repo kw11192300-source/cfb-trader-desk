@@ -148,7 +148,9 @@ export type PowerRatingRow = TeamPowerRating & { logo_url: string | null };
 /** CFB Trader Desk's own power ratings — current snapshot, every team (FBS + FCS), with logos. */
 export async function getPowerRatings(): Promise<PowerRatingRow[]> {
   const [{ data: ratings, error: ratingsError }, { data: teams, error: teamsError }] = await Promise.all([
-    supabase.from("team_power_ratings").select("*").order("overall", { ascending: false, nullsFirst: false }),
+    // classification filter is defense in depth - sync_power_ratings.py
+    // shouldn't write non-fbs/fcs rows at all, but don't rely on that alone.
+    supabase.from("team_power_ratings").select("*").in("classification", ["fbs", "fcs"]).order("overall", { ascending: false, nullsFirst: false }),
     supabase.from("teams").select("id, logo_url"),
   ]);
   if (ratingsError) throw new Error(ratingsError.message);
