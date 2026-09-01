@@ -80,3 +80,18 @@ export type LineSnapshot = {
   away_moneyline: number | null;
   captured_at: string;
 };
+
+/** CFB Trader Desk's own power rating (python/modeling/power_rating.py) — current-week snapshot, one row per team. */
+export type TeamPowerRating = {
+  season: number;
+  week: number;
+  team_id: number;
+  team: string;
+  classification: string | null;
+  scoring_off: number | null;
+  scoring_def: number | null;
+  overall: number | null;
+  efficiency_off: number | null;
+  efficiency_def: number | null;
+  updated_at: string;
+};

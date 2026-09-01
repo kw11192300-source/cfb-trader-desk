@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { BettingLine, BoardRow, Game, LineSnapshot, OddsApiLine, Team } from "./types";
+import type { BettingLine, BoardRow, Game, LineSnapshot, OddsApiLine, Team, TeamPowerRating } from "./types";
 
 /**
  * Same idea as the Python side's current_week.py: the earliest
@@ -140,4 +140,20 @@ export async function getLineHistory(gameId: number): Promise<LineSnapshot[]> {
     .order("captured_at", { ascending: true });
   if (error) throw new Error(error.message);
   return (data ?? []) as LineSnapshot[];
+}
+
+/** A power rating row with its team's logo joined in, for display. */
+export type PowerRatingRow = TeamPowerRating & { logo_url: string | null };
+
+/** CFB Trader Desk's own power ratings — current snapshot, every team (FBS + FCS), with logos. */
+export async function getPowerRatings(): Promise<PowerRatingRow[]> {
+  const [{ data: ratings, error: ratingsError }, { data: teams, error: teamsError }] = await Promise.all([
+    supabase.from("team_power_ratings").select("*").order("overall", { ascending: false, nullsFirst: false }),
+    supabase.from("teams").select("id, logo_url"),
+  ]);
+  if (ratingsError) throw new Error(ratingsError.message);
+  if (teamsError) throw new Error(teamsError.message);
+
+  const logoById = new Map((teams as { id: number; logo_url: string | null }[]).map((t) => [t.id, t.logo_url]));
+  return (ratings ?? []).map((r) => ({ ...r, logo_url: logoById.get(r.team_id) ?? null })) as PowerRatingRow[];
 }

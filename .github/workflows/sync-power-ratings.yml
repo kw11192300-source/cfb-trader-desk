@@ -1,0 +1,26 @@
+name: Sync power ratings
+
+# Recomputes CFB Trader Desk's own power ratings (python/modeling/power_rating.py)
+# for the current week and writes the snapshot to team_power_ratings. No
+# CFBD calls of its own beyond what sync-results.yml already pulls (reads
+# from Supabase, not CFBD) - cheap to run daily.
+on:
+  schedule:
+    - cron: "0 8 * * *" # once daily, 08:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r python/requirements.txt
+      - name: Sync power ratings
+        working-directory: python
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: python -m modeling.sync_power_ratings
