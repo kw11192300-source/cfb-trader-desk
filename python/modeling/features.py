@@ -256,7 +256,14 @@ def _cumulative_scoring(games: pd.DataFrame) -> pd.DataFrame:
     grouped = long.groupby(["season", "team_id"], group_keys=False)
     long["cum_points_scored"] = grouped["points_scored"].apply(lambda s: s.shift(1).expanding().mean())
     long["cum_points_allowed"] = grouped["points_allowed"].apply(lambda s: s.shift(1).expanding().mean())
-    return long[["id", "team_id", "cum_points_scored", "cum_points_allowed"]].rename(columns={"id": "game_id"})
+    # How many games (strictly before this one) this team has already played
+    # THIS season - a confidence proxy for every rating feature derived from
+    # in-season data (scoring/efficiency off-def, market/results ratings):
+    # 0 means those ratings are still entirely the preseason projection/
+    # prior, not backed by any real evidence from this season yet. See
+    # outcome_models.py/movement_model.py FEATURE_COLUMNS.
+    long["cum_games_played"] = long.groupby(["season", "team_id"]).cumcount()
+    return long[["id", "team_id", "cum_points_scored", "cum_points_allowed", "cum_games_played"]].rename(columns={"id": "game_id"})
 
 
 def build_continuity_multipliers(
@@ -513,6 +520,8 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
             "home_cum_points_allowed": scoring(g.home_id, "cum_points_allowed"),
             "away_cum_points_scored": scoring(g.away_id, "cum_points_scored"),
             "away_cum_points_allowed": scoring(g.away_id, "cum_points_allowed"),
+            "home_games_played": scoring(g.home_id, "cum_games_played"),
+            "away_games_played": scoring(g.away_id, "cum_games_played"),
             "home_cum_turnover_margin": box(g.home_id, "cum_turnover_margin"),
             "away_cum_turnover_margin": box(g.away_id, "cum_turnover_margin"),
             "home_cum_possession_seconds": box(g.home_id, "cum_possession_seconds"),

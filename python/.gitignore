@@ -1,3 +1,7 @@
 .venv/
 __pycache__/
 *.pyc
+
+# Local analysis scratch files (not pipeline outputs)
+*.pkl
+preseason_calibration.*

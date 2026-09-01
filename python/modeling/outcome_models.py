@@ -33,6 +33,12 @@ FEATURE_COLUMNS = [
     "home_cum_points_allowed",
     "away_cum_points_scored",
     "away_cum_points_allowed",
+    # How much real IN-SEASON evidence backs this game's ratings, as
+    # opposed to still mostly reflecting a preseason projection/prior -
+    # lets the model learn to trust its own inputs less early in a season
+    # (see preseason_projection.py's confidence discussion).
+    "home_games_played",
+    "away_games_played",
     "home_cum_turnover_margin",
     "away_cum_turnover_margin",
     "home_cum_possession_seconds",
