@@ -160,6 +160,25 @@ def _center(
     return {t: v - mean_off for t, v in off.items()}, {t: v - mean_def for t, v in dfn.items()}
 
 
+def _shrink_to_mean(
+    ratings: dict[str, float], fbs_teams: set[str] | None, multipliers: dict[str, float]
+) -> dict[str, float]:
+    """Pulls each team's rating toward the reference mean by its own
+    continuity multiplier - used ONLY for the preseason snapshot (zero
+    games played yet this season), where fit_off_def_ratings' normal
+    weighted-prior mechanism has no real in-season evidence to weigh the
+    prior against, so a low multiplier (new coach, almost nobody
+    returning) would otherwise be silently ignored until games accumulate.
+    Multiplier is capped at 1.0 here - preseason, there's no new evidence
+    to justify pushing a team FARTHER from the mean than its own prior
+    rating already implies, only reason to pull it back in."""
+    if not ratings:
+        return ratings
+    ref = {t: v for t, v in ratings.items() if fbs_teams and t in fbs_teams} or ratings
+    mean = sum(ref.values()) / len(ref)
+    return {t: mean + min(multipliers.get(t, 1.0), 1.0) * (v - mean) for t, v in ratings.items()}
+
+
 def _compute_expanding_off_def(
     games: pd.DataFrame,
     home_col: str,
@@ -189,7 +208,15 @@ def _compute_expanding_off_def(
             if len(before) > 0:
                 off, dfn = fit_off_def_ratings(before, home_col, away_col, prior_off, prior_def, prior_weight_multipliers=season_multipliers)
             else:
-                off, dfn = dict(prior_off or {}), dict(prior_def or {})
+                # No real games yet this season - shrink the carried-over
+                # prior toward the reference mean by continuity (see
+                # _shrink_to_mean) instead of showing it unmodified. Only
+                # affects this week's OUTPUT row; prior_off/prior_def
+                # themselves stay the true unshrunk fit so next week's real
+                # blend (the `if` branch above) still has an unbiased prior
+                # to weigh actual results against.
+                off = _shrink_to_mean(dict(prior_off or {}), fbs_teams, season_multipliers)
+                dfn = _shrink_to_mean(dict(prior_def or {}), fbs_teams, season_multipliers)
             # Centered for the OUTPUT (interpretable, 0 = average FBS team) -
             # the uncentered off/dfn (below) keep chaining as the prior, so
             # centering here doesn't drift the internal fit across weeks.
