@@ -59,6 +59,16 @@ FEATURE_COLUMNS = [
     "away_net_transfer_stars",
     "home_market_rating",
     "away_market_rating",
+    "home_results_rating",
+    "away_results_rating",
+    "home_scoring_off",
+    "home_scoring_def",
+    "away_scoring_off",
+    "away_scoring_def",
+    "home_efficiency_off",
+    "home_efficiency_def",
+    "away_efficiency_off",
+    "away_efficiency_def",
     # The opening number itself is a legitimate predictor of how much it'll
     # move (e.g. round-number/large spreads move more) - this is NOT the
     # "don't overweight the market" concern from the outcome models (which

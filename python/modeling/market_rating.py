@@ -1,21 +1,30 @@
 """
-Massey-style power ratings fit to historical closing spreads — "what has
-the market collectively thought of this team, smoothed across many games."
+Massey-style power ratings — a linear system fit so that
+rating[home] - rating[away] + home_field_advantage ≈ some target margin,
+solved by least squares across every game in the fitting window, shrunk
+toward the previous season's final rating as a prior.
 
-This is deliberately NOT "use this week's own market line as a feature" —
-that would just teach the outcome models to parrot whatever the market
-currently says. Instead, each team's rating here is fit from spreads in
-GAMES ALREADY PLAYED before the target week, so it reflects the market's
-aggregate judgment up to that point without ever looking at the specific
-line for the game being predicted.
+Two ratings built on this same machinery, each fit to a different target:
 
-Ratings are computed per (season, week) checkpoint, expanding within a
-season (more games = the fit leans more on this season's own evidence) and
-shrunk toward the previous season's FINAL rating as a prior (a team with 0
-games played yet in a new season starts at last year's rating; by ~6 games
-in, this year's results dominate). The recursion bottoms out at the first
-season with no prior at all (rating defaults to 0 for everyone, i.e. no
-opinion yet).
+  - MARKET rating (compute_expanding_market_ratings): target = the
+    market's own implied margin (-spread). "What has the market thought of
+    this team, smoothed across many games." See features.py's docstring
+    for why this is used as a feature (an aggregate signal) rather than
+    the target game's own line (which would just teach models to parrot
+    today's number).
+
+  - RESULTS rating (compute_expanding_results_ratings): target = the
+    team's ACTUAL game margin. A genuinely independent, from-scratch power
+    rating — not reusing CFBD's SP+/FPI/Elo formulas, not derived from the
+    market at all. Classification-agnostic: since it only needs games and
+    final scores, it works for FCS too, unlike Elo/SP+/FPI (FBS-only,
+    verified live).
+
+Both are computed per (season, week) checkpoint, expanding within a season
+(more games played = the fit leans more on this season's own evidence),
+recursing season-to-season via the prior-season-final-as-prior shrinkage.
+Always point-in-time safe: a team's rating "as of week W" is fit only from
+games strictly before W.
 """
 from __future__ import annotations
 
@@ -26,10 +35,11 @@ HFA_KEY = "__hfa__"
 DEFAULT_PRIOR_WEIGHT = 4.0  # prior counts as ~4 "virtual games" of pull
 
 
-def fit_market_ratings(games: pd.DataFrame, prior: dict[str, float] | None = None, prior_weight: float = DEFAULT_PRIOR_WEIGHT) -> dict[str, float]:
+def fit_massey_ratings(games: pd.DataFrame, prior: dict[str, float] | None = None, prior_weight: float = DEFAULT_PRIOR_WEIGHT) -> dict[str, float]:
     """
-    games: DataFrame with columns home_team, away_team, spread (home-team
-    convention: negative = home favored), neutral_site.
+    games: DataFrame with columns home_team, away_team, target_margin
+    (home-perspective: positive = home won/was favored by that much),
+    neutral_site.
     prior: {team: rating} to shrink toward — teams missing from `games`
     entirely just keep their prior rating unchanged.
     Returns {team: rating}, plus a HFA_KEY entry for the fitted home-field
@@ -44,7 +54,7 @@ def fit_market_ratings(games: pd.DataFrame, prior: dict[str, float] | None = Non
     rows: list[np.ndarray] = []
     targets: list[float] = []
     for _, g in games.iterrows():
-        if pd.isna(g["spread"]):
+        if pd.isna(g["target_margin"]):
             continue
         row = np.zeros(n + 1)
         row[idx[g["home_team"]]] = 1
@@ -52,7 +62,7 @@ def fit_market_ratings(games: pd.DataFrame, prior: dict[str, float] | None = Non
         if not g["neutral_site"]:
             row[n] = 1  # HFA column
         rows.append(row)
-        targets.append(-float(g["spread"]))  # spread is negative when home is favored -> -spread = market's implied home margin
+        targets.append(float(g["target_margin"]))
 
     if prior:
         w = prior_weight**0.5
@@ -73,35 +83,53 @@ def fit_market_ratings(games: pd.DataFrame, prior: dict[str, float] | None = Non
     return ratings
 
 
-def compute_expanding_market_ratings(games: pd.DataFrame) -> pd.DataFrame:
-    """
-    games: full historical set, columns: season, week, home_team, away_team,
-    spread, neutral_site, start_date. Must be games with a known closing
-    spread (already-played games only — this is a retrospective "what did
-    the market think" signal, not usable for games that haven't closed yet).
-
-    Returns one row per (season, week, team): the team's market-implied
-    rating fit from every game in that season strictly before `week`,
-    shrunk toward the previous season's final rating. Use this by looking
-    up (season, week_of_target_game, team) — never the target game's own
-    season+week using games that include itself.
-    """
-    games = games.dropna(subset=["spread"]).sort_values(["season", "week"])
+def _compute_expanding_ratings(games: pd.DataFrame, value_col: str) -> pd.DataFrame:
+    """Shared expanding/recursive computation - games must already have a
+    `target_margin` column (caller decides what that means)."""
+    games = games.dropna(subset=["target_margin"]).sort_values(["season", "week"])
     out_rows = []
     prior: dict[str, float] | None = None
 
     for season, season_games in games.groupby("season"):
         weeks = sorted(season_games["week"].unique())
-        season_final = prior  # will be overwritten with this season's own final fit at the end
         for week in weeks:
             before = season_games[season_games["week"] < week]
-            ratings = fit_market_ratings(before, prior=prior) if len(before) > 0 else dict(prior or {})
+            ratings = fit_massey_ratings(before, prior=prior) if len(before) > 0 else dict(prior or {})
             for team, rating in ratings.items():
                 if team == HFA_KEY:
                     continue
-                out_rows.append({"season": season, "week": week, "team": team, "market_rating": rating})
+                out_rows.append({"season": season, "week": week, "team": team, value_col: rating})
         # Season-final rating (all of this season's games) becomes next season's prior.
-        season_final = fit_market_ratings(season_games, prior=prior)
+        season_final = fit_massey_ratings(season_games, prior=prior)
         prior = {t: r for t, r in season_final.items() if t != HFA_KEY}
 
     return pd.DataFrame(out_rows)
+
+
+def compute_expanding_market_ratings(games: pd.DataFrame) -> pd.DataFrame:
+    """
+    games: full historical set, columns: season, week, home_team, away_team,
+    spread, neutral_site. Must be games with a known closing spread
+    (already-played games only — this is a retrospective "what did the
+    market think" signal, not usable for games that haven't closed yet).
+
+    Returns one row per (season, week, team): the team's market-implied
+    rating (column "market_rating") as of that week - see module docstring.
+    """
+    games = games.copy()
+    games["target_margin"] = -games["spread"]  # spread negative when home favored -> -spread = market's implied home margin
+    return _compute_expanding_ratings(games, "market_rating")
+
+
+def compute_expanding_results_ratings(games: pd.DataFrame) -> pd.DataFrame:
+    """
+    games: full historical set, columns: season, week, home_team, away_team,
+    actual_margin, neutral_site. Only needs games + final scores - works
+    for FCS too, unlike Elo/SP+/FPI.
+
+    Returns one row per (season, week, team): the team's from-scratch
+    results-based rating (column "results_rating") as of that week.
+    """
+    games = games.copy()
+    games["target_margin"] = games["actual_margin"]
+    return _compute_expanding_ratings(games, "results_rating")

@@ -207,6 +207,44 @@ create table if not exists team_returning_production (
   primary key (season, team_id)
 );
 
+-- Coaching continuity: is_new_coach = the head coach's hireDate falls in
+-- the offseason immediately before this season (or, rarely, mid-season -
+-- an in-season interim/replacement hire). A coaching change is its own
+-- volatility signal for early-season predictions/power-rating priors,
+-- alongside returning production and transfer portal activity.
+create table if not exists team_coaching (
+  season integer not null,
+  team_id integer not null references teams(id),
+  team text not null,
+  coach_name text,
+  hire_date timestamptz,
+  is_new_coach boolean not null,
+  primary key (season, team_id)
+);
+
+-- CFB Trader Desk's own power ratings (python/modeling/power_rating.py) -
+-- current-week snapshot only (one row per team, overwritten each sync),
+-- unlike the historical weekly progression used internally for model
+-- features. overall = scoring_off + scoring_def (predicted margin vs a
+-- league-average opponent, scoring basis). efficiency_* is the parallel
+-- PPA-based decomposition - sometimes disagrees with the scoring version,
+-- both are shown since they're not just always the same signal.
+create table if not exists team_power_ratings (
+  season integer not null,
+  week integer not null,
+  team_id integer not null references teams(id),
+  team text not null,
+  classification text,
+  scoring_off numeric,
+  scoring_def numeric,
+  overall numeric,
+  efficiency_off numeric,
+  efficiency_def numeric,
+  updated_at timestamptz not null default now(),
+  primary key (team_id)
+);
+create index if not exists team_power_ratings_overall_idx on team_power_ratings(overall desc);
+
 -- Raw transfer portal entries. origin/destination team ids are resolved by
 -- name match against `teams` where possible (nullable — not every transfer
 -- has a resolved destination at the time CFBD records it, e.g. still
@@ -277,6 +315,8 @@ alter table team_ratings enable row level security;
 alter table predictions enable row level security;
 alter table team_talent enable row level security;
 alter table team_returning_production enable row level security;
+alter table team_coaching enable row level security;
+alter table team_power_ratings enable row level security;
 alter table player_transfers enable row level security;
 
 create policy "public read" on teams for select using (true);
@@ -290,4 +330,6 @@ create policy "public read" on team_ratings for select using (true);
 create policy "public read" on predictions for select using (true);
 create policy "public read" on team_talent for select using (true);
 create policy "public read" on team_returning_production for select using (true);
+create policy "public read" on team_coaching for select using (true);
+create policy "public read" on team_power_ratings for select using (true);
 create policy "public read" on player_transfers for select using (true);

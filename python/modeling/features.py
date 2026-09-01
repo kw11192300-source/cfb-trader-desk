@@ -32,7 +32,8 @@ import pandas as pd
 
 from cfbd_ingest.supabase_client import fetch_all, get_client
 
-from .market_rating import compute_expanding_market_ratings
+from .market_rating import compute_expanding_market_ratings, compute_expanding_results_ratings
+from .power_rating import compute_expanding_efficiency_ratings, compute_expanding_scoring_ratings
 
 MODEL_PROJECTIONS = {"numberfire", "teamrankings"}
 # Bovada matters here specifically because it's the book with by far the best
@@ -250,6 +251,52 @@ def _cumulative_scoring(games: pd.DataFrame) -> pd.DataFrame:
     return long[["id", "team_id", "cum_points_scored", "cum_points_allowed"]].rename(columns={"id": "game_id"})
 
 
+def build_continuity_multipliers(
+    seasons: list[int],
+    returning: pd.DataFrame,
+    net_transfer_stars: pd.DataFrame,
+    coaching: pd.DataFrame,
+    id_to_name: dict[int, str],
+) -> dict[tuple[int, str], float]:
+    """{(season, team_name): multiplier} for the power-rating prior weight
+    - how much a team's PRIOR-season rating should be trusted heading into
+    `season`. Combines three continuity signals, each scaled to be ~1.0 at
+    a "typical" team and pulling toward 0 the less continuity there is:
+      - returning production %: 0.4 (nothing returning) to 1.6 (everything
+        returning), linear, ~1.0 around the ~50% that's typical.
+      - new head coach: flat 0.6x penalty - a real disruption regardless
+        of roster continuity.
+      - net transfer-portal stars: modest +/-30% based on net blue-chip
+        talent gained/lost (the sign of a MAJOR overhaul beyond what
+        returning-production alone captures).
+    Clipped to [0.2, 2.0] to avoid pathological weights from any one
+    extreme signal. Missing data for a team defaults its component to 1.0
+    (no adjustment) rather than penalizing for lack of data.
+    """
+    returning_map = {(row["season"], row["team_id"]): row["returning_ppa_pct"] for _, row in returning.iterrows()} if not returning.empty else {}
+    transfer_map = (
+        {(row["season"], row["team_id"]): row["net_transfer_stars"] for _, row in net_transfer_stars.iterrows()} if not net_transfer_stars.empty else {}
+    )
+    coaching_map = {(row["season"], row["team_id"]): row["is_new_coach"] for _, row in coaching.iterrows()} if not coaching.empty else {}
+
+    all_keys = set(returning_map.keys()) | set(transfer_map.keys()) | set(coaching_map.keys())
+    out: dict[tuple[int, str], float] = {}
+    for season, team_id in all_keys:
+        if season not in seasons or team_id not in id_to_name:
+            continue
+        mult = 1.0
+        rp = returning_map.get((season, team_id))
+        if rp is not None:
+            mult *= max(0.4, min(1.6, 0.4 + 1.2 * rp))
+        if coaching_map.get((season, team_id)):
+            mult *= 0.6
+        nts = transfer_map.get((season, team_id))
+        if nts is not None:
+            mult *= max(0.7, min(1.3, 1 + nts / 50))
+        out[(season, id_to_name[team_id])] = max(0.2, min(2.0, mult))
+    return out
+
+
 def _asof_elo(elo_df: pd.DataFrame, games: pd.DataFrame) -> pd.DataFrame:
     """Elo as of the most recent rated week strictly before each game's own
     week, per (season, team)."""
@@ -356,7 +403,35 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
     print("Computing market-implied power ratings...")
     market_input = all_games.merge(lines[["spread"]], left_on="id", right_index=True, how="left")
     market_ratings = compute_expanding_market_ratings(
-        market_input.rename(columns={"season": "season", "week": "week"})[["season", "week", "home_team", "away_team", "spread", "neutral_site"]]
+        market_input[["season", "week", "home_team", "away_team", "spread", "neutral_site"]]
+    )
+
+    print("Computing our own results-based power ratings...")
+    results_input = all_games.copy()
+    results_input["actual_margin"] = results_input["home_points"] - results_input["away_points"]
+    results_ratings = compute_expanding_results_ratings(
+        results_input[["season", "week", "home_team", "away_team", "actual_margin", "neutral_site"]]
+    )
+
+    print("Loading coaching continuity...")
+    coaching = _fetch_seasons("team_coaching", "season,team_id,is_new_coach", all_seasons)
+
+    print("Computing CFB Trader Desk power ratings (scoring + efficiency, own O/D system)...")
+    id_to_name = pd.Series(all_games["home_team"].values, index=all_games["home_id"]).to_dict()
+    id_to_name.update(pd.Series(all_games["away_team"].values, index=all_games["away_id"]).to_dict())
+    continuity_multipliers = build_continuity_multipliers(all_seasons, returning, net_transfer_stars, coaching, id_to_name)
+
+    scoring_ratings = compute_expanding_scoring_ratings(
+        all_games[["season", "week", "home_team", "away_team", "home_points", "away_points", "neutral_site"]],
+        continuity_multipliers,
+    )
+    ppa_by_game_team = game_stats[["game_id", "team_id", "off_ppa"]] if not game_stats.empty else pd.DataFrame(columns=["game_id", "team_id", "off_ppa"])
+    ppa_input = all_games.merge(
+        ppa_by_game_team.rename(columns={"team_id": "home_id", "off_ppa": "home_ppa"}), left_on=["id", "home_id"], right_on=["game_id", "home_id"], how="left"
+    ).merge(ppa_by_game_team.rename(columns={"team_id": "away_id", "off_ppa": "away_ppa"}), left_on=["id", "away_id"], right_on=["game_id", "away_id"], how="left")
+    efficiency_ratings = compute_expanding_efficiency_ratings(
+        ppa_input[["season", "week", "home_team", "away_team", "home_ppa", "away_ppa", "neutral_site"]],
+        continuity_multipliers,
     )
 
     # --- Assemble ---
@@ -375,6 +450,9 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
     returning_lookup = lookup(returning, "season", "team_id", "returning_ppa_pct") if not returning.empty else {}
     transfer_lookup = lookup(net_transfer_stars, "season", "team_id", "net_transfer_stars") if not net_transfer_stars.empty else {}
     market_lookup = {(r["season"], r["week"], r["team"]): r["market_rating"] for _, r in market_ratings.iterrows()} if not market_ratings.empty else {}
+    results_lookup = {(r["season"], r["week"], r["team"]): r["results_rating"] for _, r in results_ratings.iterrows()} if not results_ratings.empty else {}
+    power_scoring_lookup = {(r["season"], r["week"], r["team"]): r for _, r in scoring_ratings.iterrows()} if not scoring_ratings.empty else {}
+    power_efficiency_lookup = {(r["season"], r["week"], r["team"]): r for _, r in efficiency_ratings.iterrows()} if not efficiency_ratings.empty else {}
 
     rows = []
     for g in games.itertuples():
@@ -436,6 +514,16 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
             "away_net_transfer_stars": transfer_lookup.get((g.season, g.away_id), 0),
             "home_market_rating": market_lookup.get((g.season, g.week, g.home_team)),
             "away_market_rating": market_lookup.get((g.season, g.week, g.away_team)),
+            "home_results_rating": results_lookup.get((g.season, g.week, g.home_team)),
+            "away_results_rating": results_lookup.get((g.season, g.week, g.away_team)),
+            "home_scoring_off": power_scoring_lookup.get((g.season, g.week, g.home_team), {}).get("scoring_off"),
+            "home_scoring_def": power_scoring_lookup.get((g.season, g.week, g.home_team), {}).get("scoring_def"),
+            "away_scoring_off": power_scoring_lookup.get((g.season, g.week, g.away_team), {}).get("scoring_off"),
+            "away_scoring_def": power_scoring_lookup.get((g.season, g.week, g.away_team), {}).get("scoring_def"),
+            "home_efficiency_off": power_efficiency_lookup.get((g.season, g.week, g.home_team), {}).get("efficiency_off"),
+            "home_efficiency_def": power_efficiency_lookup.get((g.season, g.week, g.home_team), {}).get("efficiency_def"),
+            "away_efficiency_off": power_efficiency_lookup.get((g.season, g.week, g.away_team), {}).get("efficiency_off"),
+            "away_efficiency_def": power_efficiency_lookup.get((g.season, g.week, g.away_team), {}).get("efficiency_def"),
             # Targets
             "actual_margin": g.home_points - g.away_points,
             "actual_total": g.home_points + g.away_points,
