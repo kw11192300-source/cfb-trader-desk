@@ -15,10 +15,10 @@ function TeamLogo({ src, alt }: { src: string | null; alt: string }) {
   );
 }
 
-function fmt(n: number | null): string {
+function fmt(n: number | null, decimals: number = 1): string {
   if (n === null || n === undefined || Number.isNaN(n)) return "—";
   const sign = n > 0 ? "+" : "";
-  return `${sign}${n.toFixed(1)}`;
+  return `${sign}${n.toFixed(decimals)}`;
 }
 
 type SortKey = "overall" | "scoring_off" | "scoring_def" | "efficiency_off" | "efficiency_def";
@@ -131,8 +131,8 @@ export default function RatingsTable({ rows }: { rows: PowerRatingRow[] }) {
                   <td className="border-l border-border px-4 py-2.5 text-right font-mono text-foreground">{fmt(r.overall)}</td>
                   <td className="border-l border-border px-4 py-2.5 text-right font-mono text-foreground">{fmt(r.scoring_off)}</td>
                   <td className="border-l border-border px-4 py-2.5 text-right font-mono text-foreground">{fmt(r.scoring_def)}</td>
-                  <td className="border-l border-border px-4 py-2.5 text-right font-mono text-foreground">{fmt(r.efficiency_off)}</td>
-                  <td className="border-l border-border px-4 py-2.5 text-right font-mono text-foreground">{fmt(r.efficiency_def)}</td>
+                  <td className="border-l border-border px-4 py-2.5 text-right font-mono text-foreground">{fmt(r.efficiency_off, 2)}</td>
+                  <td className="border-l border-border px-4 py-2.5 text-right font-mono text-foreground">{fmt(r.efficiency_def, 2)}</td>
                 </tr>
               ))}
             </tbody>
