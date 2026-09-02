@@ -1,4 +1,5 @@
-import type { ModelBacktest } from "@/lib/types";
+import BacktestGamesTable from "./BacktestGamesTable";
+import type { ModelBacktest, ModelBacktestGame } from "@/lib/types";
 
 const BREAK_EVEN = 0.524;
 
@@ -79,10 +80,17 @@ function BreakdownTable({ title, rows, note }: { title: string; rows: ModelBackt
   );
 }
 
-export default function EdgeBacktestPanel({ results }: { results: Record<string, ModelBacktest[]> }) {
+export default function EdgeBacktestPanel({
+  results,
+  games,
+}: {
+  results: Record<string, ModelBacktest[]>;
+  games: ModelBacktestGame[];
+}) {
   const seasonRows = results["season_win_rate"] ?? [];
   const matchupRows = results["matchup_type"] ?? [];
   const biasRows = results["bias_check"] ?? [];
+  const edgeBucketRows = results["edge_bucket"] ?? [];
 
   if (seasonRows.length === 0) {
     return (
@@ -126,6 +134,23 @@ export default function EdgeBacktestPanel({ results }: { results: Record<string,
           rows={biasRows}
           note="Is this just always taking the points, or always the home team? Near-identical rates each way says no."
         />
+      </div>
+
+      {edgeBucketRows.length > 0 && (
+        <BreakdownTable
+          title="Win rate by edge size"
+          rows={edgeBucketRows}
+          note="How much the model and market disagreed, in points — the number cited in each pick's rationale on the Picks tab."
+        />
+      )}
+
+      <div>
+        <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">Every graded game</h3>
+        <p className="mb-3 text-[11px] text-muted">
+          All week-1 games 2016-2025, every matchup type — defaults to just the top-15-by-edge pool actually bet each season. Widen the filters
+          to see the games that got left out (and why). Click a row for the model&apos;s reasoning on that specific pick.
+        </p>
+        <BacktestGamesTable games={games} />
       </div>
     </div>
   );

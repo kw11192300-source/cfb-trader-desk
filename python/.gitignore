@@ -5,3 +5,4 @@ __pycache__/
 # Local analysis scratch files (not pipeline outputs)
 *.pkl
 preseason_calibration.*
+*.log

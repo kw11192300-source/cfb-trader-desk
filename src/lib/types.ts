@@ -113,7 +113,31 @@ export type Prediction = {
   edge_total: number | null;
   predicted_clv_move: number | null;
   predicted_clv_direction: string | null;
+  rationale: string | null;
   created_at: string;
+};
+
+/** One individual graded game from the same backtest run (python/modeling/
+ * backtest_week1.py) - every week-1 game 2016-2025, all matchup types, not
+ * just the FBS-vs-FBS top-15 pool model_backtests summarizes. is_selected
+ * flags whether it was in that season's top-15-by-edge pool for its own
+ * matchup type. */
+export type ModelBacktestGame = {
+  id: number;
+  model_version: string;
+  season: number;
+  home_team: string;
+  away_team: string;
+  market_spread: number;
+  predicted_margin: number;
+  edge: number;
+  matchup_type: string;
+  pick_team: string;
+  actual_margin: number;
+  correct: boolean;
+  is_selected: boolean;
+  rationale: string | null;
+  computed_at: string;
 };
 
 /** One stored walk-forward backtest row (python/modeling/backtest_week1.py)

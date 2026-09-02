@@ -287,6 +287,11 @@ create table if not exists predictions (
   predicted_clv_move numeric,             -- expected |close - open| for the best-covered book
   predicted_clv_direction text,           -- which side the line is expected to move toward
 
+  rationale text,                         -- plain-language explanation grounded in the actual
+                                           -- continuity/talent signals that drove the prediction
+                                           -- (see predict_week1.py's _build_rationale) - not
+                                           -- every model version populates this
+
   created_at timestamptz not null default now(),
 
   primary key (game_id, model_version)
@@ -314,6 +319,30 @@ create table if not exists model_backtests (
 );
 create index if not exists model_backtests_lookup_idx on model_backtests(model_version, group_key);
 
+-- Every individual graded week-1 game from the same backtest (all matchup
+-- types, not just the FBS-vs-FBS top-15 pool model_backtests summarizes) -
+-- lets the site's Backtest tab list/filter actual games instead of only
+-- showing aggregate rates. is_selected flags whether a game was in that
+-- season's top-15-by-edge pool for its own matchup type (true for "the
+-- strategy" rows specifically when matchup_type = 'fbs_vs_fbs').
+create table if not exists model_backtest_games (
+  id bigserial primary key,
+  model_version text not null,
+  season integer not null,
+  home_team text not null,
+  away_team text not null,
+  market_spread numeric not null,
+  predicted_margin numeric not null,
+  edge numeric not null,
+  matchup_type text not null,
+  pick_team text not null,
+  actual_margin numeric not null,
+  correct boolean not null,
+  is_selected boolean not null,
+  computed_at timestamptz not null default now()
+);
+create index if not exists model_backtest_games_lookup_idx on model_backtest_games(model_version, season);
+
 -- Row Level Security: the Next.js app reads Supabase with the PUBLISHABLE
 -- key (safe to expose to the browser, unlike SUPABASE_SECRET_KEY which only
 -- the Python ingestion scripts and GitHub Actions ever see). With RLS off
@@ -339,6 +368,7 @@ alter table team_coaching enable row level security;
 alter table team_power_ratings enable row level security;
 alter table player_transfers enable row level security;
 alter table model_backtests enable row level security;
+alter table model_backtest_games enable row level security;
 
 create policy "public read" on teams for select using (true);
 create policy "public read" on games for select using (true);
@@ -350,6 +380,7 @@ create policy "public read" on team_game_boxscore for select using (true);
 create policy "public read" on team_ratings for select using (true);
 create policy "public read" on predictions for select using (true);
 create policy "public read" on model_backtests for select using (true);
+create policy "public read" on model_backtest_games for select using (true);
 create policy "public read" on team_talent for select using (true);
 create policy "public read" on team_returning_production for select using (true);
 create policy "public read" on team_coaching for select using (true);

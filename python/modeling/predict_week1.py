@@ -101,6 +101,74 @@ def _latest_elo(before_season: int) -> dict[int, float]:
     return df.drop_duplicates("team_id", keep="last").set_index("team_id")["value"].to_dict()
 
 
+def _edge_bucket_rate(edge: float, buckets: list[tuple[float, float, float, int]]) -> tuple[str, float, int] | None:
+    """buckets: sorted [(lo, hi, win_rate, n), ...] from model_backtests'
+    edge_bucket rows. Returns (label, win_rate, n) for whichever bucket
+    `edge` falls in, or None if edge is below the smallest bucket (the
+    top-15-by-edge selection rarely reaches down that far anyway)."""
+    for lo, hi, win_rate, n in buckets:
+        if lo <= edge < hi:
+            label = f"{lo:.0f}-{hi:.0f}" if hi != float("inf") else f"{lo:.0f}+"
+            return label, win_rate, n
+    return None
+
+
+def _build_rationale(
+    pick_name: str,
+    opp_name: str,
+    pick_returning: float | None,
+    opp_returning: float | None,
+    pick_new_coach: bool,
+    opp_new_coach: bool,
+    pick_talent: float | None,
+    opp_talent: float | None,
+    pick_transfers: float | None,
+    opp_transfers: float | None,
+    edge: float,
+    edge_buckets: list[tuple[float, float, float, int]],
+) -> str:
+    """Built entirely from the actual continuity/talent numbers that fed
+    the model - not fabricated team scouting commentary. Picks the 1-2
+    most differentiating signals between the two teams rather than
+    listing every number, so it reads like a reason, not a data dump."""
+    parts = []
+
+    if pick_returning is not None and opp_returning is not None and abs(pick_returning - opp_returning) >= 0.15:
+        if pick_returning > opp_returning:
+            parts.append(f"{pick_name} returns {pick_returning * 100:.0f}% of last season's production vs. just {opp_returning * 100:.0f}% for {opp_name}")
+        else:
+            parts.append(
+                f"{opp_name} returns only {opp_returning * 100:.0f}% of last season's production (vs. {pick_returning * 100:.0f}% for {pick_name}) - the market's number likely hasn't caught up to that turnover"
+            )
+
+    # Note: a new coach isn't unambiguously bad (could be a real upgrade) so
+    # this states the fact plainly rather than framing it as a point either
+    # for or against whoever has one - getting the DIRECTION backwards here
+    # (which team actually has the new coach) was a real bug, caught by
+    # spot-checking against team_coaching directly.
+    if pick_new_coach and not opp_new_coach:
+        parts.append(f"{pick_name} is breaking in a new coaching staff while {opp_name} retains continuity there")
+    elif opp_new_coach and not pick_new_coach:
+        parts.append(f"{opp_name} is breaking in a new head coach, a real source of preseason uncertainty the market may be underpricing")
+
+    if pick_talent is not None and opp_talent is not None and abs(pick_talent - opp_talent) >= 60:
+        higher, lower = (pick_name, opp_name) if pick_talent > opp_talent else (opp_name, pick_name)
+        parts.append(f"{higher} carries the higher recruiting/portal talent composite than {lower}")
+
+    if pick_transfers is not None and opp_transfers is not None and abs(pick_transfers - opp_transfers) >= 15:
+        better, worse = (pick_name, opp_name) if pick_transfers > opp_transfers else (opp_name, pick_name)
+        parts.append(f"{better} had the stronger transfer-portal haul this offseason")
+
+    reason = "; and ".join(parts) if parts else "the model's own rating gap between these two teams, independent of any single continuity signal"
+    sentence = f"Model favors {pick_name} by {edge:.1f} more than the market does, largely because {reason}."
+
+    bucket = _edge_bucket_rate(edge, edge_buckets)
+    if bucket:
+        label, win_rate, n = bucket
+        sentence += f" Edges of {label} points in this exact setup (week-1 FBS matchups) have covered {win_rate * 100:.0f}% of the time since 2016 (n={n})."
+    return sentence
+
+
 def run() -> None:
     year = datetime.date.today().year
     print(f"Finding week-1 edges for {year}...")
@@ -156,6 +224,18 @@ def run() -> None:
         outgoing = immediate.dropna(subset=["origin_team_id"]).groupby("origin_team_id")["stars"].sum()
         net_transfer_lookup = incoming.sub(outgoing, fill_value=0).to_dict()
 
+    coaching = _fetch_seasons("team_coaching", "season,team_id,is_new_coach", [year])
+    new_coach_lookup = dict(zip(coaching["team_id"], coaching["is_new_coach"])) if not coaching.empty else {}
+
+    edge_bucket_rows = fetch_all("model_backtests", "label,n,win_rate", model_version=MODEL_VERSION, group_key="edge_bucket")
+    edge_buckets: list[tuple[float, float, float, int]] = []
+    for r in edge_bucket_rows:
+        lo_str, _, hi_str = r["label"].partition("-")
+        lo = float(lo_str.rstrip("+"))
+        hi = float(hi_str) if hi_str else float("inf")
+        edge_buckets.append((lo, hi, r["win_rate"], r["n"]))
+    edge_buckets.sort()
+
     print("Computing carried-forward market/results ratings (through last completed season)...")
     hist_seasons = list(range(year - 10, year))
     from .features import _load_games  # local import - avoid circular concerns at module load
@@ -201,12 +281,15 @@ def run() -> None:
             "scoring_def": p.get("scoring_def"),
             "efficiency_off": p.get("efficiency_off"),
             "efficiency_def": p.get("efficiency_def"),
+            "new_coach": bool(new_coach_lookup.get(team_id, False)),
         }
 
     rows = []
+    team_feats: dict[int, tuple[dict, dict]] = {}  # game_id -> (home_feat, away_feat), reused when building rationale
     for g in games.itertuples():
         home = feat(g.home_id, g.home_team, g.home_conference)
         away = feat(g.away_id, g.away_team, g.away_conference)
+        team_feats[g.id] = (home, away)
         row = {
             "game_id": g.id,
             "home_team": g.home_team,
@@ -256,13 +339,35 @@ def run() -> None:
 
     print(f"\n=== Top {TOP_N} week-1 edges (FBS vs FBS only) ===")
     for _, r in ranked.head(TOP_N).iterrows():
+        pick_home = r["edge"] > 0
+        # Pick's own perspective, not always home's, AND in the same spread
+        # convention (negative = favored) so market and model are directly
+        # comparable/subtractable - market_spread already IS a spread;
+        # predicted_margin is a predicted POINT MARGIN (positive = wins by
+        # that much), the opposite sign convention, so it must be negated
+        # first or the two numbers don't line up even after picking sides.
+        pick_market = r["market_spread"] if pick_home else -r["market_spread"]
+        model_spread = -r["predicted_margin"]
+        pick_model = model_spread if pick_home else -model_spread
         print(
-            f"{r['away_team']:22s} @ {r['home_team']:22s}  market={r['market_spread']:+6.1f}  "
-            f"model={r['predicted_margin']:+6.1f}  edge={abs(r['edge']):5.1f}  pick={r['pick']}"
+            f"{r['away_team']:22s} @ {r['home_team']:22s}  pick={r['pick']:20s} "
+            f"market={pick_market:+6.1f}  model={pick_model:+6.1f}  edge={abs(r['edge']):5.1f}"
         )
 
     records = []
     for _, r in feat_df.iterrows():
+        home_f, away_f = team_feats[r["game_id"]]
+        pick_home = r["edge"] > 0
+        pick_f, opp_f = (home_f, away_f) if pick_home else (away_f, home_f)
+        pick_name, opp_name = (r["home_team"], r["away_team"]) if pick_home else (r["away_team"], r["home_team"])
+        rationale = _build_rationale(
+            pick_name, opp_name,
+            pick_f["returning_ppa_pct"], opp_f["returning_ppa_pct"],
+            pick_f["new_coach"], opp_f["new_coach"],
+            pick_f["talent"], opp_f["talent"],
+            pick_f["net_transfer_stars"], opp_f["net_transfer_stars"],
+            abs(r["edge"]), edge_buckets,
+        )
         records.append(
             {
                 "game_id": int(r["game_id"]),
@@ -270,6 +375,7 @@ def run() -> None:
                 "predicted_margin": float(r["predicted_margin"]),
                 "market_spread": float(r["market_spread"]),
                 "edge_spread": float(r["edge"]),
+                "rationale": rationale,
             }
         )
     for i in range(0, len(records), 500):

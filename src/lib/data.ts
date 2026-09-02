@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { BettingLine, BoardRow, Game, LineSnapshot, ModelBacktest, OddsApiLine, Prediction, Team, TeamPowerRating } from "./types";
+import type { BettingLine, BoardRow, Game, LineSnapshot, ModelBacktest, ModelBacktestGame, OddsApiLine, Prediction, Team, TeamPowerRating } from "./types";
 
 /**
  * Same idea as the Python side's current_week.py: the earliest
@@ -221,4 +221,19 @@ export async function getBacktestResults(modelVersion: string): Promise<Record<s
     (grouped[row.group_key] ??= []).push(row);
   }
   return grouped;
+}
+
+/** Every individual graded week-1 game from the backtest, newest season
+ * first — the full pool for the site's filter tool, not just the top-15
+ * selection (that's what is_selected + matchup_type='fbs_vs_fbs' filters
+ * down to). */
+export async function getBacktestGames(modelVersion: string): Promise<ModelBacktestGame[]> {
+  const { data, error } = await supabase
+    .from("model_backtest_games")
+    .select("*")
+    .eq("model_version", modelVersion)
+    .order("season", { ascending: false })
+    .order("edge", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as ModelBacktestGame[];
 }

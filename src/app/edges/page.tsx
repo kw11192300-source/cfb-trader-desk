@@ -1,14 +1,18 @@
 import EdgesPageTabs from "@/components/EdgesPageTabs";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
-import { getBacktestResults, getEdges } from "@/lib/data";
+import { getBacktestGames, getBacktestResults, getEdges } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 const MODEL_VERSION = "week1_edge_v1";
 
 export default async function EdgesPage() {
-  const [rows, backtestResults] = await Promise.all([getEdges(MODEL_VERSION), getBacktestResults(MODEL_VERSION)]);
+  const [rows, backtestResults, backtestGames] = await Promise.all([
+    getEdges(MODEL_VERSION),
+    getBacktestResults(MODEL_VERSION),
+    getBacktestGames(MODEL_VERSION),
+  ]);
   const generatedAt = rows.length > 0 ? rows[0].prediction.created_at : null;
 
   return (
@@ -29,7 +33,7 @@ export default async function EdgesPage() {
             against trivial favorite/underdog or home/away bias.
           </p>
         </div>
-        <EdgesPageTabs rows={rows} generatedAt={generatedAt} backtestResults={backtestResults} />
+        <EdgesPageTabs rows={rows} generatedAt={generatedAt} backtestResults={backtestResults} backtestGames={backtestGames} />
       </main>
 
       <SiteFooter />

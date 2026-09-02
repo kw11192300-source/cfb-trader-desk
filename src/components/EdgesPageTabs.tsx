@@ -4,7 +4,7 @@ import { useState } from "react";
 import EdgeBacktestPanel from "./EdgeBacktestPanel";
 import EdgesTable from "./EdgesTable";
 import type { EdgeRow } from "@/lib/data";
-import type { ModelBacktest } from "@/lib/types";
+import type { ModelBacktest, ModelBacktestGame } from "@/lib/types";
 
 type Tab = "picks" | "backtest";
 
@@ -12,10 +12,12 @@ export default function EdgesPageTabs({
   rows,
   generatedAt,
   backtestResults,
+  backtestGames,
 }: {
   rows: EdgeRow[];
   generatedAt: string | null;
   backtestResults: Record<string, ModelBacktest[]>;
+  backtestGames: ModelBacktestGame[];
 }) {
   const [tab, setTab] = useState<Tab>("picks");
 
@@ -40,7 +42,11 @@ export default function EdgesPageTabs({
         </button>
       </div>
 
-      {tab === "picks" ? <EdgesTable rows={rows} generatedAt={generatedAt} /> : <EdgeBacktestPanel results={backtestResults} />}
+      {tab === "picks" ? (
+        <EdgesTable rows={rows} generatedAt={generatedAt} />
+      ) : (
+        <EdgeBacktestPanel results={backtestResults} games={backtestGames} />
+      )}
     </div>
   );
 }

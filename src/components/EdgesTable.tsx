@@ -1,18 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import LocalDateTime from "./LocalDateTime";
 import type { EdgeRow } from "@/lib/data";
 
-function TeamLogo({ src, alt }: { src: string | null; alt: string }) {
+function TeamLogo({ src, alt, size = 28 }: { src: string | null; alt: string; size?: number }) {
   if (!src) {
-    return <div className="h-7 w-7 shrink-0 rounded-full bg-white/90 ring-1 ring-black/10" />;
+    return <div className="shrink-0 rounded-full bg-white/90 ring-1 ring-black/10" style={{ width: size, height: size }} />;
   }
   return (
-    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/90 ring-1 ring-black/10">
-      <Image src={src} alt={alt} width={22} height={22} className="h-[22px] w-[22px] object-contain" unoptimized />
+    <div className="flex shrink-0 items-center justify-center rounded-full bg-white/90 ring-1 ring-black/10" style={{ width: size, height: size }}>
+      <Image src={src} alt={alt} width={size - 6} height={size - 6} className="object-contain" style={{ width: size - 6, height: size - 6 }} unoptimized />
     </div>
   );
 }
@@ -22,13 +22,25 @@ function fmtSpread(n: number | null): string {
   return n > 0 ? `+${n.toFixed(1)}` : n.toFixed(1);
 }
 
+/** Both numbers shown from the PICKED team's own perspective, not always
+ * home's, AND in the same spread convention (negative = favored by that
+ * many points) so the two numbers are directly comparable/subtractable -
+ * market − model = edge. market_spread already IS a spread; predicted_margin
+ * is a predicted POINT MARGIN (positive = wins by that much), the opposite
+ * sign convention, so it has to be negated first or the two columns don't
+ * actually line up even after picking the right side. */
+function pickPerspective(marketSpread: number | null, predictedMargin: number | null, pickHome: boolean) {
+  const market = marketSpread === null ? null : pickHome ? marketSpread : -marketSpread;
+  const modelSpread = predictedMargin === null ? null : -predictedMargin;
+  const model = modelSpread === null ? null : pickHome ? modelSpread : -modelSpread;
+  return { market, model };
+}
+
 const TOP_N = 15;
 
 export default function EdgesTable({ rows, generatedAt }: { rows: EdgeRow[]; generatedAt: string | null }) {
   const [showAll, setShowAll] = useState(false);
-
-  const sorted = useMemo(() => rows, [rows]); // already sorted by |edge| in getEdges
-  const visible = showAll ? sorted : sorted.slice(0, TOP_N);
+  const visible = showAll ? rows : rows.slice(0, TOP_N); // rows already sorted by |edge| in getEdges
 
   return (
     <div>
@@ -62,6 +74,57 @@ export default function EdgesTable({ rows, generatedAt }: { rows: EdgeRow[]; gen
         <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">
           No edges computed yet — run <code className="text-foreground">python -m modeling.predict_week1</code>.
         </div>
+      ) : !showAll ? (
+        <div className="flex flex-col gap-3">
+          {visible.map((r, i) => {
+            const { prediction: p, game } = r;
+            const edge = p.edge_spread ?? 0;
+            const pickHome = edge > 0;
+            const pickTeam = pickHome ? game.home_team : game.away_team;
+            const pickLogo = pickHome ? r.homeLogo : r.awayLogo;
+            const { market, model } = pickPerspective(p.market_spread, p.predicted_margin, pickHome);
+            return (
+              <div key={p.game_id} className="rounded-lg border border-border bg-surface p-4">
+                <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <span className="w-5 shrink-0 text-right font-mono text-xs text-muted">{i + 1}</span>
+                    <Link href={`/games/${game.id}`} className="group flex flex-col gap-1.5">
+                      <div className="text-[10px] text-muted">
+                        <LocalDateTime iso={game.start_date} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
+                      </div>
+                      <div className="flex items-center gap-1.5 text-sm text-foreground group-hover:text-accent">
+                        <TeamLogo src={r.awayLogo} alt={game.away_team} size={24} />
+                        <span>{game.away_team}</span>
+                        <span className="text-muted">@</span>
+                        <TeamLogo src={r.homeLogo} alt={game.home_team} size={24} />
+                        <span>{game.home_team}</span>
+                      </div>
+                    </Link>
+                  </div>
+                  <div className="flex items-center gap-4 font-mono text-sm">
+                    <div className="text-right">
+                      <div className="text-[10px] uppercase tracking-wide text-muted">Market</div>
+                      <div className="text-foreground">{fmtSpread(market)}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[10px] uppercase tracking-wide text-muted">Model</div>
+                      <div className="text-foreground">{fmtSpread(model)}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[10px] uppercase tracking-wide text-muted">Edge</div>
+                      <div className="font-medium text-accent">{Math.abs(edge).toFixed(1)}</div>
+                    </div>
+                    <div className="flex items-center gap-1.5 rounded-md bg-surface-raised px-2.5 py-1.5">
+                      <TeamLogo src={pickLogo} alt={pickTeam} size={20} />
+                      <span className="text-foreground">{pickTeam}</span>
+                    </div>
+                  </div>
+                </div>
+                {p.rationale && <p className="border-t border-border pt-3 text-xs leading-relaxed text-muted">{p.rationale}</p>}
+              </div>
+            );
+          })}
+        </div>
       ) : (
         <div className="max-h-[75vh] overflow-auto rounded-lg border border-border">
           <table className="w-full border-collapse text-sm">
@@ -82,6 +145,7 @@ export default function EdgesTable({ rows, generatedAt }: { rows: EdgeRow[]; gen
                 const pickHome = edge > 0;
                 const pickTeam = pickHome ? game.home_team : game.away_team;
                 const pickLogo = pickHome ? r.homeLogo : r.awayLogo;
+                const { market, model } = pickPerspective(p.market_spread, p.predicted_margin, pickHome);
                 return (
                   <tr key={p.game_id} className="border-b border-border last:border-0 odd:bg-surface/50 hover:bg-surface-raised">
                     <td className="sticky left-0 z-10 bg-background px-3 py-2.5 text-right font-mono text-xs text-muted">{i + 1}</td>
@@ -100,8 +164,8 @@ export default function EdgesTable({ rows, generatedAt }: { rows: EdgeRow[]; gen
                         </div>
                       </Link>
                     </td>
-                    <td className="border-l border-border px-4 py-2.5 text-right font-mono text-foreground">{fmtSpread(p.market_spread)}</td>
-                    <td className="border-l border-border px-4 py-2.5 text-right font-mono text-foreground">{fmtSpread(p.predicted_margin)}</td>
+                    <td className="border-l border-border px-4 py-2.5 text-right font-mono text-foreground">{fmtSpread(market)}</td>
+                    <td className="border-l border-border px-4 py-2.5 text-right font-mono text-foreground">{fmtSpread(model)}</td>
                     <td className="border-l border-border px-4 py-2.5 text-right font-mono font-medium text-accent">{Math.abs(edge).toFixed(1)}</td>
                     <td className="border-l border-border px-4 py-2.5 whitespace-nowrap">
                       <div className="flex items-center gap-1.5 text-foreground">
