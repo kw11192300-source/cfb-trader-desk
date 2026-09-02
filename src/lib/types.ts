@@ -95,3 +95,37 @@ export type TeamPowerRating = {
   efficiency_def: number | null;
   updated_at: string;
 };
+
+/** A model's prediction for one game (python/modeling/predict_week1.py and
+ * future predict_week.py writers) — see predictions in schema.sql.
+ * predicted_home_win_prob/predicted_total/predicted_clv_* are populated by
+ * other model versions this table anticipates, not predict_week1.py (margin
+ * only), so stay nullable here. */
+export type Prediction = {
+  game_id: number;
+  model_version: string;
+  predicted_home_win_prob: number | null;
+  predicted_margin: number | null;
+  predicted_total: number | null;
+  market_spread: number | null;
+  market_total: number | null;
+  edge_spread: number | null;
+  edge_total: number | null;
+  predicted_clv_move: number | null;
+  predicted_clv_direction: string | null;
+  created_at: string;
+};
+
+/** One stored walk-forward backtest row (python/modeling/backtest_week1.py)
+ * — general shape (group_key + label rows) rather than one column per
+ * breakdown, since which breakdowns get computed will keep changing. */
+export type ModelBacktest = {
+  id: number;
+  model_version: string;
+  group_key: string;
+  label: string;
+  n: number;
+  win_rate: number;
+  sort_order: number;
+  computed_at: string;
+};

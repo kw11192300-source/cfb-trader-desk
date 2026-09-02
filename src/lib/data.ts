@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { BettingLine, BoardRow, Game, LineSnapshot, OddsApiLine, Team, TeamPowerRating } from "./types";
+import type { BettingLine, BoardRow, Game, LineSnapshot, ModelBacktest, OddsApiLine, Prediction, Team, TeamPowerRating } from "./types";
 
 /**
  * Same idea as the Python side's current_week.py: the earliest
@@ -158,4 +158,67 @@ export async function getPowerRatings(): Promise<PowerRatingRow[]> {
 
   const logoById = new Map((teams as { id: number; logo_url: string | null }[]).map((t) => [t.id, t.logo_url]));
   return (ratings ?? []).map((r) => ({ ...r, logo_url: logoById.get(r.team_id) ?? null })) as PowerRatingRow[];
+}
+
+/** A model prediction joined with its game and both teams' logos, for display. */
+export type EdgeRow = {
+  prediction: Prediction;
+  game: Game;
+  homeLogo: string | null;
+  awayLogo: string | null;
+};
+
+/** CFB Trader Desk's own model edges (python/modeling/predict_week1.py and
+ * future serving scripts) for one model version, ranked by |edge_spread|
+ * descending (biggest model-vs-market disagreement first). */
+export async function getEdges(modelVersion: string): Promise<EdgeRow[]> {
+  const { data: predictions, error: predError } = await supabase
+    .from("predictions")
+    .select("*")
+    .eq("model_version", modelVersion)
+    .not("edge_spread", "is", null);
+  if (predError) throw new Error(predError.message);
+  if (!predictions || predictions.length === 0) return [];
+
+  const gameIds = predictions.map((p) => p.game_id);
+  const [{ data: games, error: gamesError }, { data: teams, error: teamsError }] = await Promise.all([
+    supabase.from("games").select("*").in("id", gameIds),
+    supabase.from("teams").select("id, logo_url"),
+  ]);
+  if (gamesError) throw new Error(gamesError.message);
+  if (teamsError) throw new Error(teamsError.message);
+
+  const gameById = new Map((games as Game[]).map((g) => [g.id, g]));
+  const logoById = new Map((teams as { id: number; logo_url: string | null }[]).map((t) => [t.id, t.logo_url]));
+
+  return (predictions as Prediction[])
+    .map((prediction) => {
+      const game = gameById.get(prediction.game_id);
+      if (!game) return null;
+      return {
+        prediction,
+        game,
+        homeLogo: game.home_id !== null ? (logoById.get(game.home_id) ?? null) : null,
+        awayLogo: game.away_id !== null ? (logoById.get(game.away_id) ?? null) : null,
+      };
+    })
+    .filter((r): r is EdgeRow => r !== null)
+    .sort((a, b) => Math.abs(b.prediction.edge_spread ?? 0) - Math.abs(a.prediction.edge_spread ?? 0));
+}
+
+/** Stored walk-forward backtest rows for one model version, grouped by
+ * group_key (e.g. "season_win_rate" -> one row per test season). */
+export async function getBacktestResults(modelVersion: string): Promise<Record<string, ModelBacktest[]>> {
+  const { data, error } = await supabase
+    .from("model_backtests")
+    .select("*")
+    .eq("model_version", modelVersion)
+    .order("sort_order", { ascending: true });
+  if (error) throw new Error(error.message);
+
+  const grouped: Record<string, ModelBacktest[]> = {};
+  for (const row of (data ?? []) as ModelBacktest[]) {
+    (grouped[row.group_key] ??= []).push(row);
+  }
+  return grouped;
 }

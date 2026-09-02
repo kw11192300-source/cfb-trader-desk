@@ -22,6 +22,9 @@ export default function SiteHeader({ subtitle }: { subtitle: string }) {
           <Link href="/ratings" className="text-muted transition-colors hover:text-foreground">
             Ratings
           </Link>
+          <Link href="/edges" className="text-muted transition-colors hover:text-foreground">
+            Edges
+          </Link>
           <div className="flex items-center gap-2 text-muted">
             <span className="h-2 w-2 rounded-full bg-up" />
             live

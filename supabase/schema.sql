@@ -294,6 +294,26 @@ create table if not exists predictions (
 
 create index if not exists predictions_game_id_idx on predictions(game_id);
 
+-- Stored walk-forward backtest results (python/modeling/backtest_week1.py)
+-- for the site's own "Backtest" tab - a general-purpose shape (metric +
+-- label rows) rather than one column per breakdown, since which breakdowns
+-- get computed will keep changing as the model does. `model_version`
+-- scopes results to one model so old backtests stay comparable across
+-- model changes, same as `predictions`. group_key lets the UI pull just
+-- "one row per season" vs "one row per matchup type" etc without parsing
+-- label strings.
+create table if not exists model_backtests (
+  id bigserial primary key,
+  model_version text not null,
+  group_key text not null,        -- e.g. 'season_win_rate', 'bias_check', 'matchup_type'
+  label text not null,            -- e.g. '2016', 'picked_favorite', 'fbs_vs_fbs'
+  n integer not null,
+  win_rate numeric not null,
+  sort_order integer not null default 0,
+  computed_at timestamptz not null default now()
+);
+create index if not exists model_backtests_lookup_idx on model_backtests(model_version, group_key);
+
 -- Row Level Security: the Next.js app reads Supabase with the PUBLISHABLE
 -- key (safe to expose to the browser, unlike SUPABASE_SECRET_KEY which only
 -- the Python ingestion scripts and GitHub Actions ever see). With RLS off
@@ -318,6 +338,7 @@ alter table team_returning_production enable row level security;
 alter table team_coaching enable row level security;
 alter table team_power_ratings enable row level security;
 alter table player_transfers enable row level security;
+alter table model_backtests enable row level security;
 
 create policy "public read" on teams for select using (true);
 create policy "public read" on games for select using (true);
@@ -328,6 +349,7 @@ create policy "public read" on team_game_stats for select using (true);
 create policy "public read" on team_game_boxscore for select using (true);
 create policy "public read" on team_ratings for select using (true);
 create policy "public read" on predictions for select using (true);
+create policy "public read" on model_backtests for select using (true);
 create policy "public read" on team_talent for select using (true);
 create policy "public read" on team_returning_production for select using (true);
 create policy "public read" on team_coaching for select using (true);
