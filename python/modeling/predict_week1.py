@@ -250,6 +250,28 @@ def run() -> None:
     coaching = _fetch_seasons("team_coaching", "season,team_id,is_new_coach", [year])
     new_coach_lookup = dict(zip(coaching["team_id"], coaching["is_new_coach"])) if not coaching.empty else {}
 
+    # For compute_expanding_market_ratings/compute_expanding_results_ratings'
+    # own week-1 continuity shrink (see market_rating.py) - same signals
+    # already fetched above, just reshaped: returning needs its own column
+    # (not buried in the stats JSONB), net transfers as a (season, team_id)
+    # DataFrame rather than the flat lookup dict used elsewhere in this file.
+    returning_for_mult = returning.copy()
+    if not returning_for_mult.empty:
+        returning_for_mult["returning_ppa_pct"] = returning_for_mult["stats"].apply(lambda s: s.get("percentPPA") if isinstance(s, dict) else None)
+    net_transfer_stars_df = pd.DataFrame(columns=["season", "team_id", "net_transfer_stars"])
+    if not transfers.empty:
+        immediate = transfers[transfers["eligibility"] == "Immediate"].copy()
+        incoming = immediate.dropna(subset=["destination_team_id"]).groupby(["season", "destination_team_id"])["stars"].sum()
+        outgoing = immediate.dropna(subset=["origin_team_id"]).groupby(["season", "origin_team_id"])["stars"].sum()
+        incoming.index.names = outgoing.index.names = ["season", "team_id"]
+        net_transfer_stars_df = incoming.sub(outgoing, fill_value=0).reset_index(name="net_transfer_stars")
+    id_to_name = dict(zip(games["home_id"], games["home_team"]))
+    id_to_name.update(dict(zip(games["away_id"], games["away_team"])))
+    from .features import build_continuity_multipliers  # local import - avoid circular concerns at module load
+
+    continuity_multipliers = build_continuity_multipliers([year], returning_for_mult, net_transfer_stars_df, coaching, id_to_name)
+    fbs_teams = set(games["home_team"]) | set(games["away_team"])  # this script is already FBS-vs-FBS only
+
     edge_bucket_rows = fetch_all("model_backtests", "label,n,win_rate", model_version=MODEL_VERSION, group_key="edge_bucket")
     edge_buckets: list[tuple[float, float, float, int]] = []
     for r in edge_bucket_rows:
@@ -274,15 +296,30 @@ def run() -> None:
             spread_input = spread_input.dropna(subset=["spread"])
             if not spread_input.empty:
                 mr = compute_expanding_market_ratings(
-                    spread_input[["season", "week", "home_team", "away_team", "spread", "neutral_site"]]
+                    spread_input[["season", "week", "home_team", "away_team", "spread", "neutral_site"]],
+                    continuity_multipliers,
+                    fbs_teams,
                 )
                 if not mr.empty:
                     market_rating_lookup = mr.sort_values(["season", "week"]).drop_duplicates("team", keep="last").set_index("team")["market_rating"].to_dict()
         results_input = hist_games.dropna(subset=["home_points", "away_points"]).copy()
         results_input["actual_margin"] = results_input["home_points"] - results_input["away_points"]
-        rr = compute_expanding_results_ratings(results_input[["season", "week", "home_team", "away_team", "actual_margin", "neutral_site"]])
+        rr = compute_expanding_results_ratings(
+            results_input[["season", "week", "home_team", "away_team", "actual_margin", "neutral_site"]], continuity_multipliers, fbs_teams
+        )
         if not rr.empty:
             results_rating_lookup = rr.sort_values(["season", "week"]).drop_duplicates("team", keep="last").set_index("team")["results_rating"].to_dict()
+
+    # The walk-forward calls above only ever fit hist_seasons (year-10..year-1)
+    # - their own internal week-1 shrink never gets to see THIS season's
+    # continuity data, since `year` never appears in that walk. What we took
+    # is each team's raw last-season-final value, exactly the same gap
+    # power_rating.py had before its fix. Apply the same shrink directly to
+    # the resulting lookups using this season's own continuity multipliers.
+    from .market_rating import _shrink_to_mean  # local import - internal reuse, same package
+
+    market_rating_lookup = _shrink_to_mean(market_rating_lookup, fbs_teams, {t: continuity_multipliers.get((year, t), 1.0) for t in market_rating_lookup})
+    results_rating_lookup = _shrink_to_mean(results_rating_lookup, fbs_teams, {t: continuity_multipliers.get((year, t), 1.0) for t in results_rating_lookup})
 
     print("Training margin model on all completed seasons through last year...")
     train_df = build_training_dataset(list(range(year - 11, year)))

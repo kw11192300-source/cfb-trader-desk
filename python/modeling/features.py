@@ -415,34 +415,38 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
         net = incoming.sub(outgoing, fill_value=0).reset_index(name="net_transfer_stars")
         net_transfer_stars = net
 
+    print("Loading coaching continuity...")
+    coaching = _fetch_seasons("team_coaching", "season,team_id,is_new_coach", all_seasons)
+
+    id_to_name = pd.Series(all_games["home_team"].values, index=all_games["home_id"]).to_dict()
+    id_to_name.update(pd.Series(all_games["away_team"].values, index=all_games["away_id"]).to_dict())
+    continuity_multipliers = build_continuity_multipliers(all_seasons, returning, net_transfer_stars, coaching, id_to_name)
+
+    # Names, not ids - the Massey fits work in team-name space. Used only to
+    # pick the centering/shrink reference (0 = average FBS team), not to
+    # filter games; FBS/FCS still fit together in one linked system.
+    fbs_teams = set(all_games.loc[all_games["home_classification"] == "fbs", "home_team"]) | set(
+        all_games.loc[all_games["away_classification"] == "fbs", "away_team"]
+    )
+
     print("Computing market-implied power ratings...")
     market_input = all_games.merge(lines[["spread"]], left_on="id", right_index=True, how="left")
     market_ratings = compute_expanding_market_ratings(
-        market_input[["season", "week", "home_team", "away_team", "spread", "neutral_site"]]
+        market_input[["season", "week", "home_team", "away_team", "spread", "neutral_site"]],
+        continuity_multipliers,
+        fbs_teams,
     )
 
     print("Computing our own results-based power ratings...")
     results_input = all_games.copy()
     results_input["actual_margin"] = results_input["home_points"] - results_input["away_points"]
     results_ratings = compute_expanding_results_ratings(
-        results_input[["season", "week", "home_team", "away_team", "actual_margin", "neutral_site"]]
+        results_input[["season", "week", "home_team", "away_team", "actual_margin", "neutral_site"]],
+        continuity_multipliers,
+        fbs_teams,
     )
-
-    print("Loading coaching continuity...")
-    coaching = _fetch_seasons("team_coaching", "season,team_id,is_new_coach", all_seasons)
 
     print("Computing CFB Trader Desk power ratings (scoring + efficiency, own O/D system)...")
-    id_to_name = pd.Series(all_games["home_team"].values, index=all_games["home_id"]).to_dict()
-    id_to_name.update(pd.Series(all_games["away_team"].values, index=all_games["away_id"]).to_dict())
-    continuity_multipliers = build_continuity_multipliers(all_seasons, returning, net_transfer_stars, coaching, id_to_name)
-
-    # Names, not ids - power_rating.py's fit works in team-name space. Used
-    # only to pick the centering reference (0 = average FBS team), not to
-    # filter games; FBS/FCS still fit together in one linked system.
-    fbs_teams = set(all_games.loc[all_games["home_classification"] == "fbs", "home_team"]) | set(
-        all_games.loc[all_games["away_classification"] == "fbs", "away_team"]
-    )
-
     scoring_ratings = compute_expanding_scoring_ratings(
         all_games[["season", "week", "home_team", "away_team", "home_points", "away_points", "neutral_site"]],
         continuity_multipliers,
