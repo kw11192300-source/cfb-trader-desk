@@ -42,7 +42,7 @@ from cfbd_ingest.supabase_client import fetch_all, get_client
 
 from .features import _fetch_seasons, build_training_dataset
 from .outcome_models import FEATURE_COLUMNS
-from .predict_week1 import MODEL_VERSION, TOP_N, _build_rationale
+from .predict_week1 import MODEL_VERSION, TOP_N, _build_rationale, _pick_spread_view
 
 FIRST_TEST_SEASON = 2016
 EDGE_BUCKETS = [(6, 9), (9, 12), (12, 15), (15, 100)]
@@ -184,8 +184,9 @@ def run() -> None:
         pick_new_coach = bool(new_coach_lookup.get((r.season, pick_id), False))
         opp_new_coach = bool(new_coach_lookup.get((r.season, opp_id), False))
 
+        pick_mkt, pick_mdl = _pick_spread_view(r.market_spread, r.pred, r.pick_home)
         rationale = _build_rationale(
-            pick_team, opp_team,
+            pick_team, opp_team, pick_mkt, pick_mdl,
             pick_returning, opp_returning,
             pick_new_coach, opp_new_coach,
             pick_talent, opp_talent,

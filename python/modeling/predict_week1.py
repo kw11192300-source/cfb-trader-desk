@@ -113,9 +113,24 @@ def _edge_bucket_rate(edge: float, buckets: list[tuple[float, float, float, int]
     return None
 
 
+def _pick_spread_view(market_spread: float, predicted_margin: float, pick_home: bool) -> tuple[float, float]:
+    """market_spread and predicted_margin, both from the PICKED team's own
+    perspective and in the same spread convention (negative = favored) -
+    same fix as the site's EdgesTable/BacktestGamesTable, so market − model
+    == edge and the rationale's numbers match what's displayed. Kept
+    separate from those (duplicated, not imported) since one's Python and
+    one's TypeScript."""
+    market = market_spread if pick_home else -market_spread
+    model_spread = -predicted_margin
+    model = model_spread if pick_home else -model_spread
+    return market, model
+
+
 def _build_rationale(
     pick_name: str,
     opp_name: str,
+    pick_market: float,
+    pick_model: float,
     pick_returning: float | None,
     opp_returning: float | None,
     pick_new_coach: bool,
@@ -128,39 +143,47 @@ def _build_rationale(
     edge_buckets: list[tuple[float, float, float, int]],
 ) -> str:
     """Built entirely from the actual continuity/talent numbers that fed
-    the model - not fabricated team scouting commentary. Picks the 1-2
-    most differentiating signals between the two teams rather than
-    listing every number, so it reads like a reason, not a data dump."""
+    the model - not fabricated team scouting commentary. Cites a signal
+    ONLY when it actually points toward the pick (pick_x - opp_x past the
+    threshold) - never states a fact that favors the OPPONENT as if it
+    were a reason to like the pick. Each signal has exactly one directional
+    check, not a pair of "pick wins" / "opp wins" branches - a prior
+    version had a second branch for "opp is weak" that was, mathematically,
+    just the same comparison restated backwards, which produced exactly
+    this bug: the 2023 Ohio State/Indiana game cited Ohio State's OWN
+    higher returning production and higher talent as reasons to like
+    Indiana, because that branch fired on any big gap regardless of which
+    side it actually favored. Caught by a viewer noticing the cited
+    reasoning pointed the opposite way from the actual pick. When none of
+    these signals happen to support the pick, the model's edge is coming
+    from something else entirely (usually the raw rating gap) and the
+    fallback says exactly that, honestly, rather than manufacturing a
+    reason."""
     parts = []
 
-    if pick_returning is not None and opp_returning is not None and abs(pick_returning - opp_returning) >= 0.15:
-        if pick_returning > opp_returning:
-            parts.append(f"{pick_name} returns {pick_returning * 100:.0f}% of last season's production vs. just {opp_returning * 100:.0f}% for {opp_name}")
-        else:
-            parts.append(
-                f"{opp_name} returns only {opp_returning * 100:.0f}% of last season's production (vs. {pick_returning * 100:.0f}% for {pick_name}) - the market's number likely hasn't caught up to that turnover"
-            )
+    if pick_returning is not None and opp_returning is not None and pick_returning - opp_returning >= 0.15:
+        parts.append(f"{pick_name} returns {pick_returning * 100:.0f}% of last season's production vs. just {opp_returning * 100:.0f}% for {opp_name}")
 
-    # Note: a new coach isn't unambiguously bad (could be a real upgrade) so
-    # this states the fact plainly rather than framing it as a point either
-    # for or against whoever has one - getting the DIRECTION backwards here
-    # (which team actually has the new coach) was a real bug, caught by
-    # spot-checking against team_coaching directly.
-    if pick_new_coach and not opp_new_coach:
-        parts.append(f"{pick_name} is breaking in a new coaching staff while {opp_name} retains continuity there")
-    elif opp_new_coach and not pick_new_coach:
+    # A new coach isn't unambiguously bad (could be a real upgrade), so this
+    # only cites it when it's on the OPPONENT's side, as a point of
+    # uncertainty in the number being faded - not when the pick itself has
+    # the new coach, which doesn't clearly argue for taking that side.
+    if opp_new_coach and not pick_new_coach:
         parts.append(f"{opp_name} is breaking in a new head coach, a real source of preseason uncertainty the market may be underpricing")
 
-    if pick_talent is not None and opp_talent is not None and abs(pick_talent - opp_talent) >= 60:
-        higher, lower = (pick_name, opp_name) if pick_talent > opp_talent else (opp_name, pick_name)
-        parts.append(f"{higher} carries the higher recruiting/portal talent composite than {lower}")
+    if pick_talent is not None and opp_talent is not None and pick_talent - opp_talent >= 60:
+        parts.append(f"{pick_name} carries the higher recruiting/portal talent composite than {opp_name}")
 
-    if pick_transfers is not None and opp_transfers is not None and abs(pick_transfers - opp_transfers) >= 15:
-        better, worse = (pick_name, opp_name) if pick_transfers > opp_transfers else (opp_name, pick_name)
-        parts.append(f"{better} had the stronger transfer-portal haul this offseason")
+    if pick_transfers is not None and opp_transfers is not None and pick_transfers - opp_transfers >= 15:
+        parts.append(f"{pick_name} had the stronger transfer-portal haul this offseason")
 
     reason = "; and ".join(parts) if parts else "the model's own rating gap between these two teams, independent of any single continuity signal"
-    sentence = f"Model favors {pick_name} by {edge:.1f} more than the market does, largely because {reason}."
+    market_str = f"{pick_market:+.1f}" if pick_market >= 0 else f"{pick_market:.1f}"
+    model_str = f"{pick_model:+.1f}" if pick_model >= 0 else f"{pick_model:.1f}"
+    sentence = (
+        f"Market has {pick_name} at {market_str}; model has {pick_name} at {model_str} - a {edge:.1f}-point edge. "
+        f"Favors {pick_name} largely because {reason}."
+    )
 
     bucket = _edge_bucket_rate(edge, edge_buckets)
     if bucket:
@@ -340,15 +363,7 @@ def run() -> None:
     print(f"\n=== Top {TOP_N} week-1 edges (FBS vs FBS only) ===")
     for _, r in ranked.head(TOP_N).iterrows():
         pick_home = r["edge"] > 0
-        # Pick's own perspective, not always home's, AND in the same spread
-        # convention (negative = favored) so market and model are directly
-        # comparable/subtractable - market_spread already IS a spread;
-        # predicted_margin is a predicted POINT MARGIN (positive = wins by
-        # that much), the opposite sign convention, so it must be negated
-        # first or the two numbers don't line up even after picking sides.
-        pick_market = r["market_spread"] if pick_home else -r["market_spread"]
-        model_spread = -r["predicted_margin"]
-        pick_model = model_spread if pick_home else -model_spread
+        pick_market, pick_model = _pick_spread_view(r["market_spread"], r["predicted_margin"], pick_home)
         print(
             f"{r['away_team']:22s} @ {r['home_team']:22s}  pick={r['pick']:20s} "
             f"market={pick_market:+6.1f}  model={pick_model:+6.1f}  edge={abs(r['edge']):5.1f}"
@@ -360,8 +375,9 @@ def run() -> None:
         pick_home = r["edge"] > 0
         pick_f, opp_f = (home_f, away_f) if pick_home else (away_f, home_f)
         pick_name, opp_name = (r["home_team"], r["away_team"]) if pick_home else (r["away_team"], r["home_team"])
+        pick_mkt, pick_mdl = _pick_spread_view(r["market_spread"], r["predicted_margin"], pick_home)
         rationale = _build_rationale(
-            pick_name, opp_name,
+            pick_name, opp_name, pick_mkt, pick_mdl,
             pick_f["returning_ppa_pct"], opp_f["returning_ppa_pct"],
             pick_f["new_coach"], opp_f["new_coach"],
             pick_f["talent"], opp_f["talent"],
