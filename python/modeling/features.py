@@ -448,6 +448,48 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
         continuity_multipliers,
         fbs_teams,
     )
+
+    # Replace each season's week-1 (0-games-played) scoring rows with the
+    # learned preseason projection model instead of the flat continuity-
+    # shrink heuristic compute_expanding_scoring_ratings falls back to -
+    # matches what's live in sync_power_ratings.py. Historically this
+    # backtest was silently testing the OLDER heuristic, not the model
+    # actually serving current ratings - this closes that gap. Trained
+    # fresh per season boundary (walk-forward safe: only ever sees
+    # strictly earlier seasons), so this is the same discipline as every
+    # other model in this file, just looped per season since the
+    # projection model itself needs its own walk-forward retraining.
+    from .preseason_projection import (  # local import - avoids a circular import (preseason_projection imports from this module)
+        build_projection_dataset as _build_proj_dataset,
+        predict_projection as _predict_proj,
+        train_projection_def_model as _train_proj_def,
+        train_projection_off_model as _train_proj_off,
+    )
+
+    proj_source = _build_proj_dataset(all_seasons)
+    first_week_by_season = scoring_ratings.groupby("season")["week"].min().to_dict()
+    override_rows = []
+    for season in all_seasons:
+        proj_train = proj_source[proj_source["season"] < season]
+        proj_current = proj_source[
+            (proj_source["season"] == season) & proj_source["prior_off"].notna() & proj_source["prior_def"].notna()
+        ]
+        wk = first_week_by_season.get(season)
+        if proj_train.empty or proj_current.empty or wk is None:
+            continue
+        off_model = _train_proj_off(proj_train)
+        def_model = _train_proj_def(proj_train)
+        pred = _predict_proj(off_model, def_model, proj_current)
+        for _, r in pred.iterrows():
+            override_rows.append(
+                {"season": season, "week": wk, "team": r["team"], "scoring_off": r["predicted_off"], "scoring_def": r["predicted_def"]}
+            )
+    if override_rows:
+        override_df = pd.DataFrame(override_rows).set_index(["season", "week", "team"])
+        scoring_ratings = scoring_ratings.set_index(["season", "week", "team"])
+        scoring_ratings.update(override_df)
+        scoring_ratings = scoring_ratings.reset_index()
+
     ppa_by_game_team = game_stats[["game_id", "team_id", "off_ppa"]] if not game_stats.empty else pd.DataFrame(columns=["game_id", "team_id", "off_ppa"])
     ppa_input = all_games.merge(
         ppa_by_game_team.rename(columns={"team_id": "home_id", "off_ppa": "home_ppa"}), left_on=["id", "home_id"], right_on=["game_id", "home_id"], how="left"

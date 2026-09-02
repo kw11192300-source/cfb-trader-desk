@@ -32,6 +32,7 @@ _TABLE_ORDER_KEYS: dict[str, list[str]] = {
     "odds_api_lines": ["game_id", "bookmaker"],
     "team_coaching": ["season", "team_id"],
     "team_game_boxscore": ["game_id", "team_id"],
+    "team_power_ratings": ["team_id"],
 }
 
 
