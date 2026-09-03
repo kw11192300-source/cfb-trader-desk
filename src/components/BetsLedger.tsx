@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import LocalDateTime from "./LocalDateTime";
 import { deleteBet } from "@/lib/actions";
 import type { GradedBet } from "@/lib/data";
@@ -35,7 +36,22 @@ const SOURCE_STYLE: Record<string, string> = {
 };
 const SOURCE_LABEL: Record<string, string> = { model: "Model", market: "Market", both: "Both" };
 
+type SortMode = "placed" | "kickoff";
+
 export default function BetsLedger({ bets }: { bets: GradedBet[] }) {
+  const [sortMode, setSortMode] = useState<SortMode>("placed");
+
+  const sorted = useMemo(() => {
+    if (sortMode === "placed") return bets; // already placed_at desc from getBets()
+    // Kickoff soonest-first - a bet with no game join (shouldn't normally
+    // happen) sorts last rather than crashing the comparator.
+    return [...bets].sort((a, b) => {
+      if (!a.game) return 1;
+      if (!b.game) return -1;
+      return new Date(a.game.start_date).getTime() - new Date(b.game.start_date).getTime();
+    });
+  }, [bets, sortMode]);
+
   const graded = bets.filter((b) => b.status !== "pending");
   const wins = graded.filter((b) => b.status === "win").length;
   const losses = graded.filter((b) => b.status === "loss").length;
@@ -77,6 +93,30 @@ export default function BetsLedger({ bets }: { bets: GradedBet[] }) {
         </div>
       </div>
 
+      {bets.length > 0 && (
+        <div className="mb-3 flex items-center gap-2">
+          <span className="text-xs text-muted">Sort:</span>
+          <div className="flex gap-1 rounded-lg border border-border bg-surface p-1 w-fit">
+            <button
+              onClick={() => setSortMode("placed")}
+              className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                sortMode === "placed" ? "bg-accent text-background" : "text-muted hover:text-foreground"
+              }`}
+            >
+              Recently placed
+            </button>
+            <button
+              onClick={() => setSortMode("kickoff")}
+              className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                sortMode === "kickoff" ? "bg-accent text-background" : "text-muted hover:text-foreground"
+              }`}
+            >
+              Closest to kickoff
+            </button>
+          </div>
+        </div>
+      )}
+
       {bets.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">
           No bets logged yet — click &quot;Log bet&quot; on a pick in This Week&apos;s Picks.
@@ -87,6 +127,7 @@ export default function BetsLedger({ bets }: { bets: GradedBet[] }) {
             <thead>
               <tr className="border-b border-border bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Placed</th>
+                <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Kickoff</th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Matchup</th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Bet</th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Source</th>
@@ -99,10 +140,17 @@ export default function BetsLedger({ bets }: { bets: GradedBet[] }) {
               </tr>
             </thead>
             <tbody>
-              {bets.map(({ bet, game, status, profit }) => (
+              {sorted.map(({ bet, game, status, profit }) => (
                 <tr key={bet.id} className="border-b border-border last:border-0 odd:bg-surface/50 hover:bg-surface-raised">
                   <td className="px-4 py-2.5 whitespace-nowrap text-xs text-muted">
                     <LocalDateTime iso={bet.placed_at} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
+                  </td>
+                  <td className="px-4 py-2.5 whitespace-nowrap text-xs text-muted">
+                    {game ? (
+                      <LocalDateTime iso={game.start_date} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
+                    ) : (
+                      "—"
+                    )}
                   </td>
                   <td className="px-4 py-2.5 whitespace-nowrap text-foreground">{game ? `${game.away_team} @ ${game.home_team}` : "—"}</td>
                   <td className="px-4 py-2.5 whitespace-nowrap font-mono text-foreground">

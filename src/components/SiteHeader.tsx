@@ -28,6 +28,9 @@ export default function SiteHeader({ subtitle }: { subtitle: string }) {
           <Link href="/bets" className="text-muted transition-colors hover:text-foreground">
             Bets
           </Link>
+          <Link href="/risk" className="text-muted transition-colors hover:text-foreground">
+            Risk
+          </Link>
           <Link href="/backtest" className="text-muted transition-colors hover:text-foreground">
             Backtest
           </Link>
