@@ -1,0 +1,31 @@
+name: Refresh edges + alerts
+
+# The fast half of predict-week1.yml's job: re-checks each already-computed
+# predicted_margin against the CURRENT market line and alerts on a newly-
+# top-15 edge, WITHOUT retraining the model (see modeling/refresh_edges.py
+# for why that split exists - predicted_margin barely moves hour to hour,
+# the market does). Same */15 cadence as poll-lines.yml, since that's the
+# only thing that actually changes this often - no point checking more
+# frequently than the market data itself updates.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r python/requirements.txt
+      - name: Refresh edges + alert
+        working-directory: python
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m modeling.refresh_edges
