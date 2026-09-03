@@ -455,7 +455,12 @@ create policy "public read" on team_returning_production for select using (true)
 create policy "public read" on team_coaching for select using (true);
 create policy "public read" on team_power_ratings for select using (true);
 create policy "public read" on player_transfers for select using (true);
-create policy "public read" on bets for select using (true);
--- No insert/update/delete policy on bets - only the secret key (service
--- role, bypasses RLS) can write, from the Server Action, same as every
--- other write path in this project.
+-- NO policy on bets at all, not even public read - real stakes/P&L, the
+-- one genuinely sensitive table in this app. Only the secret key (service
+-- role, bypasses RLS) can read OR write it - reads go through
+-- src/lib/supabase-admin.ts's server-only client (see getBets in
+-- src/lib/data.ts), same as the write path already did. Every other
+-- table above stays public-read; they're just public sports data/model
+-- output with no privacy reason to lock down. If a "public read" policy
+-- named "public read" already exists on bets from an earlier setup, drop
+-- it: drop policy if exists "public read" on bets;

@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { supabaseAdmin } from "./supabase-admin";
 import type {
   Bet,
   BettingLine,
@@ -327,7 +328,12 @@ function gradeBet(bet: Bet, game: Game): { status: BetStatus; profit: number | n
 /** Every bet ever logged, newest first, graded live against each game's
  * current state. */
 export async function getBets(): Promise<GradedBet[]> {
-  const { data: bets, error } = await supabase.from("bets").select("*").order("placed_at", { ascending: false });
+  // Secret-key client, deliberately - `bets` holds real stakes/P&L, the
+  // one genuinely sensitive table in this app, and its RLS no longer
+  // allows public reads (see schema.sql). Every other query in this file
+  // stays on the public client; games/predictions/etc. are just public
+  // sports data with no privacy reason to lock down.
+  const { data: bets, error } = await supabaseAdmin.from("bets").select("*").order("placed_at", { ascending: false });
   if (error) throw new Error(error.message);
   if (!bets || bets.length === 0) return [];
 
