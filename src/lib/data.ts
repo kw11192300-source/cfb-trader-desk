@@ -10,6 +10,7 @@ import type {
   ModelBacktestGame,
   OddsApiLine,
   Prediction,
+  SeasonFuture,
   Team,
   TeamPowerRating,
 } from "./types";
@@ -348,4 +349,34 @@ export async function getBets(): Promise<GradedBet[]> {
     const { status, profit } = gradeBet(bet, game);
     return { bet, game, status, profit };
   });
+}
+
+/** One team's season future joined with its logo. */
+export type SeasonFutureRow = SeasonFuture & { logo: string | null };
+
+/** Latest season-long projection per team (python/modeling/season_sim.py),
+ * ranked by |edge| where a market number exists, then by championship_prob
+ * for teams with no market match. Exploratory/unvalidated - see the
+ * SeasonFuture type doc and season_sim.py's module docstring. */
+export async function getSeasonFutures(season: number, modelVersion: string): Promise<SeasonFutureRow[]> {
+  const { data: rows, error } = await supabase
+    .from("season_futures")
+    .select("*")
+    .eq("season", season)
+    .eq("model_version", modelVersion);
+  if (error) throw new Error(error.message);
+  if (!rows || rows.length === 0) return [];
+
+  const { data: teams, error: teamsError } = await supabase.from("teams").select("school, logo_url");
+  if (teamsError) throw new Error(teamsError.message);
+  const logoBySchool = new Map((teams as { school: string; logo_url: string | null }[]).map((t) => [t.school, t.logo_url]));
+
+  return (rows as SeasonFuture[])
+    .map((r) => ({ ...r, logo: logoBySchool.get(r.team) ?? null }))
+    .sort((a, b) => {
+      const aEdge = a.edge !== null ? Math.abs(a.edge) : -1;
+      const bEdge = b.edge !== null ? Math.abs(b.edge) : -1;
+      if (aEdge !== bEdge) return bEdge - aEdge;
+      return b.championship_prob - a.championship_prob;
+    });
 }

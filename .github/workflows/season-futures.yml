@@ -1,0 +1,28 @@
+name: Season futures simulation
+
+# Monte Carlo season simulation (modeling/season_sim.py) - team ratings and
+# market futures odds don't move fast, so daily is plenty; this doesn't
+# need poll-lines.yml's every-15-min cadence. No CFBD calls (reads
+# Supabase + The Odds API only), so this is safe to run regardless of any
+# CFBD quota situation.
+on:
+  schedule:
+    - cron: "0 11 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  simulate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r python/requirements.txt
+      - name: Run season simulation
+        working-directory: python
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+        run: python -m modeling.season_sim

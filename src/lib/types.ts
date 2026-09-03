@@ -179,3 +179,23 @@ export type Bet = {
   notes: string | null;
   created_at: string;
 };
+
+/** One team's season-long projection (python/modeling/season_sim.py) -
+ * Monte Carlo simulation of the rest of the season built on power ratings,
+ * NOT the validated week-1 spread model (that model is scoped to single
+ * week-1 games, not chained season-long). EXPLORATORY/UNVALIDATED - no
+ * backtest exists yet against real past seasons, unlike everything on the
+ * Edges/Backtest pages. See season_sim.py's module docstring. */
+export type SeasonFuture = {
+  team: string;
+  season: number;
+  model_version: string;
+  games_remaining: number;
+  proj_wins: number;
+  win_total_std: number;
+  playoff_prob: number;
+  championship_prob: number;
+  market_championship_prob: number | null;
+  edge: number | null;
+  computed_at: string;
+};

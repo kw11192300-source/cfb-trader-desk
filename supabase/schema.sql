@@ -321,6 +321,34 @@ create table if not exists bot_state (
   updated_at timestamptz not null default now()
 );
 
+-- Season-long futures (python/modeling/season_sim.py) - Monte Carlo
+-- projection per FBS team, one row per (team, season, model_version).
+-- EXPLORATORY / UNVALIDATED - unlike predictions (the validated week-1
+-- spread strategy), no backtest exists yet for this against real past
+-- seasons. See season_sim.py's module docstring before trusting these
+-- numbers for real money.
+create table if not exists season_futures (
+  team text not null,
+  season integer not null,
+  model_version text not null,
+
+  games_remaining integer not null,
+  proj_wins numeric not null,               -- mean simulated final win total
+  win_total_std numeric not null,           -- std dev of simulated win total, for a range not just a point estimate
+  playoff_prob numeric not null,            -- fraction of sims where this team made the 12-team field
+  championship_prob numeric not null,       -- fraction of sims where this team won it all
+
+  market_championship_prob numeric,         -- devigged implied probability from The Odds API's
+                                             -- americanfootball_ncaaf_championship_winner market - null if
+                                             -- unavailable (ODDS_API_KEY unset, or this team isn't priced)
+  edge numeric,                             -- championship_prob - market_championship_prob, null if no market number
+
+  computed_at timestamptz not null default now(),
+
+  primary key (team, season, model_version)
+);
+create index if not exists season_futures_season_idx on season_futures(season, model_version);
+
 -- Stored walk-forward backtest results (python/modeling/backtest_week1.py)
 -- for the site's own "Backtest" tab - a general-purpose shape (metric +
 -- label rows) rather than one column per breakdown, since which breakdowns
@@ -438,6 +466,7 @@ alter table bot_state enable row level security;
 -- No policy at all on bot_state, not even public read - it's pure internal
 -- bot bookkeeping with no user-facing value, unlike every other table here.
 -- Only the secret key (bypasses RLS) ever touches it.
+alter table season_futures enable row level security;
 
 create policy "public read" on teams for select using (true);
 create policy "public read" on games for select using (true);
@@ -455,6 +484,7 @@ create policy "public read" on team_returning_production for select using (true)
 create policy "public read" on team_coaching for select using (true);
 create policy "public read" on team_power_ratings for select using (true);
 create policy "public read" on player_transfers for select using (true);
+create policy "public read" on season_futures for select using (true);
 -- NO policy on bets at all, not even public read - real stakes/P&L, the
 -- one genuinely sensitive table in this app. Only the secret key (service
 -- role, bypasses RLS) can read OR write it - reads go through

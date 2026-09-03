@@ -31,6 +31,9 @@ export default function SiteHeader({ subtitle }: { subtitle: string }) {
           <Link href="/backtest" className="text-muted transition-colors hover:text-foreground">
             Backtest
           </Link>
+          <Link href="/futures" className="text-muted transition-colors hover:text-foreground">
+            Futures
+          </Link>
           <div className="flex items-center gap-2 text-muted">
             <span className="h-2 w-2 rounded-full bg-up" />
             live
