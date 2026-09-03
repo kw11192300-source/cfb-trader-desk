@@ -35,7 +35,22 @@ from dataclasses import dataclass
 
 # Mirrors LogBetForm.tsx's COMMON_BOOKS - kept as a plain duplicate (tiny,
 # read-only reference data) rather than a cross-language shared module.
-KNOWN_BOOKS = ["draftkings", "fanduel", "betmgm", "caesars", "espn bet", "fanatics", "pinnacle", "circa", "bet365", "boomers"]
+# Keys are what's matched in the message text (lowercase); values are the
+# display name written to bets.sportsbook - lets a casual alias like "mgm"
+# resolve to the real brand name "BetMGM" instead of a literal "Mgm".
+KNOWN_BOOKS: dict[str, str] = {
+    "draftkings": "DraftKings",
+    "fanduel": "FanDuel",
+    "betmgm": "BetMGM",
+    "mgm": "BetMGM",
+    "caesars": "Caesars",
+    "espn bet": "ESPN Bet",
+    "fanatics": "Fanatics",
+    "pinnacle": "Pinnacle",
+    "circa": "Circa",
+    "bet365": "Bet365",
+    "boomers": "Boomers",
+}
 
 # Stake: "1u", "1.5u", ".5u", "1 unit", "0.82 units" - the decimal-only
 # form needs its own branch since \d+(\.\d+)? requires a digit before the
@@ -157,9 +172,9 @@ def parse_bet_message(raw_text: str, candidates: list[Candidate]) -> ParsedBet |
         odds = -110
 
     sportsbook = None
-    for book in KNOWN_BOOKS:
-        if re.search(r"\b" + re.escape(book) + r"\b", text):
-            sportsbook = book.title()
+    for alias, display_name in KNOWN_BOOKS.items():
+        if re.search(r"\b" + re.escape(alias) + r"\b", text):
+            sportsbook = display_name
             break
 
     edge_source = None
