@@ -1,5 +1,17 @@
 import { supabase } from "./supabase";
-import type { Bet, BettingLine, BoardRow, Game, LineSnapshot, ModelBacktest, ModelBacktestGame, OddsApiLine, Prediction, Team, TeamPowerRating } from "./types";
+import type {
+  Bet,
+  BettingLine,
+  BoardRow,
+  Game,
+  LineSnapshot,
+  ModelBacktest,
+  ModelBacktestGame,
+  OddsApiLine,
+  Prediction,
+  Team,
+  TeamPowerRating,
+} from "./types";
 
 /**
  * Same idea as the Python side's current_week.py: the earliest
@@ -22,26 +34,36 @@ async function getCurrentWeek(): Promise<{ season: number; week: number; seasonT
   return { season: data.season, week: data.week, seasonType: data.season_type };
 }
 
-/** Joins a list of games with every book's line for each and both teams' logos. */
+/** Joins a list of games with every book's line for each, both teams' logos,
+ * and the model's own prediction for each game if one exists (most games
+ * won't have one yet - only week-1 FBS-vs-FBS games do right now). */
 async function buildBoardRows(games: Game[]): Promise<BoardRow[]> {
   const gameIds = games.map((g) => g.id);
   const teamIds = Array.from(new Set(games.flatMap((g) => [g.home_id, g.away_id]).filter((id): id is number => id !== null)));
 
-  const [{ data: lines, error: linesError }, { data: oddsApiLines, error: oddsApiError }, { data: teams, error: teamsError }] =
-    await Promise.all([
-      gameIds.length > 0
-        ? supabase.from("betting_lines").select("*").in("game_id", gameIds)
-        : Promise.resolve({ data: [] as BettingLine[], error: null }),
-      gameIds.length > 0
-        ? supabase.from("odds_api_lines").select("*").in("game_id", gameIds)
-        : Promise.resolve({ data: [] as OddsApiLine[], error: null }),
-      teamIds.length > 0
-        ? supabase.from("teams").select("*").in("id", teamIds)
-        : Promise.resolve({ data: [] as Team[], error: null }),
-    ]);
+  const [
+    { data: lines, error: linesError },
+    { data: oddsApiLines, error: oddsApiError },
+    { data: teams, error: teamsError },
+    { data: predictions, error: predictionsError },
+  ] = await Promise.all([
+    gameIds.length > 0
+      ? supabase.from("betting_lines").select("*").in("game_id", gameIds)
+      : Promise.resolve({ data: [] as BettingLine[], error: null }),
+    gameIds.length > 0
+      ? supabase.from("odds_api_lines").select("*").in("game_id", gameIds)
+      : Promise.resolve({ data: [] as OddsApiLine[], error: null }),
+    teamIds.length > 0
+      ? supabase.from("teams").select("*").in("id", teamIds)
+      : Promise.resolve({ data: [] as Team[], error: null }),
+    gameIds.length > 0
+      ? supabase.from("predictions").select("*").in("game_id", gameIds)
+      : Promise.resolve({ data: [] as Prediction[], error: null }),
+  ]);
   if (linesError) throw new Error(linesError.message);
   if (oddsApiError) throw new Error(oddsApiError.message);
   if (teamsError) throw new Error(teamsError.message);
+  if (predictionsError) throw new Error(predictionsError.message);
 
   const linesByGame = new Map<number, BettingLine[]>();
   for (const line of (lines ?? []) as BettingLine[]) {
@@ -56,6 +78,15 @@ async function buildBoardRows(games: Game[]): Promise<BoardRow[]> {
     oddsApiByGame.set(line.game_id, list);
   }
   const teamById = new Map((teams as Team[]).map((t) => [t.id, t]));
+  // If a game somehow ends up with predictions from more than one model
+  // version, keep the newest - a stale superseded prediction isn't useful.
+  const predictionByGame = new Map<number, Prediction>();
+  for (const p of (predictions ?? []) as Prediction[]) {
+    const existing = predictionByGame.get(p.game_id);
+    if (!existing || new Date(p.created_at) > new Date(existing.created_at)) {
+      predictionByGame.set(p.game_id, p);
+    }
+  }
 
   return games.map((game) => ({
     game,
@@ -63,6 +94,7 @@ async function buildBoardRows(games: Game[]): Promise<BoardRow[]> {
     oddsApiLines: oddsApiByGame.get(game.id) ?? [],
     homeLogo: game.home_id !== null ? (teamById.get(game.home_id)?.logo_url ?? null) : null,
     awayLogo: game.away_id !== null ? (teamById.get(game.away_id)?.logo_url ?? null) : null,
+    prediction: predictionByGame.get(game.id) ?? null,
   }));
 }
 
@@ -100,6 +132,7 @@ export type GameDetail = {
   oddsApiLines: OddsApiLine[];
   homeTeam: Team | null;
   awayTeam: Team | null;
+  prediction: Prediction | null;
 };
 
 export async function getGame(id: number): Promise<GameDetail | null> {
@@ -112,22 +145,31 @@ export async function getGame(id: number): Promise<GameDetail | null> {
     { data: lines, error: linesError },
     { data: oddsApiLines, error: oddsApiError },
     { data: teams, error: teamsError },
+    { data: predictions, error: predictionsError },
   ] = await Promise.all([
     supabase.from("betting_lines").select("*").eq("game_id", id),
     supabase.from("odds_api_lines").select("*").eq("game_id", id),
     teamIds.length > 0 ? supabase.from("teams").select("*").in("id", teamIds) : Promise.resolve({ data: [] as Team[], error: null }),
+    supabase.from("predictions").select("*").eq("game_id", id),
   ]);
   if (linesError) throw new Error(linesError.message);
   if (oddsApiError) throw new Error(oddsApiError.message);
   if (teamsError) throw new Error(teamsError.message);
+  if (predictionsError) throw new Error(predictionsError.message);
 
   const teamById = new Map((teams as Team[]).map((t) => [t.id, t]));
+  // Same "keep the newest if more than one model version predicted this
+  // game" rule as the board - see buildBoardRows.
+  const prediction = ((predictions ?? []) as Prediction[]).sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  )[0];
   return {
     game: game as Game,
     lines: (lines ?? []) as BettingLine[],
     oddsApiLines: (oddsApiLines ?? []) as OddsApiLine[],
     homeTeam: game.home_id !== null ? (teamById.get(game.home_id) ?? null) : null,
     awayTeam: game.away_id !== null ? (teamById.get(game.away_id) ?? null) : null,
+    prediction: prediction ?? null,
   };
 }
 

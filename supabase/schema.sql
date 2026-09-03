@@ -292,12 +292,34 @@ create table if not exists predictions (
                                            -- (see predict_week1.py's _build_rationale) - not
                                            -- every model version populates this
 
+  suggested_units numeric,                -- quarter-Kelly position size, scaled by this edge
+                                           -- bucket's own backtested win rate relative to the
+                                           -- strategy's overall average (see
+                                           -- predict_week1.py's _suggested_units) - a starting
+                                           -- point, not an instruction; not every model version
+                                           -- populates this
+
+  alert_sent_at timestamptz,              -- when a Telegram alert was sent for this pick, if
+                                           -- ever (see python/alerts/telegram_alerts.py) - null
+                                           -- means never alerted. Dedup key so a pick that's
+                                           -- still in the top-15 on a later run doesn't re-alert.
+
   created_at timestamptz not null default now(),
 
   primary key (game_id, model_version)
 );
 
 create index if not exists predictions_game_id_idx on predictions(game_id);
+
+-- Tiny key/value store for bot machinery that isn't really "data" - right
+-- now just the Telegram inbound poller's last-seen update_id, so restarts
+-- don't reprocess or drop messages. Not meant to grow into a general config
+-- table; add a real column/table if a future need is bigger than this.
+create table if not exists bot_state (
+  key text primary key,
+  value jsonb not null,
+  updated_at timestamptz not null default now()
+);
 
 -- Stored walk-forward backtest results (python/modeling/backtest_week1.py)
 -- for the site's own "Backtest" tab - a general-purpose shape (metric +
@@ -368,11 +390,32 @@ create table if not exists bets (
   line numeric not null,                  -- the number actually bet, from the bettor's own side (spread convention: negative = favored)
   odds integer not null default -110,     -- american odds price actually taken
   stake numeric not null,                 -- units/dollars risked
+  sportsbook text,                        -- free text, not locked to a fixed list - plenty of
+                                           -- real books aren't in CFBD/Odds API's coverage at all
+  edge_source text not null default 'model'
+    check (edge_source in ('model', 'market', 'both')),
+                                           -- what actually justified this bet: 'model' = the
+                                           -- fundamental model found the edge (today's only real
+                                           -- source); 'market' = taken on a line move/steam read
+                                           -- with no model edge behind it (future: steam alerts);
+                                           -- 'both' = model edge AND market moved to confirm it -
+                                           -- the confluence case that should size up
+  telegram_update_id bigint,              -- null for bets logged via the web UI. Set for bets
+                                           -- logged via python/alerts/log_bets_from_telegram.py -
+                                           -- makes that path idempotent under retry (a crash
+                                           -- between inserting the bet and confirming receipt of
+                                           -- the Telegram message must not double-insert on the
+                                           -- next poll - see the unique index below).
   placed_at timestamptz not null default now(),
   notes text,
   created_at timestamptz not null default now()
 );
 create index if not exists bets_game_id_idx on bets(game_id);
+-- Partial (nulls don't collide) - makes log_bets_from_telegram.py's insert
+-- safely retryable: a crash between inserting the bet and confirming
+-- receipt of the Telegram message just re-attempts the same insert next
+-- poll, which now fails on this constraint instead of double-logging.
+create unique index if not exists bets_telegram_update_id_idx on bets(telegram_update_id) where telegram_update_id is not null;
 
 alter table teams enable row level security;
 alter table games enable row level security;
@@ -391,6 +434,10 @@ alter table player_transfers enable row level security;
 alter table bets enable row level security;
 alter table model_backtests enable row level security;
 alter table model_backtest_games enable row level security;
+alter table bot_state enable row level security;
+-- No policy at all on bot_state, not even public read - it's pure internal
+-- bot bookkeeping with no user-facing value, unlike every other table here.
+-- Only the secret key (bypasses RLS) ever touches it.
 
 create policy "public read" on teams for select using (true);
 create policy "public read" on games for select using (true);

@@ -1,19 +1,14 @@
-import EdgesPageTabs from "@/components/EdgesPageTabs";
+import EdgesTable from "@/components/EdgesTable";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
-import { getBacktestGames, getBacktestResults, getBets, getEdges } from "@/lib/data";
+import { getEdges } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 const MODEL_VERSION = "week1_edge_v1";
 
 export default async function EdgesPage() {
-  const [rows, backtestResults, backtestGames, bets] = await Promise.all([
-    getEdges(MODEL_VERSION),
-    getBacktestResults(MODEL_VERSION),
-    getBacktestGames(MODEL_VERSION),
-    getBets(),
-  ]);
+  const rows = await getEdges(MODEL_VERSION);
   const generatedAt = rows.length > 0 ? rows[0].prediction.created_at : null;
 
   return (
@@ -30,11 +25,11 @@ export default async function EdgesPage() {
           </p>
           <p>
             Backtested walk-forward 2016-2025 restricted to the top ~15 highest-edge games per week: 74% ATS 2016-2024, 80% on 2025 (the one
-            season not used to find this pattern). See the Backtest tab for the full breakdown, including why it&apos;s FBS-only and a check
+            season not used to find this pattern). See the Backtest page for the full breakdown, including why it&apos;s FBS-only and a check
             against trivial favorite/underdog or home/away bias.
           </p>
         </div>
-        <EdgesPageTabs rows={rows} generatedAt={generatedAt} backtestResults={backtestResults} backtestGames={backtestGames} bets={bets} />
+        <EdgesTable rows={rows} generatedAt={generatedAt} />
       </main>
 
       <SiteFooter />

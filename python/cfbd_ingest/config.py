@@ -18,6 +18,11 @@ ODDS_API_KEY = os.environ.get("ODDS_API_KEY")
 SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
 SUPABASE_SECRET_KEY = os.environ.get("SUPABASE_SECRET_KEY")
 
+# Optional - the Telegram bot (python/alerts/) degrades to a no-op without
+# these, rather than failing. See python/alerts/telegram_bot.py.
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+
 
 def require_env() -> None:
     missing = [

@@ -1,0 +1,33 @@
+name: Predict week-1 edges + alerts
+
+# Retrains the margin model and refreshes predictions (predicted_margin,
+# current market_spread, edge_spread, rationale, suggested_units) for this
+# week's FBS-vs-FBS games, then sends a Telegram alert for any newly-
+# appeared top-15 pick (no-ops if TELEGRAM_BOT_TOKEN isn't set - see
+# python/alerts/telegram_alerts.py). Only meaningful during each season's
+# actual week 1 - predicted_margin barely moves hour to hour outside that
+# window, so every-4-hours is a freshness/compute tradeoff, not a floor
+# forced by any API quota (this reads Supabase only, no CFBD/Odds API
+# calls). Tighten or loosen the cron freely.
+on:
+  schedule:
+    - cron: "0 */4 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  predict:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r python/requirements.txt
+      - name: Predict + alert
+        working-directory: python
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m modeling.predict_week1

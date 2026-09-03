@@ -1,0 +1,33 @@
+name: Poll Telegram for bet messages
+
+# Checks for new messages sent to the bot and logs any that parse as a bet
+# (see python/alerts/log_bets_from_telegram.py), replying with a
+# confirmation or an explanation of what was missing/ambiguous. Polling,
+# not a webhook — no public server needed. No-ops cleanly if
+# TELEGRAM_BOT_TOKEN isn't set. GitHub Actions doesn't reliably run
+# schedules tighter than ~5 minutes regardless of the cron expression, so
+# */5 (same cadence as poll-lines.yml) is about as responsive as this gets
+# without a webhook - use workflow_dispatch (or just text it and wait a
+# few minutes) if you need it sooner.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r python/requirements.txt
+      - name: Poll Telegram
+        working-directory: python
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m alerts.log_bets_from_telegram

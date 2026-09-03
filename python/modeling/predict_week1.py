@@ -53,6 +53,62 @@ from .outcome_models import FEATURE_COLUMNS, train_margin_model
 MODEL_VERSION = "week1_edge_v1"
 TOP_N = 15
 
+# Quarter of full Kelly, not half - this is the model's first LIVE season
+# (no track record yet, only backtest), several edge buckets have real but
+# thin samples (27-44 games), and this project has already caught genuine
+# modeling bugs more than once. Full/half Kelly assumes the win-rate
+# estimate is trustworthy; quarter is the conservative-but-not-paranoid
+# choice for an edge this fresh. Revisit once the P&L ledger has a real
+# live track record (4-8+ weeks) to check the backtest against - loosen
+# toward half-Kelly if live results track it, tighten further if they
+# don't. One constant, deliberately easy to change later.
+KELLY_FRACTION = 0.25
+DEFAULT_ODDS = -110
+MIN_SUGGESTED_UNITS = 0.5
+MAX_SUGGESTED_UNITS = 3.0
+UNIT_STEP = 0.5  # round the suggestion to a clean, bettor-usable increment - nobody bets 1.73 units
+
+
+def _kelly_fraction(win_prob: float, odds: int = DEFAULT_ODDS) -> float:
+    """Fraction of bankroll full Kelly would risk, for a bet at `odds`
+    with true win probability `win_prob`. Negative if the "edge" implied
+    by win_prob is actually below break-even at these odds - callers
+    should floor this before using it as a stake."""
+    decimal_odds = 100 / abs(odds) + 1 if odds < 0 else odds / 100 + 1
+    b = decimal_odds - 1
+    return win_prob - (1 - win_prob) / b
+
+
+def _suggested_units(edge: float, edge_buckets: list[tuple[float, float, float, int]], reference_win_rate: float | None) -> float | None:
+    """Quarter-Kelly stake, expressed as a MULTIPLE of "1 unit" rather than
+    a fraction of an actual bankroll (never asked for or stored - see
+    schema.sql's note on bets.stake). "1 unit" = the suggested size for a
+    pick at the strategy's own OVERALL backtested win rate; a specific
+    edge bucket that historically ran hotter or colder than that average
+    scales proportionally, via the ratio of their quarter-Kelly fractions
+    (a fixed reference avoids dividing by a near-zero Kelly fraction from
+    whichever bucket happens to be weakest in a given run). Clamped to
+    [MIN_SUGGESTED_UNITS, MAX_SUGGESTED_UNITS] so neither a marginal edge
+    nor a hot-but-thin-sample bucket produces an extreme suggestion, then
+    rounded to the nearest UNIT_STEP (0.5, 1, 1.5, ... 3) - a bettor-usable
+    number, not a raw Kelly fraction nobody would actually stake.
+    Returns None if there's no edge_bucket match or no reference rate."""
+    if reference_win_rate is None:
+        return None
+    bucket = _edge_bucket_rate(edge, edge_buckets)
+    if bucket is None:
+        return None
+    _, bucket_win_rate, _ = bucket
+
+    reference_kelly = _kelly_fraction(reference_win_rate) * KELLY_FRACTION
+    bucket_kelly = _kelly_fraction(bucket_win_rate) * KELLY_FRACTION
+    if reference_kelly <= 0:
+        return None  # reference itself isn't a real edge - sizing off it would be meaningless
+
+    units = bucket_kelly / reference_kelly
+    clamped = max(MIN_SUGGESTED_UNITS, min(MAX_SUGGESTED_UNITS, units))
+    return round(clamped / UNIT_STEP) * UNIT_STEP
+
 
 def _current_market_line(game_ids: list[int]) -> dict[int, float]:
     """Freshest captured spread per game, preferring the same book order
@@ -281,6 +337,9 @@ def run() -> None:
         edge_buckets.append((lo, hi, r["win_rate"], r["n"]))
     edge_buckets.sort()
 
+    matchup_type_rows = fetch_all("model_backtests", "label,win_rate", model_version=MODEL_VERSION, group_key="matchup_type")
+    reference_win_rate = next((r["win_rate"] for r in matchup_type_rows if r["label"] == "fbs_vs_fbs"), None)
+
     print("Computing carried-forward market/results ratings (through last completed season)...")
     hist_seasons = list(range(year - 10, year))
     from .features import _load_games  # local import - avoid circular concerns at module load
@@ -421,6 +480,7 @@ def run() -> None:
             pick_f["net_transfer_stars"], opp_f["net_transfer_stars"],
             abs(r["edge"]), edge_buckets,
         )
+        suggested_units = _suggested_units(abs(r["edge"]), edge_buckets, reference_win_rate)
         records.append(
             {
                 "game_id": int(r["game_id"]),
@@ -429,11 +489,23 @@ def run() -> None:
                 "market_spread": float(r["market_spread"]),
                 "edge_spread": float(r["edge"]),
                 "rationale": rationale,
+                "suggested_units": suggested_units,
             }
         )
     for i in range(0, len(records), 500):
         client.table("predictions").upsert(records[i : i + 500], on_conflict="game_id,model_version").execute()
     print(f"\nUpserted {len(records)} predictions (model_version={MODEL_VERSION}).")
+
+    # Telegram alerts for newly-appeared top-N picks - no-ops cleanly if
+    # TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID aren't set. See alerts/telegram_alerts.py
+    # for why this is scoped to the top-N pool specifically (the one
+    # validated signal), not a broader/looser notion of "interesting edge."
+    from alerts.telegram_alerts import send_new_edge_alerts
+
+    top_game_ids = {int(gid) for gid in ranked.head(TOP_N)["game_id"]}
+    n_alerted = send_new_edge_alerts(client, MODEL_VERSION, records, top_game_ids)
+    if n_alerted:
+        print(f"Sent {n_alerted} new Telegram edge alert(s).")
 
 
 if __name__ == "__main__":

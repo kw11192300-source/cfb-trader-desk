@@ -1,7 +1,7 @@
 "use client";
 
 import LocalDateTime from "./LocalDateTime";
-import { deleteBet } from "@/app/edges/actions";
+import { deleteBet } from "@/lib/actions";
 import type { GradedBet } from "@/lib/data";
 
 function fmtLine(n: number): string {
@@ -23,6 +23,17 @@ const STATUS_STYLE: Record<string, string> = {
   push: "text-muted",
   pending: "text-accent",
 };
+
+// Model = the fundamental model found this edge (today's only real source).
+// Market = taken on a line move/steam read with no model edge behind it
+// (future: steam alerts). Both = model edge AND market confirmed it - the
+// confluence case that's supposed to size up. See bets.edge_source in schema.sql.
+const SOURCE_STYLE: Record<string, string> = {
+  model: "bg-accent/15 text-accent",
+  market: "bg-warn/15 text-warn",
+  both: "bg-up/15 text-up",
+};
+const SOURCE_LABEL: Record<string, string> = { model: "Model", market: "Market", both: "Both" };
 
 export default function BetsLedger({ bets }: { bets: GradedBet[] }) {
   const graded = bets.filter((b) => b.status !== "pending");
@@ -78,6 +89,8 @@ export default function BetsLedger({ bets }: { bets: GradedBet[] }) {
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Placed</th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Matchup</th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Bet</th>
+                <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Source</th>
+                <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Book</th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium text-right">Odds</th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium text-right">Stake</th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium text-right">Status</th>
@@ -95,6 +108,12 @@ export default function BetsLedger({ bets }: { bets: GradedBet[] }) {
                   <td className="px-4 py-2.5 whitespace-nowrap font-mono text-foreground">
                     {bet.side} {bet.market !== "moneyline" ? fmtLine(bet.line) : ""}
                   </td>
+                  <td className="px-4 py-2.5 whitespace-nowrap">
+                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${SOURCE_STYLE[bet.edge_source] ?? "text-muted"}`}>
+                      {SOURCE_LABEL[bet.edge_source] ?? bet.edge_source}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 whitespace-nowrap text-xs text-muted">{bet.sportsbook ?? "—"}</td>
                   <td className="px-4 py-2.5 text-right font-mono text-muted">{fmtOdds(bet.odds)}</td>
                   <td className="px-4 py-2.5 text-right font-mono text-foreground">{bet.stake.toFixed(2)}</td>
                   <td className={`px-4 py-2.5 text-right font-mono text-xs font-medium uppercase ${STATUS_STYLE[status]}`}>{status}</td>

@@ -6,6 +6,7 @@ import Link from "next/link";
 import LocalDateTime from "./LocalDateTime";
 import LogBetForm from "./LogBetForm";
 import type { EdgeRow } from "@/lib/data";
+import { fmtSpread, pickPerspectiveSpread } from "@/lib/spread";
 
 function TeamLogo({ src, alt, size = 28 }: { src: string | null; alt: string; size?: number }) {
   if (!src) {
@@ -16,25 +17,6 @@ function TeamLogo({ src, alt, size = 28 }: { src: string | null; alt: string; si
       <Image src={src} alt={alt} width={size - 6} height={size - 6} className="object-contain" style={{ width: size - 6, height: size - 6 }} unoptimized />
     </div>
   );
-}
-
-function fmtSpread(n: number | null): string {
-  if (n === null || n === undefined) return "—";
-  return n > 0 ? `+${n.toFixed(1)}` : n.toFixed(1);
-}
-
-/** Both numbers shown from the PICKED team's own perspective, not always
- * home's, AND in the same spread convention (negative = favored by that
- * many points) so the two numbers are directly comparable/subtractable -
- * market − model = edge. market_spread already IS a spread; predicted_margin
- * is a predicted POINT MARGIN (positive = wins by that much), the opposite
- * sign convention, so it has to be negated first or the two columns don't
- * actually line up even after picking the right side. */
-function pickPerspective(marketSpread: number | null, predictedMargin: number | null, pickHome: boolean) {
-  const market = marketSpread === null ? null : pickHome ? marketSpread : -marketSpread;
-  const modelSpread = predictedMargin === null ? null : -predictedMargin;
-  const model = modelSpread === null ? null : pickHome ? modelSpread : -modelSpread;
-  return { market, model };
 }
 
 const TOP_N = 15;
@@ -83,7 +65,7 @@ export default function EdgesTable({ rows, generatedAt }: { rows: EdgeRow[]; gen
             const pickHome = edge > 0;
             const pickTeam = pickHome ? game.home_team : game.away_team;
             const pickLogo = pickHome ? r.homeLogo : r.awayLogo;
-            const { market, model } = pickPerspective(p.market_spread, p.predicted_margin, pickHome);
+            const { market, model } = pickPerspectiveSpread(p.market_spread, p.predicted_margin, pickHome);
             return (
               <div key={p.game_id} className="rounded-lg border border-border bg-surface p-4">
                 <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
@@ -122,8 +104,22 @@ export default function EdgesTable({ rows, generatedAt }: { rows: EdgeRow[]; gen
                   </div>
                 </div>
                 {p.rationale && <p className="border-t border-border pt-3 text-xs leading-relaxed text-muted">{p.rationale}</p>}
-                <div className="mt-3 flex justify-end border-t border-border pt-3">
-                  <LogBetForm gameId={game.id} modelVersion={p.model_version} market="spread" side={pickTeam} line={market ?? 0} />
+                <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
+                  {p.suggested_units ? (
+                    <span className="text-xs text-muted">
+                      Suggested size: <span className="font-mono font-medium text-foreground">{p.suggested_units.toFixed(1)}u</span>
+                    </span>
+                  ) : (
+                    <span />
+                  )}
+                  <LogBetForm
+                    gameId={game.id}
+                    modelVersion={p.model_version}
+                    market="spread"
+                    side={pickTeam}
+                    line={market ?? 0}
+                    suggestedUnits={p.suggested_units}
+                  />
                 </div>
               </div>
             );
@@ -149,7 +145,7 @@ export default function EdgesTable({ rows, generatedAt }: { rows: EdgeRow[]; gen
                 const pickHome = edge > 0;
                 const pickTeam = pickHome ? game.home_team : game.away_team;
                 const pickLogo = pickHome ? r.homeLogo : r.awayLogo;
-                const { market, model } = pickPerspective(p.market_spread, p.predicted_margin, pickHome);
+                const { market, model } = pickPerspectiveSpread(p.market_spread, p.predicted_margin, pickHome);
                 return (
                   <tr key={p.game_id} className="border-b border-border last:border-0 odd:bg-surface/50 hover:bg-surface-raised">
                     <td className="sticky left-0 z-10 bg-background px-3 py-2.5 text-right font-mono text-xs text-muted">{i + 1}</td>

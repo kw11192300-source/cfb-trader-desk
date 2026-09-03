@@ -3,11 +3,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import LineMovementChart from "@/components/LineMovementChart";
 import LocalDateTime from "@/components/LocalDateTime";
+import LogBetForm from "@/components/LogBetForm";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import { getGame, getLineHistory } from "@/lib/data";
 import { formatSpread as formatCfbdSpread } from "@/lib/lines";
 import { bestHomeSpread, bestOverTotal, bestUnderTotal, formatMoneyline, formatPrice, formatSpread, mergeLines } from "@/lib/mergedLines";
+import { fmtSpread, pickPerspectiveSpread } from "@/lib/spread";
 
 export const dynamic = "force-dynamic";
 
@@ -24,8 +26,18 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
   const [detail, history] = await Promise.all([getGame(gameId), getLineHistory(gameId)]);
   if (!detail) notFound();
 
-  const { game, lines, oddsApiLines, homeTeam, awayTeam } = detail;
+  const { game, lines, oddsApiLines, homeTeam, awayTeam, prediction } = detail;
   const books = mergeLines(lines, oddsApiLines);
+
+  // Same pick-perspective math as the Edges/Board views: market − model =
+  // edge, always. Most games have no prediction yet (see predict_week1.py).
+  const edge = prediction?.edge_spread ?? null;
+  const hasModel = edge !== null && Math.abs(edge) > 0.05;
+  const pickHome = hasModel ? edge > 0 : false;
+  const pickTeam = pickHome ? game.home_team : game.away_team;
+  const { market: modelMarketView, model: modelView } = hasModel
+    ? pickPerspectiveSpread(prediction!.market_spread, prediction!.predicted_margin, pickHome)
+    : { market: null, model: null };
 
   // "Open" only exists for books CFBD itself tracks (that's the only source
   // with historical open data) — look it up per book by normalized key so a
@@ -76,6 +88,47 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
             {game.neutral_site && <span className="text-accent">Neutral site</span>}
           </div>
         </div>
+
+        {hasModel && (
+          <div className="mt-4 rounded-lg border border-accent/30 bg-accent/5 p-6">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-sm font-medium uppercase tracking-wide text-accent">Model view</h2>
+              <div className="flex items-center gap-4 font-mono text-sm">
+                <div className="text-right">
+                  <div className="text-[10px] uppercase tracking-wide text-muted">Market</div>
+                  <div className="text-foreground">{fmtSpread(modelMarketView)}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] uppercase tracking-wide text-muted">Model</div>
+                  <div className="text-foreground">{fmtSpread(modelView)}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] uppercase tracking-wide text-muted">Edge</div>
+                  <div className="font-medium text-accent">{Math.abs(edge!).toFixed(1)}</div>
+                </div>
+                <div className="rounded-md bg-surface-raised px-2.5 py-1.5 text-foreground">{pickTeam}</div>
+              </div>
+            </div>
+            {prediction?.rationale && <p className="text-xs leading-relaxed text-muted">{prediction.rationale}</p>}
+            <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
+              {prediction?.suggested_units ? (
+                <span className="text-xs text-muted">
+                  Suggested size: <span className="font-mono font-medium text-foreground">{prediction.suggested_units.toFixed(1)}u</span>
+                </span>
+              ) : (
+                <span />
+              )}
+              <LogBetForm
+                gameId={game.id}
+                modelVersion={prediction?.model_version ?? null}
+                market="spread"
+                side={pickTeam}
+                line={modelMarketView ?? 0}
+                suggestedUnits={prediction?.suggested_units ?? null}
+              />
+            </div>
+          </div>
+        )}
 
         <h2 className="mt-8 mb-3 text-sm font-medium uppercase tracking-wide text-muted">Odds comparison</h2>
 

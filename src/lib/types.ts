@@ -61,13 +61,17 @@ export type OddsApiLine = {
   fetched_at: string;
 };
 
-/** A game joined with every book's line for it (both providers) and both teams' logos. */
+/** A game joined with every book's line for it (both providers), both teams'
+ * logos, and the model's own prediction for it if one exists (most weeks
+ * this is null - only week-1 FBS-vs-FBS games have a live prediction right
+ * now; see predict_week1.py). */
 export type BoardRow = {
   game: Game;
   lines: BettingLine[];
   oddsApiLines: OddsApiLine[];
   homeLogo: string | null;
   awayLogo: string | null;
+  prediction: Prediction | null;
 };
 
 /** One poll_lines.py capture — append-only, never overwritten. See line_snapshots in schema.sql. */
@@ -114,6 +118,7 @@ export type Prediction = {
   predicted_clv_move: number | null;
   predicted_clv_direction: string | null;
   rationale: string | null;
+  suggested_units: number | null;
   created_at: string;
 };
 
@@ -168,6 +173,8 @@ export type Bet = {
   line: number; // bettor's own side, spread convention (negative = favored)
   odds: number; // american odds actually taken
   stake: number;
+  sportsbook: string | null; // free text - not every book is in Odds API/CFBD coverage
+  edge_source: "model" | "market" | "both"; // what justified the bet - see schema.sql
   placed_at: string;
   notes: string | null;
   created_at: string;

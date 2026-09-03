@@ -140,7 +140,7 @@ export default function EdgeBacktestPanel({
         <BreakdownTable
           title="Win rate by edge size"
           rows={edgeBucketRows}
-          note="How much the model and market disagreed, in points — the number cited in each pick's rationale on the Picks tab."
+          note="How much the model and market disagreed, in points — the number cited in each pick's rationale on the Edges page."
         />
       )}
 
@@ -148,7 +148,8 @@ export default function EdgeBacktestPanel({
         <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">Every graded game</h3>
         <p className="mb-3 text-[11px] text-muted">
           All week-1 games 2016-2025, every matchup type — defaults to just the top-15-by-edge pool actually bet each season. Widen the filters
-          to see the games that got left out (and why). Click a row for the model&apos;s reasoning on that specific pick.
+          to see the games that got left out (and why). Click a row for the model&apos;s reasoning on that specific pick, same rationale format
+          as the Edges page.
         </p>
         <BacktestGamesTable games={games} />
       </div>
