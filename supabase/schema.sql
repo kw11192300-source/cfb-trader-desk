@@ -434,6 +434,11 @@ create table if not exists bets (
                                            -- between inserting the bet and confirming receipt of
                                            -- the Telegram message must not double-insert on the
                                            -- next poll - see the unique index below).
+  kickoff_reminder_sent_at timestamptz,   -- python/alerts/bet_alerts.py - set once a "kickoff
+                                           -- soon" Telegram reminder has gone out for this bet,
+                                           -- so it never sends twice
+  result_alert_sent_at timestamptz,       -- python/alerts/bet_alerts.py - set once a win/loss/
+                                           -- push Telegram alert has gone out for this bet
   placed_at timestamptz not null default now(),
   notes text,
   created_at timestamptz not null default now()

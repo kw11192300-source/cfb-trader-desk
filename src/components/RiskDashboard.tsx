@@ -1,7 +1,13 @@
 import type { Game } from "@/lib/types";
 import type { GradedBet } from "@/lib/data";
 
-const BREAK_EVEN = 0.524;
+/** Break-even win rate implied by American odds - the classic "52.4%"
+ * figure is ONLY correct at exactly -110. Real bets here run from -108 to
+ * -135 and beyond, so a flat 52.4% reference is actively misleading next
+ * to real ROI - this computes the actual number per price taken. */
+function impliedProb(odds: number): number {
+  return odds < 0 ? Math.abs(odds) / (Math.abs(odds) + 100) : 100 / (odds + 100);
+}
 
 function fmtUnits(n: number): string {
   return n > 0 ? `+${n.toFixed(2)}u` : `${n.toFixed(2)}u`;
@@ -219,6 +225,8 @@ export default function RiskDashboard({ bets }: { bets: GradedBet[] }) {
 
   const totalPending = pending.reduce((s, b) => s + b.bet.stake, 0);
   const overallRoi = bySource.reduce((s, r) => s + r.staked, 0) > 0 ? (bySource.reduce((s, r) => s + r.profit, 0) / bySource.reduce((s, r) => s + r.staked, 0)) * 100 : null;
+  const gradedStaked = graded.reduce((s, g) => s + g.bet.stake, 0);
+  const weightedBreakEven = gradedStaked > 0 ? graded.reduce((s, g) => s + g.bet.stake * impliedProb(g.bet.odds), 0) / gradedStaked : null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -237,8 +245,10 @@ export default function RiskDashboard({ bets }: { bets: GradedBet[] }) {
           <div className={`font-mono text-lg ${(overallRoi ?? 0) >= 0 ? "text-up" : "text-down"}`}>{fmtPct(overallRoi)}</div>
         </div>
         <div className="rounded-lg border border-border bg-surface p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted">Break-even (-110)</div>
-          <div className="font-mono text-lg text-muted">{(BREAK_EVEN * 100).toFixed(1)}%</div>
+          <div className="text-[10px] uppercase tracking-wide text-muted" title="Stake-weighted, from the actual odds taken on graded bets - not a flat -110 assumption">
+            Break-even (your odds)
+          </div>
+          <div className="font-mono text-lg text-muted">{weightedBreakEven !== null ? `${(weightedBreakEven * 100).toFixed(1)}%` : "—"}</div>
         </div>
       </div>
 

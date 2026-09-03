@@ -1,0 +1,29 @@
+name: Bet alerts (kickoff + result)
+
+# Two Telegram alerts tied to logged bets (python/alerts/bet_alerts.py):
+# a heads-up ~5-20 min before kickoff, and a win/loss/push message once a
+# bet's game finishes. Same */5 cadence as poll-telegram.yml, since the
+# kickoff-reminder window needs that granularity to reliably fire - no-ops
+# cleanly if TELEGRAM_BOT_TOKEN isn't set.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r python/requirements.txt
+      - name: Send bet alerts
+        working-directory: python
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m alerts.bet_alerts
