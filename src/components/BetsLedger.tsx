@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import LocalDateTime from "./LocalDateTime";
 import { deleteBet } from "@/lib/actions";
 import type { GradedBet } from "@/lib/data";
+import type { DisplayLine } from "@/lib/mergedLines";
+import type { Bet, Game } from "@/lib/types";
 
 function fmtLine(n: number): string {
   return n > 0 ? `+${n.toFixed(1)}` : n.toFixed(1);
@@ -16,6 +18,32 @@ function fmtOdds(n: number): string {
 function fmtProfit(n: number | null): string {
   if (n === null) return "—";
   return n > 0 ? `+${n.toFixed(2)}` : n.toFixed(2);
+}
+
+/** Closing-line value, in points, vs. the game's CURRENT line (not
+ * necessarily the eventual true close - if the game hasn't kicked off yet
+ * this will keep moving). Positive = the number you got is better than
+ * what's available now. Spread/total only - moneyline CLV needs an
+ * implied-probability conversion to be meaningful, skipped here to keep
+ * this simple; the raw odds are still shown in their own column. */
+function computeClv(bet: Bet, game: Game | null, currentLine: DisplayLine | null): number | null {
+  if (!game || !currentLine) return null;
+  if (bet.market === "spread") {
+    if (currentLine.homeSpread === null) return null;
+    const isHome = bet.side === game.home_team;
+    const currentForSide = isHome ? currentLine.homeSpread : -currentLine.homeSpread;
+    return bet.line - currentForSide;
+  }
+  if (bet.market === "total") {
+    if (currentLine.total === null) return null;
+    return bet.side === "over" ? currentLine.total - bet.line : bet.line - currentLine.total;
+  }
+  return null;
+}
+
+function fmtClv(n: number | null): string {
+  if (n === null) return "—";
+  return n > 0 ? `+${n.toFixed(1)}` : n.toFixed(1);
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -130,6 +158,9 @@ export default function BetsLedger({ bets }: { bets: GradedBet[] }) {
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Kickoff</th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Matchup</th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Bet</th>
+                <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium text-right" title="Closing line value vs. the game's current line, in points">
+                  CLV
+                </th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Source</th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Book</th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium text-right">Odds</th>
@@ -140,7 +171,9 @@ export default function BetsLedger({ bets }: { bets: GradedBet[] }) {
               </tr>
             </thead>
             <tbody>
-              {sorted.map(({ bet, game, status, profit }) => (
+              {sorted.map(({ bet, game, status, profit, currentLine }) => {
+                const clv = computeClv(bet, game, currentLine);
+                return (
                 <tr key={bet.id} className="border-b border-border last:border-0 odd:bg-surface/50 hover:bg-surface-raised">
                   <td className="px-4 py-2.5 whitespace-nowrap text-xs text-muted">
                     <LocalDateTime iso={bet.placed_at} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
@@ -155,6 +188,9 @@ export default function BetsLedger({ bets }: { bets: GradedBet[] }) {
                   <td className="px-4 py-2.5 whitespace-nowrap text-foreground">{game ? `${game.away_team} @ ${game.home_team}` : "—"}</td>
                   <td className="px-4 py-2.5 whitespace-nowrap font-mono text-foreground">
                     {bet.side} {bet.market !== "moneyline" ? fmtLine(bet.line) : ""}
+                  </td>
+                  <td className={`px-4 py-2.5 text-right font-mono text-xs font-medium ${clv === null ? "text-muted" : clv >= 0 ? "text-up" : "text-down"}`}>
+                    {fmtClv(clv)}
                   </td>
                   <td className="px-4 py-2.5 whitespace-nowrap">
                     <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${SOURCE_STYLE[bet.edge_source] ?? "text-muted"}`}>
@@ -176,7 +212,8 @@ export default function BetsLedger({ bets }: { bets: GradedBet[] }) {
                     </form>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

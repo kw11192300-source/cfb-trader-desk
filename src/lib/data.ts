@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { supabaseAdmin } from "./supabase-admin";
+import { type DisplayLine, mergeLines, pickHeadlineLine } from "./mergedLines";
 import type {
   Bet,
   BettingLine,
@@ -292,6 +293,7 @@ export type GradedBet = {
   game: Game | null;
   status: BetStatus;
   profit: number | null; // units, null while pending; stake risked, not "to win"
+  currentLine: DisplayLine | null; // the game's current headline line - null if no book has posted one. Powers CLV (see BetsLedger.tsx) - "current," not necessarily the eventual true close.
 };
 
 function americanToDecimal(odds: number): number {
@@ -339,15 +341,35 @@ export async function getBets(): Promise<GradedBet[]> {
   if (!bets || bets.length === 0) return [];
 
   const gameIds = Array.from(new Set(bets.map((b) => b.game_id)));
-  const { data: games, error: gamesError } = await supabase.from("games").select("*").in("id", gameIds);
+  const [{ data: games, error: gamesError }, { data: lines, error: linesError }, { data: oddsApiLines, error: oddsApiError }] = await Promise.all([
+    supabase.from("games").select("*").in("id", gameIds),
+    supabase.from("betting_lines").select("*").in("game_id", gameIds),
+    supabase.from("odds_api_lines").select("*").in("game_id", gameIds),
+  ]);
   if (gamesError) throw new Error(gamesError.message);
+  if (linesError) throw new Error(linesError.message);
+  if (oddsApiError) throw new Error(oddsApiError.message);
   const gameById = new Map((games as Game[]).map((g) => [g.id, g]));
+
+  const linesByGame = new Map<number, BettingLine[]>();
+  for (const l of (lines ?? []) as BettingLine[]) {
+    const list = linesByGame.get(l.game_id) ?? [];
+    list.push(l);
+    linesByGame.set(l.game_id, list);
+  }
+  const oddsApiByGame = new Map<number, OddsApiLine[]>();
+  for (const l of (oddsApiLines ?? []) as OddsApiLine[]) {
+    const list = oddsApiByGame.get(l.game_id) ?? [];
+    list.push(l);
+    oddsApiByGame.set(l.game_id, list);
+  }
 
   return (bets as Bet[]).map((bet) => {
     const game = gameById.get(bet.game_id) ?? null;
-    if (!game) return { bet, game: null, status: "pending" as const, profit: null };
+    const currentLine = pickHeadlineLine(mergeLines(linesByGame.get(bet.game_id) ?? [], oddsApiByGame.get(bet.game_id) ?? []));
+    if (!game) return { bet, game: null, status: "pending" as const, profit: null, currentLine };
     const { status, profit } = gradeBet(bet, game);
-    return { bet, game, status, profit };
+    return { bet, game, status, profit, currentLine };
   });
 }
 
