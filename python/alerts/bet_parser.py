@@ -41,15 +41,21 @@ from dataclasses import dataclass
 KNOWN_BOOKS: dict[str, str] = {
     "draftkings": "DraftKings",
     "fanduel": "FanDuel",
+    "fd": "FanDuel",
     "betmgm": "BetMGM",
     "mgm": "BetMGM",
     "caesars": "Caesars",
+    "william hill": "Caesars",  # William Hill US rebranded to Caesars Sportsbook - same book, old name still shows up
+    "williamhill": "Caesars",
+    "will hill": "Caesars",  # colloquial shortening - the actual form requested, not just the full legal name
+    "wh": "Caesars",
     "espn bet": "ESPN Bet",
     "fanatics": "Fanatics",
     "pinnacle": "Pinnacle",
     "circa": "Circa",
     "bet365": "Bet365",
     "boomers": "Boomers",
+    "stn": "STN",
 }
 
 # Stake: "1u", "1.5u", ".5u", "1 unit", "0.82 units" - the decimal-only

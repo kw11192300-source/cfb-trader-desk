@@ -6,7 +6,7 @@ import { logBet } from "@/lib/actions";
 // Common books, offered as autocomplete suggestions - free text either way,
 // since some books the user actually uses aren't in Odds API/CFBD coverage
 // and have to be logged manually regardless.
-const COMMON_BOOKS = ["DraftKings", "FanDuel", "BetMGM", "Caesars", "ESPN Bet", "Fanatics", "Pinnacle", "Circa", "Bet365", "Boomers"];
+const COMMON_BOOKS = ["DraftKings", "FanDuel", "BetMGM", "Caesars", "ESPN Bet", "Fanatics", "Pinnacle", "Circa", "Bet365", "Boomers", "STN"];
 
 export default function LogBetForm({
   gameId,
