@@ -97,6 +97,75 @@ def _load_schedule(client, season: int) -> tuple[pd.DataFrame, pd.DataFrame]:
     return completed, remaining
 
 
+ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard"
+ESPN_MAX_WEEK = 16  # regular season only - conference championships/bowls aren't worth chasing here
+
+
+def _fetch_espn_schedule_supplement(season: int, min_week: int, known_schools: list[str]) -> pd.DataFrame:
+    """STOPGAP while CFBD's monthly quota is exhausted (see
+    cfbd_ingest/backfill.py's backfill_games) - our own `games` table's
+    schedule backfill stops at whatever week CFBD last gave us, so this
+    fills in the rest of the regular season from ESPN's public
+    (undocumented, no key needed) scoreboard API instead of leaving those
+    weeks blank. `min_week` should be one past the last week our own table
+    actually has - the caller computes that dynamically, so once a real
+    CFBD backfill extends the schedule again, this naturally supplements
+    less (or nothing) without needing a code change.
+
+    Deliberately NOT written to the `games` table - ESPN's game ids have
+    nothing to do with CFBD's, so inserting them for real would risk a
+    genuine duplicate once CFBD's own backfill later adds the same game
+    under its real id. Stays isolated to this one Python process's
+    in-memory DataFrame, used only for this simulation.
+
+    Team names come back as ESPN's full "School Mascot" style (e.g. "Ohio
+    Bobcats") - matched to our own school-only names with the SAME fuzzy
+    matcher already used for Odds API team names (team_match.py), since
+    it's the identical kind of matching problem. An unmatched team (most
+    often an FCS opponent not in `known_schools`) makes that game
+    unusable and it's dropped - same shape of limitation as before, just
+    a much smaller gap than a hard week-8 cutoff."""
+    rows = []
+    matched = unmatched = 0
+    for week in range(min_week, ESPN_MAX_WEEK + 1):
+        try:
+            resp = requests.get(
+                ESPN_SCOREBOARD_URL,
+                params={"year": season, "week": week, "seasontype": 2, "groups": 80, "limit": 300},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            events = resp.json().get("events", [])
+        except Exception as e:
+            print(f"ESPN fetch failed for week {week}: {e}")
+            continue
+
+        for e in events:
+            comp = e["competitions"][0]
+            competitors = comp["competitors"]
+            home = next((t for t in competitors if t["homeAway"] == "home"), None)
+            away = next((t for t in competitors if t["homeAway"] == "away"), None)
+            if home is None or away is None:
+                continue
+            home_school = find_best_school_match(home["team"]["displayName"], known_schools)
+            away_school = find_best_school_match(away["team"]["displayName"], known_schools)
+            if home_school is None or away_school is None:
+                unmatched += 1
+                continue
+            matched += 1
+            rows.append(
+                {
+                    "week": week,
+                    "home_team": home_school,
+                    "away_team": away_school,
+                    "neutral_site": bool(comp.get("neutralSite", False)),
+                    "completed": False,
+                }
+            )
+    print(f"ESPN supplement (weeks {min_week}-{ESPN_MAX_WEEK}): {matched} games matched, {unmatched} unmatched/dropped.")
+    return pd.DataFrame(rows)
+
+
 def _real_wins_so_far(completed: pd.DataFrame, fbs_teams: set[str]) -> dict[str, int]:
     wins: dict[str, int] = {t: 0 for t in fbs_teams}
     for _, g in completed.iterrows():
@@ -243,7 +312,19 @@ def run() -> None:
     # undercounted proj_wins for everyone, worst for good teams who
     # schedule the most of them.
     remaining_games = remaining[remaining["home_team"].isin(fbs_teams) | remaining["away_team"].isin(fbs_teams)]
-    print(f"{len(remaining_games)} remaining games involving a tracked FBS team (including buy games).")
+    print(f"{len(remaining_games)} remaining games involving a tracked FBS team from our own `games` table.")
+
+    # STOPGAP (see _fetch_espn_schedule_supplement's docstring) - fill in
+    # whatever regular-season weeks our own CFBD-backed schedule doesn't
+    # have yet, from ESPN, rather than silently treating "no data past
+    # week N" as "no games past week N."
+    max_known_week = pd.concat([completed, remaining])["week"].max()
+    max_known_week = int(max_known_week) if pd.notna(max_known_week) else 0
+    if max_known_week < ESPN_MAX_WEEK:
+        espn_games = _fetch_espn_schedule_supplement(season, max_known_week + 1, list(base_ratings))
+        if not espn_games.empty:
+            remaining_games = pd.concat([remaining_games, espn_games], ignore_index=True)
+    print(f"{len(remaining_games)} total remaining games involving a tracked FBS team (own table + ESPN supplement).")
 
     avg_games_left = (len(remaining_games) * 2) / max(len(fbs_teams), 1)
     if avg_games_left < 9:
