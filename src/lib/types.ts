@@ -153,3 +153,22 @@ export type ModelBacktest = {
   sort_order: number;
   computed_at: string;
 };
+
+/** A real bet actually placed - written from the Next.js app itself (a
+ * Server Action, secret key never reaches the browser), not the Python
+ * ingestion scripts. See bets in schema.sql. Win/loss/push/profit are
+ * never stored - always computed live against the game's current state,
+ * so a graded result can never go stale. */
+export type Bet = {
+  id: number;
+  game_id: number;
+  model_version: string | null;
+  market: "spread" | "total" | "moneyline" | string;
+  side: string; // team name (spread/moneyline) or "over"/"under" (total)
+  line: number; // bettor's own side, spread convention (negative = favored)
+  odds: number; // american odds actually taken
+  stake: number;
+  placed_at: string;
+  notes: string | null;
+  created_at: string;
+};

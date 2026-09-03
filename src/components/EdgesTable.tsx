@@ -4,6 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import LocalDateTime from "./LocalDateTime";
+import LogBetForm from "./LogBetForm";
 import type { EdgeRow } from "@/lib/data";
 
 function TeamLogo({ src, alt, size = 28 }: { src: string | null; alt: string; size?: number }) {
@@ -121,6 +122,9 @@ export default function EdgesTable({ rows, generatedAt }: { rows: EdgeRow[]; gen
                   </div>
                 </div>
                 {p.rationale && <p className="border-t border-border pt-3 text-xs leading-relaxed text-muted">{p.rationale}</p>}
+                <div className="mt-3 flex justify-end border-t border-border pt-3">
+                  <LogBetForm gameId={game.id} modelVersion={p.model_version} market="spread" side={pickTeam} line={market ?? 0} />
+                </div>
               </div>
             );
           })}

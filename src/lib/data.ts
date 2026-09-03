@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { BettingLine, BoardRow, Game, LineSnapshot, ModelBacktest, ModelBacktestGame, OddsApiLine, Prediction, Team, TeamPowerRating } from "./types";
+import type { Bet, BettingLine, BoardRow, Game, LineSnapshot, ModelBacktest, ModelBacktestGame, OddsApiLine, Prediction, Team, TeamPowerRating } from "./types";
 
 /**
  * Same idea as the Python side's current_week.py: the earliest
@@ -236,4 +236,68 @@ export async function getBacktestGames(modelVersion: string): Promise<ModelBackt
     .order("edge", { ascending: false });
   if (error) throw new Error(error.message);
   return (data ?? []) as ModelBacktestGame[];
+}
+
+export type BetStatus = "pending" | "win" | "loss" | "push";
+
+/** A bet joined with its game, graded live (never stored) so a result can
+ * never go stale - status/profit reflect the game's CURRENT state every
+ * time this is called. */
+export type GradedBet = {
+  bet: Bet;
+  game: Game | null;
+  status: BetStatus;
+  profit: number | null; // units, null while pending; stake risked, not "to win"
+};
+
+function americanToDecimal(odds: number): number {
+  return odds < 0 ? 100 / Math.abs(odds) + 1 : odds / 100 + 1;
+}
+
+/** margin > 0 means the bet's side beat its number; < 0 means it didn't;
+ * 0 is a push. Spread convention throughout (negative = favored), same as
+ * the rest of the site. */
+function gradeBet(bet: Bet, game: Game): { status: BetStatus; profit: number | null } {
+  if (!game.completed || game.home_points === null || game.away_points === null) {
+    return { status: "pending", profit: null };
+  }
+
+  let margin: number;
+  if (bet.market === "total") {
+    const total = game.home_points + game.away_points;
+    margin = bet.side === "over" ? total - bet.line : bet.line - total;
+  } else if (bet.market === "moneyline") {
+    const homeWon = game.home_points > game.away_points;
+    const sideIsHome = bet.side === game.home_team;
+    margin = (sideIsHome ? homeWon : !homeWon) ? 1 : -1; // no push concept for moneyline
+  } else {
+    // spread (default)
+    const sideIsHome = bet.side === game.home_team;
+    const actualMarginForSide = sideIsHome ? game.home_points - game.away_points : game.away_points - game.home_points;
+    margin = actualMarginForSide + bet.line;
+  }
+
+  if (margin > 0) return { status: "win", profit: bet.stake * (americanToDecimal(bet.odds) - 1) };
+  if (margin < 0) return { status: "loss", profit: -bet.stake };
+  return { status: "push", profit: 0 };
+}
+
+/** Every bet ever logged, newest first, graded live against each game's
+ * current state. */
+export async function getBets(): Promise<GradedBet[]> {
+  const { data: bets, error } = await supabase.from("bets").select("*").order("placed_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  if (!bets || bets.length === 0) return [];
+
+  const gameIds = Array.from(new Set(bets.map((b) => b.game_id)));
+  const { data: games, error: gamesError } = await supabase.from("games").select("*").in("id", gameIds);
+  if (gamesError) throw new Error(gamesError.message);
+  const gameById = new Map((games as Game[]).map((g) => [g.id, g]));
+
+  return (bets as Bet[]).map((bet) => {
+    const game = gameById.get(bet.game_id) ?? null;
+    if (!game) return { bet, game: null, status: "pending" as const, profit: null };
+    const { status, profit } = gradeBet(bet, game);
+    return { bet, game, status, profit };
+  });
 }

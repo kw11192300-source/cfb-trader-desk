@@ -353,6 +353,27 @@ create index if not exists model_backtest_games_lookup_idx on model_backtest_gam
 -- allow SELECT to everyone, INSERT/UPDATE/DELETE to no one. The secret key
 -- (service role) bypasses RLS entirely, so the Python ingestion scripts are
 -- unaffected — they keep writing exactly as before.
+--
+-- bets is the one exception: it's written from the Next.js app itself (a
+-- Server Action, never a Client Component - the secret key never reaches
+-- the browser), not from the Python ingestion scripts. Real money tracking,
+-- so grading (win/loss/push/profit) is computed live by joining against
+-- games rather than stored, to avoid ever showing a stale result.
+create table if not exists bets (
+  id bigserial primary key,
+  game_id bigint not null references games(id) on delete cascade,
+  model_version text,                     -- which model's pick this was, if any (null = a manual/off-model bet)
+  market text not null default 'spread',  -- 'spread' | 'total' | 'moneyline' - spread only for now
+  side text not null,                     -- team name (spread/moneyline) or 'over'/'under' (total)
+  line numeric not null,                  -- the number actually bet, from the bettor's own side (spread convention: negative = favored)
+  odds integer not null default -110,     -- american odds price actually taken
+  stake numeric not null,                 -- units/dollars risked
+  placed_at timestamptz not null default now(),
+  notes text,
+  created_at timestamptz not null default now()
+);
+create index if not exists bets_game_id_idx on bets(game_id);
+
 alter table teams enable row level security;
 alter table games enable row level security;
 alter table betting_lines enable row level security;
@@ -367,6 +388,7 @@ alter table team_returning_production enable row level security;
 alter table team_coaching enable row level security;
 alter table team_power_ratings enable row level security;
 alter table player_transfers enable row level security;
+alter table bets enable row level security;
 alter table model_backtests enable row level security;
 alter table model_backtest_games enable row level security;
 
@@ -386,3 +408,7 @@ create policy "public read" on team_returning_production for select using (true)
 create policy "public read" on team_coaching for select using (true);
 create policy "public read" on team_power_ratings for select using (true);
 create policy "public read" on player_transfers for select using (true);
+create policy "public read" on bets for select using (true);
+-- No insert/update/delete policy on bets - only the secret key (service
+-- role, bypasses RLS) can write, from the Server Action, same as every
+-- other write path in this project.
