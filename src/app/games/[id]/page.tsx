@@ -4,9 +4,10 @@ import { notFound } from "next/navigation";
 import LineMovementChart from "@/components/LineMovementChart";
 import LocalDateTime from "@/components/LocalDateTime";
 import LogBetForm from "@/components/LogBetForm";
+import PositionScenarios from "@/components/PositionScenarios";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
-import { getGame, getLineHistory } from "@/lib/data";
+import { getBets, getGame, getLineHistory } from "@/lib/data";
 import { formatSpread as formatCfbdSpread } from "@/lib/lines";
 import { bestHomeSpread, bestOverTotal, bestUnderTotal, formatMoneyline, formatPrice, formatSpread, mergeLines } from "@/lib/mergedLines";
 import { fmtSpread, pickPerspectiveSpread } from "@/lib/spread";
@@ -23,10 +24,11 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
   const gameId = Number(id);
   if (!Number.isFinite(gameId)) notFound();
 
-  const [detail, history] = await Promise.all([getGame(gameId), getLineHistory(gameId)]);
+  const [detail, history, allBets] = await Promise.all([getGame(gameId), getLineHistory(gameId), getBets()]);
   if (!detail) notFound();
 
   const { game, lines, oddsApiLines, homeTeam, awayTeam, prediction } = detail;
+  const gameBets = allBets.filter((b) => b.bet.game_id === gameId).map((b) => b.bet);
   const books = mergeLines(lines, oddsApiLines);
 
   // Same pick-perspective math as the Edges/Board views: market − model =
@@ -129,6 +131,8 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
             </div>
           </div>
         )}
+
+        <PositionScenarios bets={gameBets} game={game} />
 
         <h2 className="mt-8 mb-3 text-sm font-medium uppercase tracking-wide text-muted">Odds comparison</h2>
 
