@@ -1,14 +1,17 @@
-name: In-season watchlist
+name: In-season watchlist (discovery)
 
 # Exploratory second signal - see modeling/watchlist.py's module docstring.
-# Retrains the margin model each run (unlike refresh-edges.yml's fast
-# no-retrain check) since it needs a fresh build_live_features() pass
-# anyway - every 2h matches predict-week1.yml's own cadence, a reasonable
-# cost/benefit given lines don't move meaningfully faster than that for
-# most of the week. Reads Supabase only, no CFBD/Odds API calls.
+# This is the SLOW half only (new-candidate discovery: full model retrain
+# + build_live_features() pass) - see refresh-watchlist.yml for the fast,
+# frequent confirmation check against the current line (same split as
+# predict-week1.yml/refresh-edges.yml, and for the same reason: team
+# ratings barely move hour to hour, so there's no need to pay for a full
+# retrain just to check whether a line moved). Every 4h matches
+# predict-week1.yml's own cadence. Reads Supabase only, no CFBD/Odds API
+# calls.
 on:
   schedule:
-    - cron: "0 */2 * * *"
+    - cron: "0 */4 * * *"
   workflow_dispatch: {}
 
 jobs:

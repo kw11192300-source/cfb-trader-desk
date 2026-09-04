@@ -1,0 +1,36 @@
+name: In-season watchlist (confirmation)
+
+# The fast half of watchlist.py's job - see modeling/refresh_watchlist.py
+# and watchlist.yml's own comment for the discovery/confirmation split.
+# This makes NO external API calls (reads Supabase only), so there's no
+# quota cost to running it often - the real ceiling on how fast a
+# confirmation can fire is poll-lines.yml's own cadence (currently */15,
+# throttled to protect the CFBD free-tier quota - see that workflow's
+# comment), not this one. */5 here means a line that already updated gets
+# checked-and-possibly-alerted within 5 min instead of waiting up to 15 -
+# tighten poll-lines.yml itself (a real quota tradeoff) if you need the
+# underlying data fresher than that. GitHub Actions schedules are not
+# guaranteed to the minute, especially under load - treat any cadence
+# here as "about every N minutes," not exact.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r python/requirements.txt
+      - name: Check for confirmed moves
+        working-directory: python
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m modeling.refresh_watchlist
