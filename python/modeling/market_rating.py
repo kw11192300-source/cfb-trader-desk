@@ -124,16 +124,29 @@ def _compute_expanding_ratings(
 
     continuity_multipliers: {(season, team): multiplier}, fbs_teams: used
     only for the week-1 shrink's reference mean - see _shrink_to_mean and
-    power_rating.py's identical fix."""
-    games = games.dropna(subset=["target_margin"]).sort_values(["season", "week"])
+    power_rating.py's identical fix.
+
+    `weeks` is determined from EVERY row passed in (games_for_weeks below),
+    not just the ones with a valid target_margin - otherwise a genuinely
+    upcoming week with zero completed games yet (live scoring, see
+    features.py's build_live_features) never gets a rating emitted at all,
+    since its own week would never appear in the old dropna-first version.
+    Actual FITTING (`before` and the season-final carry-forward) still only
+    ever uses valid-target rows (games_for_fit) - an incomplete game is a
+    valid reason to emit a week, never valid evidence to fit on. Caught
+    live: results_rating (the single most important feature pair in the
+    outcome model) was silently NaN for ~all upcoming post-week-1 games."""
+    games_for_weeks = games.sort_values(["season", "week"])
+    games_for_fit = games.dropna(subset=["target_margin"]).sort_values(["season", "week"])
     out_rows = []
     prior: dict[str, float] | None = None
 
-    for season, season_games in games.groupby("season"):
+    for season, season_games in games_for_weeks.groupby("season"):
         season_multipliers = {t: m for (s, t), m in (continuity_multipliers or {}).items() if s == season}
+        fit_games_season = games_for_fit[games_for_fit["season"] == season]
         weeks = sorted(season_games["week"].unique())
         for week in weeks:
-            before = season_games[season_games["week"] < week]
+            before = fit_games_season[fit_games_season["week"] < week]
             if len(before) > 0:
                 ratings = fit_massey_ratings(before, prior=prior, prior_weight_multipliers=season_multipliers)
             else:
@@ -142,11 +155,12 @@ def _compute_expanding_ratings(
                 if team == HFA_KEY:
                     continue
                 out_rows.append({"season": season, "week": week, "team": team, value_col: rating})
-        # Season-final rating (all of this season's games) becomes next season's prior.
-        # Unshrunk - the shrink is only for the OUTPUT at week 1, same reasoning
-        # as power_rating.py (next season's week-1 branch needs the true
-        # unshrunk prior to weigh real evidence against once games start).
-        season_final = fit_massey_ratings(season_games, prior=prior, prior_weight_multipliers=season_multipliers)
+        # Season-final rating (all of this season's COMPLETED games) becomes
+        # next season's prior. Unshrunk - the shrink is only for the OUTPUT
+        # at week 1, same reasoning as power_rating.py (next season's week-1
+        # branch needs the true unshrunk prior to weigh real evidence
+        # against once games start).
+        season_final = fit_massey_ratings(fit_games_season, prior=prior, prior_weight_multipliers=season_multipliers)
         prior = {t: r for t, r in season_final.items() if t != HFA_KEY}
 
     return pd.DataFrame(out_rows)

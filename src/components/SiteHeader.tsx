@@ -25,6 +25,9 @@ export default function SiteHeader({ subtitle }: { subtitle: string }) {
           <Link href="/edges" className="text-muted transition-colors hover:text-foreground">
             Edges
           </Link>
+          <Link href="/watchlist" className="text-muted transition-colors hover:text-foreground">
+            Watchlist
+          </Link>
           <Link href="/bets" className="text-muted transition-colors hover:text-foreground">
             Bets
           </Link>

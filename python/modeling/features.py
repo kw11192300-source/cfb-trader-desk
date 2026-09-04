@@ -76,7 +76,18 @@ def _fetch_by_game_ids(table: str, select: str, game_ids: list[int]) -> pd.DataF
 POWER_CONFERENCES = {"SEC", "Big Ten", "Big 12", "ACC", "Pac-12", "Pac-10"}
 
 
-def _load_games(seasons: list[int]) -> pd.DataFrame:
+def _load_games(seasons: list[int], include_incomplete: bool = False) -> pd.DataFrame:
+    """include_incomplete=True keeps not-yet-played games alongside
+    completed ones - used only by build_live_features (scoring upcoming
+    games), never by build_training_dataset (training/backtesting must
+    stay completed-games-only). Safe to mix into the same pipeline as
+    completed games: every cumulative/expanding feature function in this
+    module only ever looks at games STRICTLY BEFORE the target row (see
+    _cumulative_pregame_stats, _cumulative_scoring, _asof_elo,
+    market_rating.py/power_rating.py's `week <` filters) - an incomplete
+    row is a valid feature TARGET but is never used as fitting evidence
+    for another row (actual_margin is NaN for it, and every ratings fit
+    that targets margin drops NaN targets before fitting)."""
     df = _fetch_seasons(
         "games",
         "id,season,week,season_type,start_date,completed,neutral_site,home_id,home_team,home_conference,home_points,away_id,away_team,away_conference,away_points",
@@ -84,7 +95,12 @@ def _load_games(seasons: list[int]) -> pd.DataFrame:
     )
     if df.empty:
         return df
-    df = df[df["completed"]].copy()
+    df = df if include_incomplete else df[df["completed"]].copy()
+    # Real for completed games; NaN (not crashing) for incomplete ones, so
+    # actual_margin/actual_total/home_win downstream come out NaN rather
+    # than raising - correct, since a live-scoring caller never uses them.
+    df["home_points"] = pd.to_numeric(df["home_points"], errors="coerce")
+    df["away_points"] = pd.to_numeric(df["away_points"], errors="coerce")
     df["start_date"] = pd.to_datetime(df["start_date"])
     df["home_power_conf"] = df["home_conference"].isin(POWER_CONFERENCES)
     df["away_power_conf"] = df["away_conference"].isin(POWER_CONFERENCES)
@@ -342,6 +358,34 @@ def _asof_elo(elo_df: pd.DataFrame, games: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
+    """Training/backtesting only - completed games, every row has a real
+    outcome. See build_live_features for scoring upcoming games."""
+    return _build_feature_rows(seasons, include_incomplete=False)
+
+
+def build_live_features(season: int) -> pd.DataFrame:
+    """Feature rows for `season`'s not-yet-played games - same
+    point-in-time-safe pipeline as build_training_dataset, just scored on
+    upcoming games instead of graded on completed ones (every feature is
+    still computed only from strictly-earlier games, per _load_games'
+    include_incomplete docstring). Requests a decade of history alongside
+    `season`, same convention predict_week1.py already uses, since the
+    market/results rating continuity chain needs real bootstrap depth, not
+    just the one season being scored.
+
+    Returns one row per upcoming FBS-vs-FBS game for `season`, any week -
+    callers decide their own further filtering (e.g. week/games-played),
+    since week 1 already has its own dedicated, validated pipeline in
+    predict_week1.py and has no business going through this path."""
+    seasons = list(range(season - 11, season + 1))
+    full = _build_feature_rows(seasons, include_incomplete=True)
+    if full.empty:
+        return full
+    live = full[(full["season"] == season) & (~full["completed"])].copy()
+    return live[live["home_is_fbs"] & live["away_is_fbs"]]
+
+
+def _build_feature_rows(seasons: list[int], include_incomplete: bool) -> pd.DataFrame:
     if not seasons:
         raise ValueError("seasons must be non-empty")
     all_seasons = sorted(set(seasons))
@@ -352,7 +396,7 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
     history_seasons = list(range(history_start, max(all_seasons) + 1))
 
     print(f"Loading games for {history_seasons}...")
-    all_games = _load_games(history_seasons)
+    all_games = _load_games(history_seasons, include_incomplete=include_incomplete)
     games = all_games[all_games["season"].isin(all_seasons)].copy()
     if games.empty:
         return pd.DataFrame()
@@ -547,6 +591,7 @@ def build_training_dataset(seasons: list[int]) -> pd.DataFrame:
             "game_id": g.id,
             "season": g.season,
             "week": g.week,
+            "completed": bool(g.completed),
             "neutral_site": g.neutral_site,
             "conference_game": g.conference_game,
             "home_power_conf": g.home_power_conf,

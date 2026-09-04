@@ -65,3 +65,44 @@ def send_new_edge_alerts(client, model_version: str, records: list[dict], top_ga
             client.table("predictions").update({"alert_sent_at": now}).eq("model_version", model_version).in_("game_id", batch).execute()
 
     return len(sent_ids)
+
+
+def send_watchlist_confirmation_alerts(client, model_version: str, rows: list[dict]) -> int:
+    """watchlist.py's second signal - explicitly NOT the validated week-1
+    strategy above, and labeled as such in the message text itself so it's
+    never confused for one. Fires once a candidate's CURRENT line has moved
+    toward the model's side by watchlist.CONFIRM_MOVE_THRESHOLD since it
+    was first flagged (reference_spread) - see schema.sql's watchlist_picks
+    docstring for the backtest finding this is based on (post-week-1: 64%
+    ATS when confirmed vs. 41% when not, n=74, 2016-2025 - real but a much
+    thinner, more exploratory result than the week-1 strategy's 74%/150).
+
+    `rows` are watchlist_picks rows (dicts) that just crossed the
+    confirmation threshold this run and haven't been alerted yet - dedup
+    itself (alert_sent_at) is the caller's job, same division of labor as
+    send_new_edge_alerts. Returns how many alerts actually sent."""
+    if not telegram_bot.is_configured() or not rows:
+        return 0
+
+    sent_ids: list[int] = []
+    for r in rows:
+        move = r["move_toward_pick"]
+        text = (
+            f"\U0001f440 Watchlist confirmed ({move:+.1f} pt move)\n\n"
+            f"{r['rationale']}\n\n"
+            f"Line opened at {r['reference_spread']:+.1f}, now {r['current_spread']:+.1f} - moving your way.\n\n"
+            f"Exploratory in-season signal, NOT the validated week-1 strategy - see /watchlist for the real numbers before sizing this."
+        )
+        try:
+            telegram_bot.send_message(text)
+            sent_ids.append(r["id"])
+        except Exception as e:  # best-effort - one failed send shouldn't block the rest or fail the run
+            print(f"Telegram watchlist alert failed for row {r['id']}: {e}")
+
+    if sent_ids:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        for i in range(0, len(sent_ids), 500):
+            batch = sent_ids[i : i + 500]
+            client.table("watchlist_picks").update({"alert_sent_at": now}).in_("id", batch).execute()
+
+    return len(sent_ids)

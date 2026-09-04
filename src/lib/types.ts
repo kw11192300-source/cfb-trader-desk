@@ -213,3 +213,29 @@ export type SeasonFuture = {
   edge: number | null;
   computed_at: string;
 };
+
+/** One in-season "wait for confirmation" candidate (python/modeling/
+ * watchlist.py) - a second, more exploratory signal than predictions'
+ * validated week1_edge_v1 rows. reference_spread is fixed the moment the
+ * game first qualified; current_spread/move_toward_pick update every scan
+ * until alert_sent_at fires (then the row is frozen). See watchlist.py's
+ * module docstring for the backtest finding this is built on. */
+export type WatchlistPick = {
+  id: number;
+  game_id: number;
+  model_version: string;
+  season: number;
+  week: number;
+  pick_team: string;
+  pick_home: boolean;
+  predicted_margin: number;
+  edge: number;
+  rationale: string | null;
+  reference_spread: number;
+  reference_captured_at: string;
+  current_spread: number | null;
+  current_edge: number | null;
+  move_toward_pick: number | null;
+  alert_sent_at: string | null;
+  created_at: string;
+};

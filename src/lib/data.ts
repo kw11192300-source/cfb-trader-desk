@@ -14,6 +14,7 @@ import type {
   SeasonFuture,
   Team,
   TeamPowerRating,
+  WatchlistPick,
 } from "./types";
 
 /**
@@ -423,4 +424,52 @@ export async function getSeasonFutures(season: number, modelVersion: string): Pr
       if (aEdge !== bEdge) return bEdge - aEdge;
       return b.championship_prob - a.championship_prob;
     });
+}
+
+export type WatchlistRow = WatchlistPick & {
+  homeTeam: string;
+  awayTeam: string;
+  startDate: string;
+  homeLogo: string | null;
+  awayLogo: string | null;
+};
+
+/** Active + recently-confirmed in-season watchlist picks (python/modeling/
+ * watchlist.py) - joined with each game's matchup/kickoff for display.
+ * Confirmed (alert_sent_at set) rows are included so the page can show
+ * "confirmed" history, not just what's still being watched. */
+export async function getWatchlist(modelVersion: string): Promise<WatchlistRow[]> {
+  const { data: rows, error } = await supabase
+    .from("watchlist_picks")
+    .select("*")
+    .eq("model_version", modelVersion)
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  if (!rows || rows.length === 0) return [];
+
+  const gameIds = [...new Set((rows as WatchlistPick[]).map((r) => r.game_id))];
+  const { data: games, error: gamesError } = await supabase
+    .from("games")
+    .select("id, home_team, away_team, start_date")
+    .in("id", gameIds);
+  if (gamesError) throw new Error(gamesError.message);
+  const gameById = new Map((games as { id: number; home_team: string; away_team: string; start_date: string }[]).map((g) => [g.id, g]));
+
+  const { data: teams, error: teamsError } = await supabase.from("teams").select("school, logo_url");
+  if (teamsError) throw new Error(teamsError.message);
+  const logoBySchool = new Map((teams as { school: string; logo_url: string | null }[]).map((t) => [t.school, t.logo_url]));
+
+  return (rows as WatchlistPick[])
+    .map((r) => {
+      const g = gameById.get(r.game_id);
+      return {
+        ...r,
+        homeTeam: g?.home_team ?? "?",
+        awayTeam: g?.away_team ?? "?",
+        startDate: g?.start_date ?? r.created_at,
+        homeLogo: g ? (logoBySchool.get(g.home_team) ?? null) : null,
+        awayLogo: g ? (logoBySchool.get(g.away_team) ?? null) : null,
+      };
+    })
+    .filter((r) => Boolean(gameById.get(r.game_id)));
 }

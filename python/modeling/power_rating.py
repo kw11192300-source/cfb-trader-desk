@@ -194,17 +194,25 @@ def _compute_expanding_off_def(
 
     fbs_teams: {team names} used only to pick the centering reference -
     see _center's docstring. Not used to filter games (FBS/FCS still fit
-    together in one system)."""
-    games = games.dropna(subset=[home_col, away_col], how="all").sort_values(["season", "week"])
+    together in one system).
+
+    `weeks` comes from EVERY row passed in (games_for_weeks), not just the
+    ones with a real result (games_for_fit) - see market_rating.py's
+    identical fix for why: an upcoming week with nothing completed yet
+    still needs a carried-forward rating emitted for it (live scoring),
+    even though it obviously can't contribute fitting evidence."""
+    games_for_weeks = games.sort_values(["season", "week"])
+    games_for_fit = games.dropna(subset=[home_col, away_col], how="all").sort_values(["season", "week"])
     out_rows = []
     prior_off: dict[str, float] | None = None
     prior_def: dict[str, float] | None = None
 
-    for season, season_games in games.groupby("season"):
+    for season, season_games in games_for_weeks.groupby("season"):
         season_multipliers = {t: m for (s, t), m in (continuity_multipliers or {}).items() if s == season}
+        fit_games_season = games_for_fit[games_for_fit["season"] == season]
         weeks = sorted(season_games["week"].unique())
         for week in weeks:
-            before = season_games[season_games["week"] < week]
+            before = fit_games_season[fit_games_season["week"] < week]
             if len(before) > 0:
                 off, dfn = fit_off_def_ratings(before, home_col, away_col, prior_off, prior_def, prior_weight_multipliers=season_multipliers)
             else:
@@ -224,7 +232,7 @@ def _compute_expanding_off_def(
             teams = set(off_out.keys()) | set(dfn_out.keys())
             for team in teams:
                 out_rows.append({"season": season, "week": week, "team": team, off_name: off_out.get(team), def_name: dfn_out.get(team)})
-        prior_off, prior_def = fit_off_def_ratings(season_games, home_col, away_col, prior_off, prior_def, prior_weight_multipliers=season_multipliers)
+        prior_off, prior_def = fit_off_def_ratings(fit_games_season, home_col, away_col, prior_off, prior_def, prior_weight_multipliers=season_multipliers)
 
     return pd.DataFrame(out_rows)
 
