@@ -54,7 +54,9 @@ export default function GameCard({ row }: { row: BoardRow }) {
       className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4 transition-colors hover:border-accent/60 hover:bg-surface-raised"
     >
       <div className="flex items-center justify-between text-[11px] text-muted">
-        {game.live_status ? (
+        {game.completed ? (
+          <span className="font-medium text-muted">FINAL</span>
+        ) : game.live_status ? (
           <span className="flex items-center gap-1.5 font-medium text-down">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-down" />
             LIVE
@@ -75,12 +77,22 @@ export default function GameCard({ row }: { row: BoardRow }) {
         <div className="flex items-center gap-2">
           <TeamLogo src={awayLogo} alt={game.away_team} />
           <span className="flex-1 truncate text-sm text-foreground">{game.away_team}</span>
-          {game.live_status && <span className="font-mono text-sm text-foreground">{game.live_status.away_points}</span>}
+          {game.completed && game.away_points !== null && (
+            <span className={`font-mono text-sm ${(game.away_points ?? 0) > (game.home_points ?? 0) ? "font-semibold text-foreground" : "text-muted"}`}>
+              {game.away_points}
+            </span>
+          )}
+          {!game.completed && game.live_status && <span className="font-mono text-sm text-foreground">{game.live_status.away_points}</span>}
         </div>
         <div className="flex items-center gap-2">
           <TeamLogo src={homeLogo} alt={game.home_team} />
           <span className="flex-1 truncate text-sm text-foreground">{game.home_team}</span>
-          {game.live_status && <span className="font-mono text-sm text-foreground">{game.live_status.home_points}</span>}
+          {game.completed && game.home_points !== null && (
+            <span className={`font-mono text-sm ${(game.home_points ?? 0) > (game.away_points ?? 0) ? "font-semibold text-foreground" : "text-muted"}`}>
+              {game.home_points}
+            </span>
+          )}
+          {!game.completed && game.live_status && <span className="font-mono text-sm text-foreground">{game.live_status.home_points}</span>}
         </div>
       </div>
 

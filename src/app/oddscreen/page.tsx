@@ -1,13 +1,13 @@
 import OddsScreenTable from "@/components/OddsScreenTable";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
-import { getCurrentWeekBoard } from "@/lib/data";
+import { getBoard } from "@/lib/data";
 import { mergeLines } from "@/lib/mergedLines";
 
 export const dynamic = "force-dynamic";
 
 export default async function OddsScreenPage() {
-  const board = await getCurrentWeekBoard();
+  const board = await getBoard();
   const rows = (board?.rows ?? []).map((r) => ({
     game: r.game,
     books: mergeLines(r.lines, r.oddsApiLines),

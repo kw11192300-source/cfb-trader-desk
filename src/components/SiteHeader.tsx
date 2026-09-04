@@ -5,7 +5,7 @@ export default function SiteHeader({ subtitle }: { subtitle: string }) {
     <header className="border-b border-border bg-surface px-6 py-4">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
         <div>
-          <Link href="/">
+          <Link href="/" prefetch={false}>
             <h1 className="text-lg font-semibold tracking-tight text-foreground">
               CFB <span className="text-accent">Trader Desk</span>
             </h1>
@@ -13,7 +13,7 @@ export default function SiteHeader({ subtitle }: { subtitle: string }) {
           <p className="text-xs text-muted">{subtitle}</p>
         </div>
         <nav className="flex items-center gap-4 text-xs">
-          <Link href="/" className="text-muted transition-colors hover:text-foreground">
+          <Link href="/" prefetch={false} className="text-muted transition-colors hover:text-foreground">
             Board
           </Link>
           <Link href="/oddscreen" className="text-muted transition-colors hover:text-foreground">

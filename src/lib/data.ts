@@ -22,7 +22,7 @@ import type {
  * its own query (not shared code with Python) since it's a two-line lookup,
  * not worth a cross-language shared module for.
  */
-async function getCurrentWeek(): Promise<{ season: number; week: number; seasonType: string } | null> {
+export async function getCurrentWeek(): Promise<{ season: number; week: number; seasonType: string } | null> {
   const year = new Date().getFullYear();
   const { data, error } = await supabase
     .from("games")
@@ -35,6 +35,17 @@ async function getCurrentWeek(): Promise<{ season: number; week: number; seasonT
   if (error) throw new Error(error.message);
   if (!data) return null;
   return { season: data.season, week: data.week, seasonType: data.season_type };
+}
+
+/** Every distinct (regular-season) week this season has at least one game
+ * for, ascending - powers the Board's week tabs. Not restricted to weeks
+ * up to "current" - the full schedule is usually backfilled well ahead,
+ * so future weeks show up too (browsing ahead works the same as back). */
+export async function getAvailableWeeks(season: number): Promise<number[]> {
+  const { data, error } = await supabase.from("games").select("week").eq("season", season).eq("season_type", "regular");
+  if (error) throw new Error(error.message);
+  const weeks = Array.from(new Set((data ?? []).map((r) => r.week as number)));
+  return weeks.sort((a, b) => a - b);
 }
 
 /** Joins a list of games with every book's line for each, both teams' logos,
@@ -101,32 +112,43 @@ async function buildBoardRows(games: Game[]): Promise<BoardRow[]> {
   }));
 }
 
-export async function getCurrentWeekBoard(): Promise<{
+/** The Board for one specific week, or the current week if none is given.
+ * Includes BOTH upcoming/live and already-completed games (unlike the old
+ * completed=false-only query) - ordered so completed ones sort after
+ * everything still in play, chronologically within each group, so a
+ * finished week reads top-to-bottom the same as a live one, with finals
+ * naturally landing at the bottom. */
+export async function getBoard(
+  season?: number,
+  week?: number,
+  seasonType?: string,
+): Promise<{
   season: number;
   week: number;
   seasonType: string;
   rows: BoardRow[];
 } | null> {
-  const current = await getCurrentWeek();
-  if (!current) return null;
+  let target: { season: number; week: number; seasonType: string };
+  if (season !== undefined && week !== undefined && seasonType !== undefined) {
+    target = { season, week, seasonType };
+  } else {
+    const current = await getCurrentWeek();
+    if (!current) return null;
+    target = current;
+  }
 
-  // CFBD's own "week" windows span more than 7 days, so a single week
-  // routinely mixes games that already finished with ones still upcoming
-  // (e.g. Tuesday MACtion already final, Saturday's slate still ahead).
-  // completed=false keeps this a live board of tradeable markets rather
-  // than mixing in settled games with stale odds.
   const { data: games, error: gamesError } = await supabase
     .from("games")
     .select("*")
-    .eq("season", current.season)
-    .eq("week", current.week)
-    .eq("season_type", current.seasonType)
-    .eq("completed", false)
+    .eq("season", target.season)
+    .eq("week", target.week)
+    .eq("season_type", target.seasonType)
+    .order("completed", { ascending: true })
     .order("start_date", { ascending: true });
   if (gamesError) throw new Error(gamesError.message);
 
   const rows = await buildBoardRows(games as Game[]);
-  return { season: current.season, week: current.week, seasonType: current.seasonType, rows };
+  return { season: target.season, week: target.week, seasonType: target.seasonType, rows };
 }
 
 export type GameDetail = {
