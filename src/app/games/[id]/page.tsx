@@ -61,6 +61,12 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
         </Link>
 
         <div className="mt-4 rounded-lg border border-border bg-surface p-6">
+          {game.live_status && (
+            <div className="mb-4 flex items-center justify-center gap-1.5 text-xs font-medium text-down">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-down" />
+              LIVE{game.live_status.detail && <span className="text-muted"> · {game.live_status.detail}</span>}
+            </div>
+          )}
           <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
             <div className="flex items-center gap-3">
               <TeamLogo src={awayTeam?.logo_url} alt={game.away_team} />
@@ -68,9 +74,11 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
                 <div className="text-xs text-muted">Away</div>
                 <div className="text-base font-semibold text-foreground">{game.away_team}</div>
               </div>
+              {game.live_status && <div className="font-mono text-2xl text-foreground">{game.live_status.away_points}</div>}
             </div>
             <div className="text-muted">@</div>
             <div className="flex items-center gap-3">
+              {game.live_status && <div className="font-mono text-2xl text-foreground">{game.live_status.home_points}</div>}
               <div className="text-right">
                 <div className="text-xs text-muted">Home</div>
                 <div className="text-base font-semibold text-foreground">{game.home_team}</div>

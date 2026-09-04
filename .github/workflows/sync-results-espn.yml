@@ -1,0 +1,28 @@
+name: Sync results (ESPN, live + final)
+
+# Live in-game score tracking AND a final-score fallback, both from ESPN's
+# public/keyless scoreboard API (cfbd_ingest/sync_results_espn.py) - not
+# gated by CFBD's quota, so bet grading and the site's scores never have
+# to wait on CFBD's own 3x/day sync-results.yml. Same */5 cadence as the
+# other polling workflows - a respectful cadence for an unofficial API,
+# and still meaningfully live for a multi-hour game.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r python/requirements.txt
+      - name: Sync results from ESPN
+        working-directory: python
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: python -m cfbd_ingest.sync_results_espn

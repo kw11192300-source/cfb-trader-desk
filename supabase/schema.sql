@@ -43,6 +43,16 @@ create table if not exists games (
   away_conference text,
   away_points integer,
 
+  live_status jsonb,                      -- {home_points, away_points, period,
+                                           -- clock, detail} while the game is
+                                           -- actually in progress (ESPN's public
+                                           -- scoreboard API - see
+                                           -- cfbd_ingest/sync_results_espn.py).
+                                           -- Null before kickoff and once
+                                           -- completed=true/home_points/
+                                           -- away_points become the real,
+                                           -- final source of truth.
+
   updated_at timestamptz not null default now()
 );
 

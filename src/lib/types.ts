@@ -26,6 +26,20 @@ export type Game = {
   away_team: string;
   away_conference: string | null;
   away_points: number | null;
+  live_status: LiveStatus | null;
+};
+
+/** Set by python/cfbd_ingest/sync_results_espn.py while a game is
+ * actually in progress (ESPN's public scoreboard API) - null before
+ * kickoff and once completed/home_points/away_points become the real,
+ * final source of truth. */
+export type LiveStatus = {
+  home_points: number;
+  away_points: number;
+  period: number | null;
+  clock: string | null;
+  detail: string | null;
+  updated_at: string;
 };
 
 export type BettingLine = {

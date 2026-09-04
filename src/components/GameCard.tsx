@@ -54,10 +54,18 @@ export default function GameCard({ row }: { row: BoardRow }) {
       className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4 transition-colors hover:border-accent/60 hover:bg-surface-raised"
     >
       <div className="flex items-center justify-between text-[11px] text-muted">
-        <LocalDateTime
-          iso={game.start_date}
-          options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }}
-        />
+        {game.live_status ? (
+          <span className="flex items-center gap-1.5 font-medium text-down">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-down" />
+            LIVE
+            {game.live_status.detail && <span className="text-muted"> · {game.live_status.detail}</span>}
+          </span>
+        ) : (
+          <LocalDateTime
+            iso={game.start_date}
+            options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }}
+          />
+        )}
         <span>
           {books.length} book{books.length === 1 ? "" : "s"}
         </span>
@@ -66,11 +74,13 @@ export default function GameCard({ row }: { row: BoardRow }) {
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <TeamLogo src={awayLogo} alt={game.away_team} />
-          <span className="truncate text-sm text-foreground">{game.away_team}</span>
+          <span className="flex-1 truncate text-sm text-foreground">{game.away_team}</span>
+          {game.live_status && <span className="font-mono text-sm text-foreground">{game.live_status.away_points}</span>}
         </div>
         <div className="flex items-center gap-2">
           <TeamLogo src={homeLogo} alt={game.home_team} />
-          <span className="truncate text-sm text-foreground">{game.home_team}</span>
+          <span className="flex-1 truncate text-sm text-foreground">{game.home_team}</span>
+          {game.live_status && <span className="font-mono text-sm text-foreground">{game.live_status.home_points}</span>}
         </div>
       </div>
 
