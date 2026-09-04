@@ -91,6 +91,7 @@ export default function EdgeBacktestPanel({
   const matchupRows = results["matchup_type"] ?? [];
   const biasRows = results["bias_check"] ?? [];
   const edgeBucketRows = results["edge_bucket"] ?? [];
+  const edgeTypeRows = results["edge_type"] ?? [];
 
   if (seasonRows.length === 0) {
     return (
@@ -136,13 +137,22 @@ export default function EdgeBacktestPanel({
         />
       </div>
 
-      {edgeBucketRows.length > 0 && (
-        <BreakdownTable
-          title="Win rate by edge size"
-          rows={edgeBucketRows}
-          note="How much the model and market disagreed, in points — the number cited in each pick's rationale on the Edges page."
-        />
-      )}
+      <div className="grid gap-5 md:grid-cols-2">
+        {edgeBucketRows.length > 0 && (
+          <BreakdownTable
+            title="Win rate by edge size"
+            rows={edgeBucketRows}
+            note="How much the model and market disagreed, in points — the number cited in each pick's rationale on the Edges page."
+          />
+        )}
+        {edgeTypeRows.length > 0 && (
+          <BreakdownTable
+            title="Closing line vs. opening line"
+            rows={edgeTypeRows}
+            note="Same top-15-by-edge selection, graded against the closing number (headline result above) vs. the opener — does it still hold up betting early in the week? Opening-line data only exists 2021+ and covers ~40% of games even then, so this is a smaller, noisier sample than the headline result, not a like-for-like replacement of it."
+          />
+        )}
+      </div>
 
       <div>
         <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">Every graded game</h3>

@@ -20,6 +20,15 @@ Aggregate breakdowns in model_backtests, all under MODEL_VERSION:
     model and market disagreed) - lets predict_week1.py ground each live
     pick's rationale in "edges this size have hit X% historically"
     instead of citing one blanket number for every pick.
+  - edge_type: same top-15-by-edge selection, but computed two ways -
+    "closing" (market_spread, what every other breakdown here uses -
+    effectively the closing/last-captured line for a historical game) vs.
+    "opening" (market_spread_open, what a bet placed early in the week
+    actually sees). Answers "is this still validated if I bet early?"
+    directly instead of leaving it to guesswork - see the note on that
+    row for the real caveat (CFBD only has real open-line data 2021+, and
+    only ~40% of games even then, so this is a smaller/noisier sample
+    than the headline number, not a like-for-like replacement of it).
 
 model_backtest_games: every week-1 game graded across 2016-2025 (all
 matchup types, not just the FBS-vs-FBS top-15 pool) with is_selected
@@ -57,14 +66,20 @@ def _train_predict(train_df: pd.DataFrame, test_df: pd.DataFrame) -> np.ndarray:
     return model.predict(test_df[FEATURE_COLUMNS].astype(float))
 
 
-def _graded_week1(df: pd.DataFrame, last_complete_season: int) -> pd.DataFrame:
+def _graded_week1(df: pd.DataFrame, last_complete_season: int, spread_col: str = "market_spread") -> pd.DataFrame:
     """One row per week-1 game across every walk-forward test season, with
     the model's out-of-sample prediction, edge, and whether the pick
-    covered - the shared basis for every breakdown below."""
+    covered - the shared basis for every breakdown below.
+
+    spread_col picks which market number edge/grading is computed against
+    - "market_spread" (default, effectively the closing line for a
+    historical game) or "market_spread_open" (the opener - a season with
+    no real open-line data on file drops out entirely via the dropna
+    below, exactly as intended)."""
     all_rows = []
     for test_season in range(FIRST_TEST_SEASON, last_complete_season + 1):
         train = df[df["season"] < test_season]
-        test = df[df["season"] == test_season].dropna(subset=["market_spread", "actual_margin"]).copy()
+        test = df[df["season"] == test_season].dropna(subset=[spread_col, "actual_margin"]).copy()
         if train.empty or test.empty:
             continue
         test["pred"] = _train_predict(train, test)
@@ -72,12 +87,12 @@ def _graded_week1(df: pd.DataFrame, last_complete_season: int) -> pd.DataFrame:
     full = pd.concat(all_rows, ignore_index=True)
 
     full["min_games"] = full[["home_games_played", "away_games_played"]].min(axis=1)
-    market_implied = -full["market_spread"]
+    market_implied = -full[spread_col]
     full["edge"] = full["pred"] - market_implied
     full["pick_home"] = full["edge"] > 0
-    home_covers = full["actual_margin"] + full["market_spread"] > 0
-    away_covers = full["actual_margin"] + full["market_spread"] < 0
-    push = full["actual_margin"] + full["market_spread"] == 0
+    home_covers = full["actual_margin"] + full[spread_col] > 0
+    away_covers = full["actual_margin"] + full[spread_col] < 0
+    push = full["actual_margin"] + full[spread_col] == 0
     full["correct"] = np.where(full["pick_home"], home_covers, away_covers)
     full["matchup_type"] = np.where(
         full["home_is_fbs"] & full["away_is_fbs"], "fbs_vs_fbs", np.where(full["home_is_fbs"] != full["away_is_fbs"], "buy_game", "fcs_vs_fcs")
@@ -152,6 +167,22 @@ def run() -> None:
         records.append({"group_key": "edge_bucket", "label": label, "n": len(sub), "win_rate": win_rate, "sort_order": order})
         edge_buckets.append((float(lo), float("inf") if hi >= 100 else float(hi), win_rate, len(sub)))
     edge_buckets.sort()
+
+    # --- edge_type: closing (headline) vs. opening line - does the
+    # strategy still hold up on the number a bet placed early in the week
+    # actually sees, not just the closing number every other breakdown
+    # above uses? Opening-line coverage only exists 2021+ (and partially
+    # even then), so this is a smaller, noisier check, not a replacement.
+    print("Re-grading against opening lines (edge_type check)...")
+    wk1_open = _graded_week1(df, last_complete_season, spread_col="market_spread_open")
+    fbs_open_top = _top_n_per_season(wk1_open[wk1_open["matchup_type"] == "fbs_vs_fbs"], TOP_N)
+    records.append({"group_key": "edge_type", "label": "closing", "n": len(fbs_top), "win_rate": float(fbs_top["correct"].mean()), "sort_order": 0})
+    if len(fbs_open_top) > 0:
+        records.append(
+            {"group_key": "edge_type", "label": "opening", "n": len(fbs_open_top), "win_rate": float(fbs_open_top["correct"].mean()), "sort_order": 1}
+        )
+        open_seasons = sorted(int(s) for s in fbs_open_top["season"].unique())
+        print(f"  opening-line seasons with real coverage: {open_seasons}")
 
     client = get_client()
     client.table("model_backtests").delete().eq("model_version", MODEL_VERSION).execute()
