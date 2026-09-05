@@ -4,14 +4,15 @@ name: In-season watchlist (discovery)
 # This is the SLOW half only (new-candidate discovery: full model retrain
 # + build_live_features() pass) - see refresh-watchlist.yml for the fast,
 # frequent confirmation check against the current line (same split as
-# predict-week1.yml/refresh-edges.yml, and for the same reason: team
-# ratings barely move hour to hour, so there's no need to pay for a full
-# retrain just to check whether a line moved). Every 4h matches
-# predict-week1.yml's own cadence. Reads Supabase only, no CFBD/Odds API
-# calls.
+# predict-week1.yml/refresh-edges.yml). Unlike that pair, there's no
+# external API quota to protect here (Supabase reads + a local model
+# train only) and this repo is public, so Actions minutes are free -
+# every hour instead of predict-week1.yml's 4h, so a freshly-posted line
+# (e.g. next week's openers) gets a candidate discovered within an hour
+# instead of sitting unseen for up to 4.
 on:
   schedule:
-    - cron: "0 */4 * * *"
+    - cron: "0 * * * *"
   workflow_dispatch: {}
 
 jobs:
