@@ -42,7 +42,6 @@ import pandas as pd
 from cfbd_ingest.supabase_client import fetch_all, get_client
 
 from .features import (
-    BOOK_PREFERENCE,
     POWER_CONFERENCES,
     _fetch_seasons,
     build_training_dataset,
@@ -111,19 +110,28 @@ def _suggested_units(edge: float, edge_buckets: list[tuple[float, float, float, 
 
 
 def _current_market_line(game_ids: list[int]) -> dict[int, float]:
-    """Freshest captured spread per game, preferring the same book order
-    used everywhere else in this project. Uses the CURRENT (not
-    necessarily open) number - a real bettor bets whatever's on the board
-    right now, not the eventual close."""
+    """Freshest captured spread per game, across BOTH CFBD (betting_lines)
+    and The Odds API (odds_api_lines) - not CFBD alone. Uses the CURRENT
+    (not necessarily open) number - a real bettor bets whatever's on the
+    board right now, not the eventual close.
+
+    CFBD alone isn't reliable enough for this: confirmed live (Sept 2026)
+    that a full-month quota exhaustion leaves poll_lines.py returning
+    nothing new for the rest of the billing cycle, which would otherwise
+    silently freeze this strategy's live edge on a stale number with no
+    fallback. sync_odds_api.py is a separate quota and keeps polling
+    regardless, so picking whichever single row (either source) has the
+    latest fetched_at - same fix as watchlist.py's identical function -
+    keeps this working through a CFBD outage instead of going stale."""
     client = get_client()
-    rows = client.table("betting_lines").select("game_id,provider,spread,fetched_at").in_("game_id", game_ids).execute().data
-    if not rows:
+    cfbd_rows = client.table("betting_lines").select("game_id,spread,fetched_at").in_("game_id", game_ids).execute().data
+    odds_rows = client.table("odds_api_lines").select("game_id,home_spread,fetched_at").in_("game_id", game_ids).execute().data
+
+    candidates = [{"game_id": r["game_id"], "spread": r["spread"], "fetched_at": r["fetched_at"]} for r in cfbd_rows if r["spread"] is not None]
+    candidates += [{"game_id": r["game_id"], "spread": r["home_spread"], "fetched_at": r["fetched_at"]} for r in odds_rows if r["home_spread"] is not None]
+    if not candidates:
         return {}
-    df = pd.DataFrame(rows).dropna(subset=["spread"])
-    if df.empty:
-        return {}
-    df["book_rank"] = df["provider"].apply(lambda p: BOOK_PREFERENCE.index(p) if p in BOOK_PREFERENCE else len(BOOK_PREFERENCE))
-    df = df.sort_values(["game_id", "book_rank", "fetched_at"], ascending=[True, True, False])
+    df = pd.DataFrame(candidates).sort_values(["game_id", "fetched_at"], ascending=[True, False])
     best = df.drop_duplicates("game_id", keep="first")
     return dict(zip(best["game_id"], best["spread"]))
 
