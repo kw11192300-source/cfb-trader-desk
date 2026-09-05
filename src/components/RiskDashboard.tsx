@@ -1,3 +1,5 @@
+import BreakdownTable from "./BreakdownTable";
+import { byWeek as summarizeByWeek, fmtPct, fmtUnits, summarizeBets } from "@/lib/betBreakdown";
 import type { Game } from "@/lib/types";
 import type { GradedBet } from "@/lib/data";
 
@@ -7,15 +9,6 @@ import type { GradedBet } from "@/lib/data";
  * to real ROI - this computes the actual number per price taken. */
 function impliedProb(odds: number): number {
   return odds < 0 ? Math.abs(odds) / (Math.abs(odds) + 100) : 100 / (odds + 100);
-}
-
-function fmtUnits(n: number): string {
-  return n > 0 ? `+${n.toFixed(2)}u` : `${n.toFixed(2)}u`;
-}
-
-function fmtPct(n: number | null): string {
-  if (n === null) return "—";
-  return `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
 }
 
 /** Which team a spread/moneyline bet is actually exposed to, and that
@@ -48,55 +41,6 @@ function ExposureList({ title, rows }: { title: string; rows: { label: string; u
               </div>
             );
           })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function BreakdownTable({
-  title,
-  rows,
-}: {
-  title: string;
-  rows: { label: string; n: number; wins: number; losses: number; pushes: number; staked: number; profit: number; roi: number | null }[];
-}) {
-  return (
-    <div className="rounded-lg border border-border bg-surface p-4">
-      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">{title}</h3>
-      {rows.length === 0 ? (
-        <p className="text-xs text-muted">No graded bets yet.</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="text-left text-[10px] uppercase tracking-wide text-muted">
-                <th className="pb-2 pr-3 font-medium">{title === "By week" ? "Week" : "Source"}</th>
-                <th className="pb-2 pr-3 text-right font-medium">Record</th>
-                <th className="pb-2 pr-3 text-right font-medium">Staked</th>
-                <th className="pb-2 pr-3 text-right font-medium">Profit</th>
-                <th className="pb-2 text-right font-medium">ROI</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.label} className="border-t border-border first:border-t-0">
-                  <td className="py-2 pr-3 text-foreground">{r.label}</td>
-                  <td className="py-2 pr-3 text-right font-mono text-xs text-muted">
-                    {r.wins}-{r.losses}
-                    {r.pushes > 0 ? `-${r.pushes}` : ""}
-                  </td>
-                  <td className="py-2 pr-3 text-right font-mono text-xs text-foreground">{r.staked.toFixed(2)}u</td>
-                  <td className={`py-2 pr-3 text-right font-mono text-xs font-medium ${r.profit >= 0 ? "text-up" : "text-down"}`}>
-                    {fmtUnits(r.profit)}
-                  </td>
-                  <td className={`py-2 text-right font-mono text-xs font-medium ${(r.roi ?? 0) >= 0 ? "text-up" : "text-down"}`}>
-                    {fmtPct(r.roi)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </div>
       )}
     </div>
@@ -188,30 +132,8 @@ export default function RiskDashboard({ bets }: { bets: GradedBet[] }) {
     .sort((a, b) => b.units - a.units)
     .slice(0, 10);
 
-  function summarize(keyFn: (g: GradedBet) => string | null): { label: string; n: number; wins: number; losses: number; pushes: number; staked: number; profit: number; roi: number | null }[] {
-    const groups = new Map<string, GradedBet[]>();
-    for (const g of graded) {
-      const key = keyFn(g);
-      if (key === null) continue;
-      const list = groups.get(key) ?? [];
-      list.push(g);
-      groups.set(key, list);
-    }
-    return [...groups.entries()].map(([label, rows]) => {
-      const wins = rows.filter((r) => r.status === "win").length;
-      const losses = rows.filter((r) => r.status === "loss").length;
-      const pushes = rows.filter((r) => r.status === "push").length;
-      const staked = rows.reduce((s, r) => s + r.bet.stake, 0);
-      const profit = rows.reduce((s, r) => s + (r.profit ?? 0), 0);
-      const roi = staked > 0 ? (profit / staked) * 100 : null;
-      return { label, n: rows.length, wins, losses, pushes, staked, profit, roi };
-    });
-  }
-
-  const bySource = summarize((g) => g.bet.edge_source).sort((a, b) => b.profit - a.profit);
-  const byWeek = summarize((g) => (g.game ? `${g.game.season} W${g.game.week}` : null)).sort((a, b) =>
-    a.label.localeCompare(b.label),
-  );
+  const bySource = summarizeBets(graded, (g) => g.bet.edge_source).sort((a, b) => b.profit - a.profit);
+  const byWeekRows = summarizeByWeek(graded);
 
   const pnlPoints = [...graded]
     .filter((g) => g.game)
@@ -260,8 +182,8 @@ export default function RiskDashboard({ bets }: { bets: GradedBet[] }) {
       </div>
 
       <div className="grid gap-5 md:grid-cols-2">
-        <BreakdownTable title="By source" rows={bySource} />
-        <BreakdownTable title="By week" rows={byWeek} />
+        <BreakdownTable title="By source" rows={bySource} labelHeader="Source" />
+        <BreakdownTable title="By week" rows={byWeekRows} />
       </div>
     </div>
   );

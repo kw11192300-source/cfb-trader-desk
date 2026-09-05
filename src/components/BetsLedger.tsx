@@ -1,8 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import BreakdownTable from "./BreakdownTable";
 import LocalDateTime from "./LocalDateTime";
 import { deleteBet } from "@/lib/actions";
+import { byWeek } from "@/lib/betBreakdown";
 import type { GradedBet } from "@/lib/data";
 import type { DisplayLine } from "@/lib/mergedLines";
 import type { Bet, Game } from "@/lib/types";
@@ -81,33 +83,45 @@ export default function BetsLedger({ bets }: { bets: GradedBet[] }) {
   }, [bets, sortMode]);
 
   const graded = bets.filter((b) => b.status !== "pending");
+  const pendingBets = bets.filter((b) => b.status === "pending");
   const wins = graded.filter((b) => b.status === "win").length;
   const losses = graded.filter((b) => b.status === "loss").length;
   const pushes = graded.filter((b) => b.status === "push").length;
-  const pending = bets.length - graded.length;
 
-  // "Staked" is total money in play across every bet, pending included -
-  // ROI is computed only against the GRADED portion, since a pending bet
-  // has no known return yet and would silently drag ROI toward zero.
-  const totalStaked = bets.reduce((s, b) => s + b.bet.stake, 0);
-  const gradedStaked = graded.reduce((s, b) => s + b.bet.stake, 0);
+  // "Staked" counts only bets that have actually finished - a pending
+  // bet's stake isn't a settled cost yet, it's still live risk, which is
+  // what the separate "Pending" figure tracks (in units, not a bet count).
+  const totalStaked = graded.reduce((s, b) => s + b.bet.stake, 0);
+  const pendingUnits = pendingBets.reduce((s, b) => s + b.bet.stake, 0);
   const totalProfit = graded.reduce((s, b) => s + (b.profit ?? 0), 0);
-  const roi = gradedStaked > 0 ? (totalProfit / gradedStaked) * 100 : 0;
+  const roi = totalStaked > 0 ? (totalProfit / totalStaked) * 100 : 0;
+
+  const byWeekRows = byWeek(graded);
 
   return (
     <div>
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
         <div className="rounded-lg border border-border bg-surface p-3">
           <div className="text-[10px] uppercase tracking-wide text-muted">Record</div>
           <div className="font-mono text-lg text-foreground">
             {wins}-{losses}
             {pushes > 0 ? `-${pushes}` : ""}
           </div>
-          {pending > 0 && <div className="text-[10px] text-muted">{pending} pending</div>}
         </div>
         <div className="rounded-lg border border-border bg-surface p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted">Staked</div>
+          <div className="text-[10px] uppercase tracking-wide text-muted" title="Finished bets only">
+            Staked
+          </div>
           <div className="font-mono text-lg text-foreground">{totalStaked.toFixed(2)}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-surface p-3">
+          <div className="text-[10px] uppercase tracking-wide text-muted">Pending</div>
+          <div className="font-mono text-lg text-accent">{pendingUnits.toFixed(2)}u</div>
+          {pendingBets.length > 0 && (
+            <div className="text-[10px] text-muted">
+              {pendingBets.length} bet{pendingBets.length === 1 ? "" : "s"}
+            </div>
+          )}
         </div>
         <div className="rounded-lg border border-border bg-surface p-3">
           <div className="text-[10px] uppercase tracking-wide text-muted">Profit</div>
@@ -119,6 +133,10 @@ export default function BetsLedger({ bets }: { bets: GradedBet[] }) {
             {graded.length > 0 ? `${roi >= 0 ? "+" : ""}${roi.toFixed(1)}%` : "—"}
           </div>
         </div>
+      </div>
+
+      <div className="mb-4">
+        <BreakdownTable title="By week" rows={byWeekRows} />
       </div>
 
       {bets.length > 0 && (
