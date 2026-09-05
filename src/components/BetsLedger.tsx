@@ -69,15 +69,18 @@ const SOURCE_LABEL: Record<string, string> = { model: "Model", market: "Market",
 type SortMode = "placed" | "kickoff";
 
 export default function BetsLedger({ bets }: { bets: GradedBet[] }) {
-  const [sortMode, setSortMode] = useState<SortMode>("placed");
+  const [sortMode, setSortMode] = useState<SortMode>("kickoff");
 
   const sorted = useMemo(() => {
     if (sortMode === "placed") return bets; // already placed_at desc from getBets()
-    // Kickoff soonest-first - a bet with no game join (shouldn't normally
-    // happen) sorts last rather than crashing the comparator.
+    // Kickoff soonest-first, but finished games drop below everything
+    // still upcoming or live first - those are the ones worth seeing at a
+    // glance. A bet with no game join (shouldn't normally happen) sorts
+    // last of all rather than crashing the comparator.
     return [...bets].sort((a, b) => {
       if (!a.game) return 1;
       if (!b.game) return -1;
+      if (a.game.completed !== b.game.completed) return a.game.completed ? 1 : -1;
       return new Date(a.game.start_date).getTime() - new Date(b.game.start_date).getTime();
     });
   }, [bets, sortMode]);
@@ -115,15 +118,6 @@ export default function BetsLedger({ bets }: { bets: GradedBet[] }) {
           <div className="font-mono text-lg text-foreground">{totalStaked.toFixed(2)}</div>
         </div>
         <div className="rounded-lg border border-border bg-surface p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted">Pending</div>
-          <div className="font-mono text-lg text-accent">{pendingUnits.toFixed(2)}u</div>
-          {pendingBets.length > 0 && (
-            <div className="text-[10px] text-muted">
-              {pendingBets.length} bet{pendingBets.length === 1 ? "" : "s"}
-            </div>
-          )}
-        </div>
-        <div className="rounded-lg border border-border bg-surface p-3">
           <div className="text-[10px] uppercase tracking-wide text-muted">Profit</div>
           <div className={`font-mono text-lg ${totalProfit >= 0 ? "text-up" : "text-down"}`}>{fmtProfit(totalProfit)}</div>
         </div>
@@ -132,6 +126,15 @@ export default function BetsLedger({ bets }: { bets: GradedBet[] }) {
           <div className={`font-mono text-lg ${roi >= 0 ? "text-up" : "text-down"}`}>
             {graded.length > 0 ? `${roi >= 0 ? "+" : ""}${roi.toFixed(1)}%` : "—"}
           </div>
+        </div>
+        <div className="rounded-lg border border-border bg-surface p-3">
+          <div className="text-[10px] uppercase tracking-wide text-muted">Pending</div>
+          <div className="font-mono text-lg text-accent">{pendingUnits.toFixed(2)}u</div>
+          {pendingBets.length > 0 && (
+            <div className="text-[10px] text-muted">
+              {pendingBets.length} bet{pendingBets.length === 1 ? "" : "s"}
+            </div>
+          )}
         </div>
       </div>
 
