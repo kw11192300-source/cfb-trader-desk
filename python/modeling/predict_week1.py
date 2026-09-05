@@ -253,9 +253,16 @@ def run() -> None:
     print(f"Finding week-1 edges for {year}...")
 
     client = get_client()
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    # gt(start_date, now) on top of completed=False - a game that's live but
+    # not yet finished is also completed=False, and there's no reason to
+    # keep re-predicting/re-alerting on it once it's kicked off: nothing
+    # about it is bettable anymore, and letting it stay in the top-N pool
+    # just churns as OTHER games' edges move around it (see refresh_edges.py's
+    # identical fix for the alert that actually surfaced this).
     games = client.table("games").select(
         "id,season,week,season_type,start_date,neutral_site,home_id,home_team,home_conference,away_id,away_team,away_conference"
-    ).eq("season", year).eq("week", 1).eq("season_type", "regular").eq("completed", False).execute().data
+    ).eq("season", year).eq("week", 1).eq("season_type", "regular").eq("completed", False).gt("start_date", now_iso).execute().data
     games = pd.DataFrame(games)
     if games.empty:
         print("No upcoming week-1 games found - already past week 1, or games table not yet synced for this week.")

@@ -17,6 +17,15 @@ predict_week1.py run computed. Safe to run every ~15 minutes, matching
 poll_lines.py's own cadence (see poll-refresh-edges.yml) - there's no point
 checking more often than the market data itself updates.
 
+PREMATCH ONLY, same discipline as poll_lines.py: a game that's kicked off
+but not yet `completed` was still being treated as "live" here (only
+`completed=True` was excluded), so it stayed eligible for the top-N pool
+and could trigger a brand-new "top-15 edge" alert on pure ranking churn
+from OTHER games' edges moving - even with its own market line now frozen
+at kickoff (see poll_lines.py's fix), nothing about a game that's already
+being played is bettable anymore. Excluded by requiring start_date in the
+future, not just completed=False.
+
 Trade-off: does NOT regenerate the free-text rationale (that needs the
 full per-team feature set predict_week1.py builds, not just a market
 lookup) - the rationale sentence can reference a market number that's
@@ -28,6 +37,8 @@ Usage:
     python -m modeling.refresh_edges
 """
 from __future__ import annotations
+
+import datetime
 
 from cfbd_ingest.supabase_client import fetch_all, get_client
 
@@ -43,11 +54,12 @@ def run() -> None:
         return
 
     game_ids = [p["game_id"] for p in predictions]
-    games = client.table("games").select("id,completed").in_("id", game_ids).execute().data
-    completed_ids = {g["id"] for g in games if g["completed"]}
-    live = [p for p in predictions if p["game_id"] not in completed_ids]
+    now = datetime.datetime.now(datetime.timezone.utc)
+    games = client.table("games").select("id,completed,start_date").in_("id", game_ids).execute().data
+    not_started = {g["id"] for g in games if not g["completed"] and datetime.datetime.fromisoformat(g["start_date"].replace("Z", "+00:00")) > now}
+    live = [p for p in predictions if p["game_id"] in not_started]
     if not live:
-        print("Every game with a prediction has already completed - nothing to refresh.")
+        print("Every game with a prediction has already started (or completed) - nothing to refresh.")
         return
 
     market = _current_market_line([p["game_id"] for p in live])
