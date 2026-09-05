@@ -63,19 +63,30 @@ WATCH_WINDOW_DAYS = 9
 
 
 def _current_market_line(client, game_ids: list[int]) -> dict[int, float]:
-    """Same convention as predict_week1.py's version (freshest captured
-    spread, BOOK_PREFERENCE order) - duplicated rather than imported since
-    predict_week1's is a local function, not part of its public surface."""
+    """Freshest captured spread per game, across BOTH CFBD (betting_lines)
+    and The Odds API (odds_api_lines) - deliberately NOT just betting_lines
+    like predict_week1.py's version. Matters specifically here: poll_lines.py
+    only refreshes "the current week" (see current_week.py), so a
+    post-week-1 game's CFBD line can sit stale for DAYS until that week
+    rolls over - confirmed live, a 5.6-day-old number for every Week 2
+    candidate while Week 1 was still finishing. sync_odds_api.py, by
+    contrast, already polls every not-yet-completed game all season
+    (not week-scoped) every ~6h, so it has a genuinely current number
+    sitting right there unused. Picks whichever single row - either
+    source - actually has the latest fetched_at, not a fixed book
+    preference like predict_week1.py's version uses; freshness is the
+    whole point here, and different books' spreads are close enough that
+    losing strict book-consistency is the right trade."""
     if not game_ids:
         return {}
-    rows = client.table("betting_lines").select("game_id,provider,spread,fetched_at").in_("game_id", game_ids).execute().data
-    if not rows:
+    cfbd_rows = client.table("betting_lines").select("game_id,spread,fetched_at").in_("game_id", game_ids).execute().data
+    odds_rows = client.table("odds_api_lines").select("game_id,home_spread,fetched_at").in_("game_id", game_ids).execute().data
+
+    candidates = [{"game_id": r["game_id"], "spread": r["spread"], "fetched_at": r["fetched_at"]} for r in cfbd_rows if r["spread"] is not None]
+    candidates += [{"game_id": r["game_id"], "spread": r["home_spread"], "fetched_at": r["fetched_at"]} for r in odds_rows if r["home_spread"] is not None]
+    if not candidates:
         return {}
-    df = pd.DataFrame(rows).dropna(subset=["spread"])
-    if df.empty:
-        return {}
-    df["book_rank"] = df["provider"].apply(lambda p: BOOK_PREFERENCE.index(p) if p in BOOK_PREFERENCE else len(BOOK_PREFERENCE))
-    df = df.sort_values(["game_id", "book_rank", "fetched_at"], ascending=[True, True, False])
+    df = pd.DataFrame(candidates).sort_values(["game_id", "fetched_at"], ascending=[True, False])
     best = df.drop_duplicates("game_id", keep="first")
     return dict(zip(best["game_id"], best["spread"]))
 
