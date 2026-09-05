@@ -16,6 +16,9 @@ export default function SiteHeader({ subtitle }: { subtitle: string }) {
           <Link href="/" prefetch={false} className="text-muted transition-colors hover:text-foreground">
             Board
           </Link>
+          <Link href="/my-games" className="text-muted transition-colors hover:text-foreground">
+            My Games
+          </Link>
           <Link href="/oddscreen" className="text-muted transition-colors hover:text-foreground">
             Odds Screen
           </Link>

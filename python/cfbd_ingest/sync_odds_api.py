@@ -4,6 +4,17 @@ book set than CFBD), matches each event to one of our games, and upserts
 into odds_api_lines. See team_match.py for the matching logic and
 odds_api_client.py for the API client.
 
+Deliberately PREMATCH ONLY - same reasoning as poll_lines.py: `completed
+== False` alone isn't enough, since a game that's live but not yet
+finished is also `completed == False`, and The Odds API can return a
+live/in-play price for it once kickoff passes (a different, faster-moving
+number than a pregame spread). Matching those in would silently turn the
+"current line" - and any CLV computed off it - into an in-play price mid-
+game. Excluded by only matching against games whose kickoff hasn't
+happened yet; odds_api_lines has no snapshot history to freeze at a prior
+value the way betting_lines does, so once a game goes live this script
+just stops touching its row entirely.
+
 One run = one API call = 3 credits (spreads+totals+h2h, us region) — see
 python/README.md for the credit-cost table across polling cadences.
 
@@ -33,14 +44,18 @@ def _outcome(outcomes: list[dict], name: str) -> dict | None:
 def run() -> None:
     client = get_client()
 
-    # Match against every not-yet-completed game this season, not just the
-    # current week — The Odds API returns odds for several weeks out at once.
+    # Match against every not-yet-STARTED game this season, not just the
+    # current week — The Odds API returns odds for several weeks out at
+    # once. gt(start_date, now) on top of completed=False - see module
+    # docstring on why completed=False alone lets a live game through.
     year = datetime.date.today().year
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
     games = (
         client.table("games")
         .select("id,home_team,away_team,start_date")
         .eq("season", year)
         .eq("completed", False)
+        .gt("start_date", now_iso)
         .execute()
         .data
     )

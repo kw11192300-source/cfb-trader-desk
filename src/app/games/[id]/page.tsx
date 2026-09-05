@@ -99,6 +99,23 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
           </div>
         </div>
 
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface p-4">
+          <div className="text-sm text-foreground">
+            {game.away_team} @ {game.home_team} <span className="text-muted">— Total</span>
+            {(bestOver ?? bestUnder) != null && <span className="ml-2 font-mono text-muted">{(bestOver ?? bestUnder)!.toFixed(1)}</span>}
+          </div>
+          <LogBetForm
+            gameId={game.id}
+            modelVersion={null}
+            market="total"
+            sideOptions={[
+              { value: "over", label: "Over" },
+              { value: "under", label: "Under" },
+            ]}
+            line={bestOver ?? bestUnder ?? 0}
+          />
+        </div>
+
         {hasModel && (
           <div className="mt-4 rounded-lg border border-accent/30 bg-accent/5 p-6">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">

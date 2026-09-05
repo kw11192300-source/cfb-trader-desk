@@ -5,6 +5,18 @@ betting lines and (a) upserts betting_lines with the latest values (the
 provider) to line_snapshots (append-only, timestamped) — that history is
 what the CLV/line-movement model trains on.
 
+Deliberately PREMATCH ONLY: a "week" runs Thu/Fri through Sat/Sun, so by
+Saturday some of that week's games have already kicked off while others
+haven't. CFBD's lines feed doesn't stop returning a number for a game in
+progress - some books post live/in-play prices that behave completely
+differently from a pregame spread (they track score and time remaining,
+not team strength). Reading those into betting_lines would silently turn
+"the market's current number" and any CLV computed off it into a live
+in-play price once a game goes live - excluded here by dropping any game
+whose kickoff has already passed before this run even asks CFBD for it,
+so betting_lines simply freezes at the last real prematch value once a
+game starts, exactly as intended. See sync_odds_api.py's identical fix.
+
 One CFBD call per run regardless of how many games are in the week.
 
 Usage:
@@ -37,12 +49,14 @@ def run() -> None:
     print(f"Polling lines for {season} week {week} ({season_type})...")
 
     client = get_client()
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
     known = (
         client.table("games")
         .select("id")
         .eq("season", season)
         .eq("week", week)
         .eq("season_type", season_type)
+        .gt("start_date", now_iso)  # prematch only - see module docstring
         .execute()
     )
     known_game_ids = {row["id"] for row in known.data}
@@ -50,7 +64,7 @@ def run() -> None:
     games = cfbd.fetch_lines(season, season_type=season_type, week=week)
     games = [g for g in games if g["id"] in known_game_ids]
 
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    now = now_iso
     current_rows = []
     snapshot_rows = []
     for g in games:

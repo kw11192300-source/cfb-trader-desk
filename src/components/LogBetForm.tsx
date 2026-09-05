@@ -13,13 +13,18 @@ export default function LogBetForm({
   modelVersion,
   market,
   side,
+  sideOptions,
   line,
   suggestedUnits,
 }: {
   gameId: number;
   modelVersion: string | null;
   market: string;
-  side: string;
+  /** Fixed side (a team name, for spread/moneyline) - ignored if sideOptions is given. */
+  side?: string;
+  /** Lets the bettor pick the side themselves (e.g. totals: over/under,
+   * which aren't tied to a team) instead of it being fixed by the parent. */
+  sideOptions?: { value: string; label: string }[];
   line: number;
   suggestedUnits?: number | null;
 }) {
@@ -54,7 +59,21 @@ export default function LogBetForm({
       <input type="hidden" name="game_id" value={gameId} />
       <input type="hidden" name="model_version" value={modelVersion ?? ""} />
       <input type="hidden" name="market" value={market} />
-      <input type="hidden" name="side" value={side} />
+      {sideOptions ? (
+        <select
+          name="side"
+          defaultValue={sideOptions[0]?.value}
+          className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-foreground focus:border-accent focus:outline-none"
+        >
+          {sideOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input type="hidden" name="side" value={side} />
+      )}
       <input
         type="number"
         name="line"
