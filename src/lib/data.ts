@@ -498,6 +498,12 @@ export type SharpMoneyRow = {
   fetched_at: string;
 };
 
+// Odds API's own polling cadence is ~6h (see poll-odds-api.yml), so a
+// book being up to several hours old is normal, expected freshness, not
+// staleness - 24h comfortably clears that while still catching CFBD's
+// multi-day gaps (poll_lines.py only refreshes "the current week").
+const STALE_LINE_HOURS = 24;
+
 /** Ranks every game with BOTH a prediction-market price (Kalshi/
  * Polymarket) and at least one sportsbook moneyline by how much the two
  * disagree, de-vigged - the "sharp money" read: a meaningful gap backed
@@ -540,7 +546,18 @@ export async function getSharpMoneyEdges(): Promise<SharpMoneyRow[]> {
     if (!game || pm.home_implied_prob === null || pm.away_implied_prob === null) continue;
 
     const books = mergeLines(linesByGame.get(pm.game_id) ?? [], oddsApiByGame.get(pm.game_id) ?? []);
-    const mlBooks = books.filter((b): b is DisplayLine & { homeMoneyline: number; awayMoneyline: number } => b.homeMoneyline !== null && b.awayMoneyline !== null);
+    const withMoneyline = books.filter(
+      (b): b is DisplayLine & { homeMoneyline: number; awayMoneyline: number } => b.homeMoneyline !== null && b.awayMoneyline !== null,
+    );
+    // CFBD's line only refreshes for "the current week" (see poll_lines.py) -
+    // a non-current-week game's CFBD row can sit stale for days, exactly
+    // the gap already found and fixed for the model's own edge computation.
+    // Excluded here rather than averaged in, so a 6-day-old CFBD moneyline
+    // doesn't dilute the comparison against a prediction market's current
+    // price - confirmed live, an Oklahoma @ Michigan CFBD row was 144.8h
+    // old while Odds API's own books for the same game were 17-35h old.
+    const staleCutoff = Date.now() - STALE_LINE_HOURS * 60 * 60 * 1000;
+    const mlBooks = withMoneyline.filter((b) => b.fetchedAt !== null && new Date(b.fetchedAt).getTime() >= staleCutoff);
     if (mlBooks.length === 0) continue;
 
     const devigged = mlBooks.map((b) => devigTwoWay(b.homeMoneyline, b.awayMoneyline));
