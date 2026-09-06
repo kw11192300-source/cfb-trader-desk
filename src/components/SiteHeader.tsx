@@ -31,6 +31,9 @@ export default function SiteHeader({ subtitle }: { subtitle: string }) {
           <Link href="/watchlist" className="text-muted transition-colors hover:text-foreground">
             Watchlist
           </Link>
+          <Link href="/sharp-money" className="text-muted transition-colors hover:text-foreground">
+            Sharp Money
+          </Link>
           <Link href="/bets" className="text-muted transition-colors hover:text-foreground">
             Bets
           </Link>

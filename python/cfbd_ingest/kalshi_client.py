@@ -45,13 +45,23 @@ def fetch_ncaaf_game_markets() -> list[dict]:
     return markets
 
 
+# A market this thin can't be trusted as a fair-value read at all - the
+# midpoint of a wide bid/ask is meaningless (confirmed live: Arkansas @
+# Georgia, opened hours earlier, quoted 15c bid / 77c ask - a 62c spread
+# whose "midpoint" is just noise, not a price). Notre Dame @ Wisconsin,
+# a real/liquid market the same day, was quoted a single cent wide.
+MAX_RELIABLE_SPREAD = 0.15
+
+
 def group_by_event(markets: list[dict]) -> list[dict]:
     """Combines the two per-team markets for each game into one record:
     {id, commence_time, team_a, team_a_prob, team_b, team_b_prob, volume,
-    liquidity}. Probabilities are the YES price in dollars (0-1 = implied
-    probability directly, no conversion needed). Skips any event that
-    doesn't have exactly two sides on file (shouldn't normally happen -
-    a partial pair isn't safe to guess at)."""
+    liquidity}. Probabilities are the midpoint of yes_bid/yes_ask in
+    dollars (0-1 = implied probability directly, no conversion needed) -
+    None if the market's own spread is too wide to trust (see
+    MAX_RELIABLE_SPREAD) or a genuine two-sided quote isn't posted at
+    all. Skips any event that doesn't have exactly two sides on file
+    (shouldn't normally happen - a partial pair isn't safe to guess at)."""
     by_event: dict[str, dict] = {}
     for m in markets:
         event_ticker = m["event_ticker"]
@@ -65,7 +75,11 @@ def group_by_event(markets: list[dict]) -> list[dict]:
         # Dame - summed to 99%, not 100%); the midpoint sums to 100% exactly
         # on that same market, which is the whole point of using it.
         bid, ask = m.get("yes_bid_dollars"), m.get("yes_ask_dollars")
-        prob = (float(bid) + float(ask)) / 2 if bid not in (None, "") and ask not in (None, "") else None
+        prob = None
+        if bid not in (None, "") and ask not in (None, ""):
+            bid_f, ask_f = float(bid), float(ask)
+            if ask_f - bid_f <= MAX_RELIABLE_SPREAD:
+                prob = (bid_f + ask_f) / 2
         rec["sides"].append(
             {
                 "team": team,

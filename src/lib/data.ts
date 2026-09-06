@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import { supabaseAdmin } from "./supabase-admin";
 import { type DisplayLine, mergeLines, pickHeadlineLine } from "./mergedLines";
+import { devigTwoWay } from "./oddsMath";
 import type {
   Bet,
   BettingLine,
@@ -478,4 +479,90 @@ export async function getWatchlist(modelVersion: string): Promise<WatchlistRow[]
       };
     })
     .filter((r) => Boolean(gameById.get(r.game_id)));
+}
+
+export type SharpMoneyRow = {
+  game: Game;
+  homeLogo: string | null;
+  awayLogo: string | null;
+  source: "kalshi" | "polymarket";
+  pmHomeProb: number;
+  pmAwayProb: number;
+  bookHomeProb: number;
+  bookAwayProb: number;
+  edge: number; // percentage points (0-100), always positive
+  pmLikesHome: boolean; // which side the prediction market is MORE bullish on than the book
+  volume: number | null;
+  liquidity: number | null;
+  numBooks: number; // how many books' moneylines went into the de-vigged consensus
+  fetched_at: string;
+};
+
+/** Ranks every game with BOTH a prediction-market price (Kalshi/
+ * Polymarket) and at least one sportsbook moneyline by how much the two
+ * disagree, de-vigged - the "sharp money" read: a meaningful gap backed
+ * by real prediction-market volume/liquidity is the signal worth
+ * watching, a big gap on a zero-volume market is just noise (a market
+ * that opened seconds ago with nobody trading it yet). Exploratory
+ * comparison only - see prediction_market_lines' schema.sql docstring. */
+export async function getSharpMoneyEdges(): Promise<SharpMoneyRow[]> {
+  const { data: pmRows, error: pmError } = await supabase.from("prediction_market_lines").select("*");
+  if (pmError) throw new Error(pmError.message);
+  if (!pmRows || pmRows.length === 0) return [];
+
+  const gameIds = [...new Set((pmRows as PredictionMarketLine[]).map((r) => r.game_id))];
+  const [
+    { data: games, error: gamesError },
+    { data: lines, error: linesError },
+    { data: oddsApiLines, error: oddsError },
+    { data: teams, error: teamsError },
+  ] = await Promise.all([
+    supabase.from("games").select("*").in("id", gameIds),
+    supabase.from("betting_lines").select("*").in("game_id", gameIds),
+    supabase.from("odds_api_lines").select("*").in("game_id", gameIds),
+    supabase.from("teams").select("school, logo_url"),
+  ]);
+  if (gamesError) throw new Error(gamesError.message);
+  if (linesError) throw new Error(linesError.message);
+  if (oddsError) throw new Error(oddsError.message);
+  if (teamsError) throw new Error(teamsError.message);
+
+  const gameById = new Map((games as Game[]).map((g) => [g.id, g]));
+  const logoBySchool = new Map((teams as { school: string; logo_url: string | null }[]).map((t) => [t.school, t.logo_url]));
+  const linesByGame = new Map<number, BettingLine[]>();
+  for (const l of lines as BettingLine[]) linesByGame.set(l.game_id, [...(linesByGame.get(l.game_id) ?? []), l]);
+  const oddsApiByGame = new Map<number, OddsApiLine[]>();
+  for (const l of oddsApiLines as OddsApiLine[]) oddsApiByGame.set(l.game_id, [...(oddsApiByGame.get(l.game_id) ?? []), l]);
+
+  const rows: SharpMoneyRow[] = [];
+  for (const pm of pmRows as PredictionMarketLine[]) {
+    const game = gameById.get(pm.game_id);
+    if (!game || pm.home_implied_prob === null || pm.away_implied_prob === null) continue;
+
+    const books = mergeLines(linesByGame.get(pm.game_id) ?? [], oddsApiByGame.get(pm.game_id) ?? []);
+    const mlBooks = books.filter((b): b is DisplayLine & { homeMoneyline: number; awayMoneyline: number } => b.homeMoneyline !== null && b.awayMoneyline !== null);
+    if (mlBooks.length === 0) continue;
+
+    const devigged = mlBooks.map((b) => devigTwoWay(b.homeMoneyline, b.awayMoneyline));
+    const bookHomeProb = devigged.reduce((s, d) => s + d.home, 0) / devigged.length;
+    const bookAwayProb = 1 - bookHomeProb;
+
+    rows.push({
+      game,
+      homeLogo: logoBySchool.get(game.home_team) ?? null,
+      awayLogo: logoBySchool.get(game.away_team) ?? null,
+      source: pm.source,
+      pmHomeProb: pm.home_implied_prob,
+      pmAwayProb: pm.away_implied_prob,
+      bookHomeProb,
+      bookAwayProb,
+      edge: Math.abs(pm.home_implied_prob - bookHomeProb) * 100,
+      pmLikesHome: pm.home_implied_prob > bookHomeProb,
+      volume: pm.volume,
+      liquidity: pm.liquidity,
+      numBooks: mlBooks.length,
+      fetched_at: pm.fetched_at,
+    });
+  }
+  return rows.sort((a, b) => b.edge - a.edge);
 }
