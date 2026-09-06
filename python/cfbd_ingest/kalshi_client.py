@@ -57,11 +57,19 @@ def group_by_event(markets: list[dict]) -> list[dict]:
         event_ticker = m["event_ticker"]
         team = m.get("yes_sub_title") or m.get("title", "")
         rec = by_event.setdefault(event_ticker, {"commence_time": m.get("occurrence_datetime"), "sides": []})
-        yes_price = m.get("yes_bid_dollars")
+        # Midpoint of bid/ask, not the raw bid - the bid alone is what you'd
+        # get SELLING right now, structurally below the market's true
+        # consensus by about half the spread. Using bid on both sides of a
+        # two-team game makes the pair sum to noticeably under 100% (e.g.
+        # 8%/91% bids on a real market - confirmed live, Wisconsin @ Notre
+        # Dame - summed to 99%, not 100%); the midpoint sums to 100% exactly
+        # on that same market, which is the whole point of using it.
+        bid, ask = m.get("yes_bid_dollars"), m.get("yes_ask_dollars")
+        prob = (float(bid) + float(ask)) / 2 if bid not in (None, "") and ask not in (None, "") else None
         rec["sides"].append(
             {
                 "team": team,
-                "prob": float(yes_price) if yes_price not in (None, "") else None,
+                "prob": prob,
                 "volume": float(m.get("volume_fp") or 0),
                 "liquidity": float(m.get("liquidity_dollars") or 0),
             }
