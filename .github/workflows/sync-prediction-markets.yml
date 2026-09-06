@@ -1,0 +1,27 @@
+name: Sync prediction markets (Kalshi + Polymarket)
+
+# Exploratory comparison data - see prediction_market_lines' schema.sql
+# docstring. Both APIs are fully public (no key/account needed for market
+# data reads, confirmed live) and free regardless of cadence, unlike
+# CFBD/Odds API - every 15 min is just a reasonable freshness/compute
+# balance, not a quota constraint.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r python/requirements.txt
+      - name: Sync Kalshi + Polymarket
+        working-directory: python
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: python -m cfbd_ingest.sync_prediction_markets

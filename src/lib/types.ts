@@ -220,6 +220,20 @@ export type SeasonFuture = {
  * game first qualified; current_spread/move_toward_pick update every scan
  * until alert_sent_at fires (then the row is frozen). See watchlist.py's
  * module docstring for the backtest finding this is built on. */
+/** One source's current price for a game (python/cfbd_ingest/
+ * sync_prediction_markets.py) - Kalshi or Polymarket, both fully public
+ * APIs. Exploratory comparison data, not blended into the model. */
+export type PredictionMarketLine = {
+  game_id: number;
+  source: "kalshi" | "polymarket";
+  external_id: string;
+  home_implied_prob: number | null;
+  away_implied_prob: number | null;
+  volume: number | null;
+  liquidity: number | null;
+  fetched_at: string;
+};
+
 export type WatchlistPick = {
   id: number;
   game_id: number;

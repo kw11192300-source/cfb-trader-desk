@@ -27,7 +27,7 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
   const [detail, history, allBets] = await Promise.all([getGame(gameId), getLineHistory(gameId), getBets()]);
   if (!detail) notFound();
 
-  const { game, lines, oddsApiLines, homeTeam, awayTeam, prediction } = detail;
+  const { game, lines, oddsApiLines, homeTeam, awayTeam, prediction, predictionMarkets } = detail;
   const gameBets = allBets.filter((b) => b.bet.game_id === gameId).map((b) => b.bet);
   const books = mergeLines(lines, oddsApiLines);
 
@@ -158,6 +158,41 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
         )}
 
         <PositionScenarios bets={gameBets} game={game} />
+
+        {predictionMarkets.length > 0 && (
+          <div className="mt-4">
+            <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-muted">Prediction markets</h2>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {predictionMarkets.map((pm) => (
+                <div key={pm.source} className="rounded-lg border border-border bg-surface p-4">
+                  <div className="mb-2 flex items-center justify-between text-xs">
+                    <span className="font-medium capitalize text-foreground">{pm.source}</span>
+                    <span className="text-muted">
+                      vol {pm.volume !== null ? Math.round(pm.volume).toLocaleString() : "—"}
+                      {pm.liquidity ? ` · liq ${Math.round(pm.liquidity).toLocaleString()}` : ""}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-foreground">{game.away_team}</span>
+                    <span className="font-mono text-foreground">
+                      {pm.away_implied_prob !== null ? `${(pm.away_implied_prob * 100).toFixed(1)}%` : "—"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-foreground">{game.home_team}</span>
+                    <span className="font-mono text-foreground">
+                      {pm.home_implied_prob !== null ? `${(pm.home_implied_prob * 100).toFixed(1)}%` : "—"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-muted">
+              Implied win probability from Kalshi/Polymarket — exploratory, not blended into the model. Compare against the sportsbook
+              moneyline below; a meaningful gap backed by real volume/liquidity is the signal worth watching.
+            </p>
+          </div>
+        )}
 
         <h2 className="mt-8 mb-3 text-sm font-medium uppercase tracking-wide text-muted">Odds comparison</h2>
 

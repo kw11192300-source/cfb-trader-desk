@@ -11,6 +11,7 @@ import type {
   ModelBacktestGame,
   OddsApiLine,
   Prediction,
+  PredictionMarketLine,
   SeasonFuture,
   Team,
   TeamPowerRating,
@@ -159,6 +160,7 @@ export type GameDetail = {
   homeTeam: Team | null;
   awayTeam: Team | null;
   prediction: Prediction | null;
+  predictionMarkets: PredictionMarketLine[];
 };
 
 export async function getGame(id: number): Promise<GameDetail | null> {
@@ -172,16 +174,19 @@ export async function getGame(id: number): Promise<GameDetail | null> {
     { data: oddsApiLines, error: oddsApiError },
     { data: teams, error: teamsError },
     { data: predictions, error: predictionsError },
+    { data: predictionMarkets, error: predictionMarketsError },
   ] = await Promise.all([
     supabase.from("betting_lines").select("*").eq("game_id", id),
     supabase.from("odds_api_lines").select("*").eq("game_id", id),
     teamIds.length > 0 ? supabase.from("teams").select("*").in("id", teamIds) : Promise.resolve({ data: [] as Team[], error: null }),
     supabase.from("predictions").select("*").eq("game_id", id),
+    supabase.from("prediction_market_lines").select("*").eq("game_id", id),
   ]);
   if (linesError) throw new Error(linesError.message);
   if (oddsApiError) throw new Error(oddsApiError.message);
   if (teamsError) throw new Error(teamsError.message);
   if (predictionsError) throw new Error(predictionsError.message);
+  if (predictionMarketsError) throw new Error(predictionMarketsError.message);
 
   const teamById = new Map((teams as Team[]).map((t) => [t.id, t]));
   // Same "keep the newest if more than one model version predicted this
@@ -196,6 +201,7 @@ export async function getGame(id: number): Promise<GameDetail | null> {
     homeTeam: game.home_id !== null ? (teamById.get(game.home_id) ?? null) : null,
     awayTeam: game.away_id !== null ? (teamById.get(game.away_id) ?? null) : null,
     prediction: prediction ?? null,
+    predictionMarkets: (predictionMarkets ?? []) as PredictionMarketLine[],
   };
 }
 

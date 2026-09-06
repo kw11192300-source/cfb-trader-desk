@@ -397,6 +397,29 @@ create table if not exists watchlist_picks (
 );
 create index if not exists watchlist_picks_active_idx on watchlist_picks(model_version) where alert_sent_at is null;
 
+-- Prediction-market prices (python/cfbd_ingest/sync_prediction_markets.py)
+-- - Kalshi and Polymarket, both fully public APIs (no key/account needed
+-- for reads). Exploratory: not blended into the model or the validated
+-- week-1 strategy - surfaced for comparison against sportsbook lines
+-- (arb/liquidity signals) only. home/away_implied_prob resolved against
+-- OUR games table's own home/away assignment, not the source's own
+-- ordering (neither Kalshi nor Polymarket reliably indicates home/away).
+create table if not exists prediction_market_lines (
+  game_id bigint not null references games(id) on delete cascade,
+  source text not null,               -- 'kalshi' | 'polymarket'
+  external_id text not null,          -- Kalshi event_ticker or Polymarket event id
+
+  home_implied_prob numeric,
+  away_implied_prob numeric,
+  volume numeric,                     -- cumulative traded volume (liquidity signal)
+  liquidity numeric,                  -- resting order-book liquidity, where the source provides it
+
+  fetched_at timestamptz not null default now(),
+
+  primary key (game_id, source)
+);
+create index if not exists prediction_market_lines_game_idx on prediction_market_lines(game_id);
+
 -- Stored walk-forward backtest results (python/modeling/backtest_week1.py)
 -- for the site's own "Backtest" tab - a general-purpose shape (metric +
 -- label rows) rather than one column per breakdown, since which breakdowns
@@ -521,6 +544,7 @@ alter table bot_state enable row level security;
 -- Only the secret key (bypasses RLS) ever touches it.
 alter table season_futures enable row level security;
 alter table watchlist_picks enable row level security;
+alter table prediction_market_lines enable row level security;
 
 create policy "public read" on teams for select using (true);
 create policy "public read" on games for select using (true);
@@ -540,6 +564,7 @@ create policy "public read" on team_power_ratings for select using (true);
 create policy "public read" on player_transfers for select using (true);
 create policy "public read" on season_futures for select using (true);
 create policy "public read" on watchlist_picks for select using (true);
+create policy "public read" on prediction_market_lines for select using (true);
 -- NO policy on bets at all, not even public read - real stakes/P&L, the
 -- one genuinely sensitive table in this app. Only the secret key (service
 -- role, bypasses RLS) can read OR write it - reads go through
