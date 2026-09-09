@@ -6,7 +6,7 @@ import { getBets } from "@/lib/data";
 export const dynamic = "force-dynamic";
 
 export default async function BetsPage() {
-  const bets = await getBets();
+  const bets = (await getBets()).filter((b) => b.game?.sport === "cfb");
 
   return (
     <div className="flex min-h-screen flex-col">

@@ -33,7 +33,7 @@ export default async function NflPage() {
         )}
 
         <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-muted">NFL Bets</h2>
-        <BetsLedger bets={nflBets} />
+        <BetsLedger bets={nflBets} showSettle />
       </main>
 
       <SiteFooter />

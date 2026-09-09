@@ -20,7 +20,7 @@ export default async function MyGamesPage() {
   const byGame = new Map<number, { game: Game; bets: GradedBet[] }>();
   for (const gb of allBets) {
     const game = gb.game;
-    if (!game) continue;
+    if (!game || game.sport !== "cfb") continue;
     const kickoff = new Date(game.start_date).getTime();
     const relevant = !game.completed || now - kickoff < RECENT_MS;
     if (!relevant) continue;
