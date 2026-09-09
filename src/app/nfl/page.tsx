@@ -2,13 +2,13 @@ import NflGameCard from "@/components/NflGameCard";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import WeekTabs from "@/components/WeekTabs";
-import { getAvailableWeeks, getBoard, getCurrentWeek } from "@/lib/data";
+import { getAvailableWeeks, getBets, getBoard, getCurrentWeek, type GradedBet } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export default async function NflPage({ searchParams }: { searchParams: Promise<{ week?: string }> }) {
   const params = await searchParams;
-  const current = await getCurrentWeek("nfl");
+  const [current, allBets] = await Promise.all([getCurrentWeek("nfl"), getBets()]);
 
   const requestedWeek = params.week ? Number(params.week) : NaN;
   const board =
@@ -18,6 +18,12 @@ export default async function NflPage({ searchParams }: { searchParams: Promise<
 
   const weeks = current ? await getAvailableWeeks(current.season, "nfl") : [];
   const games = (board?.rows ?? []).map((r) => r.game);
+
+  const betsByGame = new Map<number, GradedBet[]>();
+  for (const gb of allBets) {
+    if (gb.game?.sport !== "nfl") continue;
+    betsByGame.set(gb.bet.game_id, [...(betsByGame.get(gb.bet.game_id) ?? []), gb]);
+  }
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -38,7 +44,7 @@ export default async function NflPage({ searchParams }: { searchParams: Promise<
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {games.map((g) => (
-              <NflGameCard key={g.id} game={g} />
+              <NflGameCard key={g.id} game={g} bets={betsByGame.get(g.id) ?? []} />
             ))}
           </div>
         )}
