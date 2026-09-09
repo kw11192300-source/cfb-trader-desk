@@ -12,6 +12,7 @@ const COMMON_PROP_TYPES = [
   "Receiving Yards",
   "Receptions",
   "Rushing Attempts",
+  "Passing Attempts",
   "Passing TDs",
   "Rushing + Receiving Yards",
   "Anytime TD",
