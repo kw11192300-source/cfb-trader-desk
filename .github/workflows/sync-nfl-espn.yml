@@ -1,0 +1,27 @@
+name: Sync NFL schedule + scores (ESPN)
+
+# Builds/keeps live the NFL schedule from ESPN's public, keyless
+# scoreboard API - the sole NFL data source right now (schedule + score
+# tracking only, no model/stats pipeline - see sync_nfl_espn.py). Free,
+# no key, no quota - every 15 min is a reasonable freshness/compute
+# balance for live scores during games, not a constraint.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r python/requirements.txt
+      - name: Sync NFL schedule + scores
+        working-directory: python
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: python -m cfbd_ingest.sync_nfl_espn

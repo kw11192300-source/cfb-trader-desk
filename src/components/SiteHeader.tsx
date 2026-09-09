@@ -46,6 +46,9 @@ export default function SiteHeader({ subtitle }: { subtitle: string }) {
           <Link href="/futures" className="text-muted transition-colors hover:text-foreground">
             Futures
           </Link>
+          <Link href="/nfl" className="text-muted transition-colors hover:text-foreground">
+            NFL
+          </Link>
           <div className="flex items-center gap-2 text-muted">
             <span className="h-2 w-2 rounded-full bg-up" />
             live

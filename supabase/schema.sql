@@ -24,7 +24,23 @@ create table if not exists teams (
 );
 
 create table if not exists games (
-  id bigint primary key,                  -- CFBD game id
+  id bigint primary key,                  -- CFBD game id (positive) or, for a
+                                           -- non-CFB sport, a transformed id
+                                           -- guaranteed not to collide with
+                                           -- CFBD's range (e.g. NFL rows from
+                                           -- sync_nfl_espn.py use NEGATIVE
+                                           -- ESPN event ids - see that
+                                           -- script's docstring for why a
+                                           -- plain sign flip isn't safe once
+                                           -- a THIRD ESPN-sourced sport exists).
+  sport text not null default 'cfb',      -- 'cfb' | 'nfl' | ... - every other
+                                           -- table (bets, predictions, betting_lines,
+                                           -- ...) stays CFB-specific for now;
+                                           -- this is the one shared, sport-
+                                           -- agnostic table, so a new sport
+                                           -- can get real bet tracking (this
+                                           -- table + bets) without needing its
+                                           -- own model/stats pipeline yet.
   season integer not null,
   week integer not null,
   season_type text not null default 'regular',   -- regular / postseason

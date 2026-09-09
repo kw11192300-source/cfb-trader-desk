@@ -11,6 +11,7 @@ export type Team = {
 
 export type Game = {
   id: number;
+  sport: string; // 'cfb' | 'nfl' | ... - see schema.sql's games table docstring
   season: number;
   week: number;
   season_type: string;

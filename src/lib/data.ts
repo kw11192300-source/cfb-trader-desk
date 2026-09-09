@@ -481,6 +481,23 @@ export async function getWatchlist(modelVersion: string): Promise<WatchlistRow[]
     .filter((r) => Boolean(gameById.get(r.game_id)));
 }
 
+/** Upcoming/live games plus anything completed in the last 2 days, for
+ * any sport - "NFL Board"-equivalent (no odds/model yet, just schedule +
+ * score, see sync_nfl_espn.py) used to pick a game to log a bet against.
+ * 2 days (not My Games' 1) since NFL games cluster on Sun/Mon/Thu and a
+ * bettor checking back Monday still wants to see Sunday's late games. */
+export async function getUpcomingGames(sport: string): Promise<Game[]> {
+  const cutoff = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("games")
+    .select("*")
+    .eq("sport", sport)
+    .or(`completed.eq.false,start_date.gte.${cutoff}`)
+    .order("start_date", { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Game[];
+}
+
 export type SharpMoneyRow = {
   game: Game;
   homeLogo: string | null;

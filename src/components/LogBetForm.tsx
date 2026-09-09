@@ -16,6 +16,8 @@ export default function LogBetForm({
   sideOptions,
   line,
   suggestedUnits,
+  buttonLabel = "Log bet",
+  defaultEdgeSource = "model",
 }: {
   gameId: number;
   modelVersion: string | null;
@@ -27,6 +29,13 @@ export default function LogBetForm({
   sideOptions?: { value: string; label: string }[];
   line: number;
   suggestedUnits?: number | null;
+  /** Collapsed-button text - override when several of these sit side by
+   * side on one card (e.g. "Spread"/"ML"/"Total") so they're distinguishable. */
+  buttonLabel?: string;
+  /** "model" makes sense as the default where a model prediction exists
+   * (CFB week-1 edges) - a sport with no model yet (NFL) should default
+   * to "market" instead, since there's no model edge to have prompted it. */
+  defaultEdgeSource?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
@@ -37,7 +46,7 @@ export default function LogBetForm({
         onClick={() => setOpen(true)}
         className="rounded-md border border-border px-2.5 py-1.5 text-xs text-muted transition-colors hover:border-accent hover:text-foreground"
       >
-        Log bet
+        {buttonLabel}
       </button>
     );
   }
@@ -84,7 +93,7 @@ export default function LogBetForm({
       />
       <select
         name="edge_source"
-        defaultValue="model"
+        defaultValue={defaultEdgeSource}
         title="What justified this bet"
         className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-foreground focus:border-accent focus:outline-none"
       >
