@@ -34,6 +34,16 @@ def _grade_bet(bet: dict, game: dict) -> tuple[str, float | None]:
     """Mirrors src/lib/data.ts's gradeBet() exactly - keep both in sync if
     either changes. margin > 0 win, < 0 loss, == 0 push; spread convention
     throughout (negative = favored), same as the rest of this project."""
+    manual_result = bet.get("manual_result")
+    if manual_result:
+        if manual_result == "push":
+            return "push", 0.0
+        won = manual_result == "win"
+        return ("win" if won else "loss"), (bet["stake"] * (_american_to_decimal(bet["odds"]) - 1) if won else -bet["stake"])
+
+    if bet["market"] == "prop":
+        return "pending", None  # no player-stats feed to auto-grade against - always waits on a manual result
+
     if not game["completed"] or game["home_points"] is None or game["away_points"] is None:
         return "pending", None
 
@@ -59,6 +69,8 @@ def _grade_bet(bet: dict, game: dict) -> tuple[str, float | None]:
 
 
 def _fmt_bet_line(bet: dict) -> str:
+    if bet["market"] == "prop":
+        return f"{bet.get('player') or '?'} {bet['side']} {bet['line']:.1f} {bet.get('prop_type') or ''}".strip()
     if bet["market"] == "moneyline":
         return f"{bet['side']} ML"
     if bet["market"] == "total":
@@ -71,7 +83,7 @@ def send_kickoff_reminders(client) -> int:
     lo = now + datetime.timedelta(minutes=KICKOFF_WINDOW_MINUTES[0])
     hi = now + datetime.timedelta(minutes=KICKOFF_WINDOW_MINUTES[1])
 
-    bets = client.table("bets").select("id,game_id,side,line,market,stake,sportsbook,kickoff_reminder_sent_at").execute().data
+    bets = client.table("bets").select("id,game_id,side,line,market,stake,sportsbook,player,prop_type,kickoff_reminder_sent_at").execute().data
     pending_reminder = [b for b in bets if b["kickoff_reminder_sent_at"] is None]
     if not pending_reminder:
         return 0
@@ -104,7 +116,7 @@ def send_kickoff_reminders(client) -> int:
 
 def send_result_alerts(client) -> int:
     bets = client.table("bets").select(
-        "id,game_id,side,line,market,odds,stake,sportsbook,result_alert_sent_at"
+        "id,game_id,side,line,market,odds,stake,sportsbook,player,prop_type,result_alert_sent_at,manual_result"
     ).execute().data
     pending_result = [b for b in bets if b["result_alert_sent_at"] is None]
     if not pending_result:

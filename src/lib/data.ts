@@ -334,6 +334,20 @@ function americanToDecimal(odds: number): number {
  * 0 is a push. Spread convention throughout (negative = favored), same as
  * the rest of the site. */
 function gradeBet(bet: Bet, game: Game): { status: BetStatus; profit: number | null } {
+  // A manual call always wins - the ONLY way a prop ever gets graded (no
+  // player-stats feed exists to check a yardage/reception number against),
+  // and a general override for any bet whose real result needs a human
+  // call (postponement, settlement dispute) rather than the game score.
+  if (bet.manual_result) {
+    if (bet.manual_result === "push") return { status: "push", profit: 0 };
+    const won = bet.manual_result === "win";
+    return { status: won ? "win" : "loss", profit: won ? bet.stake * (americanToDecimal(bet.odds) - 1) : -bet.stake };
+  }
+
+  if (bet.market === "prop") {
+    return { status: "pending", profit: null }; // waiting on a manual result, always
+  }
+
   if (!game.completed || game.home_points === null || game.away_points === null) {
     return { status: "pending", profit: null };
   }

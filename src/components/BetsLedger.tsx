@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import BreakdownTable from "./BreakdownTable";
 import LocalDateTime from "./LocalDateTime";
-import { deleteBet } from "@/lib/actions";
+import { deleteBet, setManualResult } from "@/lib/actions";
 import { byWeek } from "@/lib/betBreakdown";
 import type { GradedBet } from "@/lib/data";
 import type { DisplayLine } from "@/lib/mergedLines";
@@ -188,6 +188,9 @@ export default function BetsLedger({ bets }: { bets: GradedBet[] }) {
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium text-right">Stake</th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium text-right">Status</th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium text-right">Profit</th>
+                <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium" title="Manual result - the only way a prop bet ever gets graded, no player-stats feed exists to check it automatically">
+                  Settle
+                </th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium"></th>
               </tr>
             </thead>
@@ -208,7 +211,16 @@ export default function BetsLedger({ bets }: { bets: GradedBet[] }) {
                   </td>
                   <td className="px-4 py-2.5 whitespace-nowrap text-foreground">{game ? `${game.away_team} @ ${game.home_team}` : "—"}</td>
                   <td className="px-4 py-2.5 whitespace-nowrap font-mono text-foreground">
-                    {bet.side} {bet.market !== "moneyline" ? fmtLine(bet.line) : ""}
+                    {bet.market === "prop" ? (
+                      <>
+                        {bet.player} {bet.side} {fmtLine(bet.line)}
+                        <span className="text-muted"> {bet.prop_type}</span>
+                      </>
+                    ) : (
+                      <>
+                        {bet.side} {bet.market !== "moneyline" ? fmtLine(bet.line) : ""}
+                      </>
+                    )}
                   </td>
                   <td className={`px-4 py-2.5 text-right font-mono text-xs font-medium ${clv === null ? "text-muted" : clv >= 0 ? "text-up" : "text-down"}`}>
                     {fmtClv(clv)}
@@ -224,6 +236,36 @@ export default function BetsLedger({ bets }: { bets: GradedBet[] }) {
                   <td className={`px-4 py-2.5 text-right font-mono text-xs font-medium uppercase ${STATUS_STYLE[status]}`}>{status}</td>
                   <td className={`px-4 py-2.5 text-right font-mono font-medium ${profit === null ? "text-muted" : profit >= 0 ? "text-up" : "text-down"}`}>
                     {fmtProfit(profit)}
+                  </td>
+                  <td className="px-4 py-2.5 whitespace-nowrap">
+                    {bet.manual_result ? (
+                      <span className="flex items-center gap-1.5 text-[11px] text-muted">
+                        manual
+                        <form action={setManualResult.bind(null, bet.id, null)}>
+                          <button type="submit" className="text-muted hover:text-foreground" title="Clear manual result, return to live grading">
+                            undo
+                          </button>
+                        </form>
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <form action={setManualResult.bind(null, bet.id, "win")}>
+                          <button type="submit" className="rounded px-1.5 py-0.5 text-[11px] font-medium text-up hover:bg-up/15">
+                            W
+                          </button>
+                        </form>
+                        <form action={setManualResult.bind(null, bet.id, "loss")}>
+                          <button type="submit" className="rounded px-1.5 py-0.5 text-[11px] font-medium text-down hover:bg-down/15">
+                            L
+                          </button>
+                        </form>
+                        <form action={setManualResult.bind(null, bet.id, "push")}>
+                          <button type="submit" className="rounded px-1.5 py-0.5 text-[11px] font-medium text-muted hover:bg-surface-raised">
+                            P
+                          </button>
+                        </form>
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-2.5 text-right">
                     <form action={deleteBet.bind(null, bet.id)}>

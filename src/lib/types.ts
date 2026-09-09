@@ -183,13 +183,16 @@ export type Bet = {
   id: number;
   game_id: number;
   model_version: string | null;
-  market: "spread" | "total" | "moneyline" | string;
-  side: string; // team name (spread/moneyline) or "over"/"under" (total)
+  market: "spread" | "total" | "moneyline" | "prop" | string;
+  side: string; // team name (spread/moneyline), "over"/"under" (total), or free text (prop)
+  player: string | null; // prop bets only
+  prop_type: string | null; // prop bets only, e.g. "Passing Yards", "Anytime TD"
   line: number; // bettor's own side, spread convention (negative = favored)
   odds: number; // american odds actually taken
   stake: number;
   sportsbook: string | null; // free text - not every book is in Odds API/CFBD coverage
   edge_source: "model" | "market" | "both"; // what justified the bet - see schema.sql
+  manual_result: "win" | "loss" | "push" | null; // overrides live grading when set - see schema.sql
   placed_at: string;
   notes: string | null;
   created_at: string;

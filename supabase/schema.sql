@@ -500,8 +500,14 @@ create table if not exists bets (
   id bigserial primary key,
   game_id bigint not null references games(id) on delete cascade,
   model_version text,                     -- which model's pick this was, if any (null = a manual/off-model bet)
-  market text not null default 'spread',  -- 'spread' | 'total' | 'moneyline' - spread only for now
-  side text not null,                     -- team name (spread/moneyline) or 'over'/'under' (total)
+  market text not null default 'spread',  -- 'spread' | 'total' | 'moneyline' | 'prop'
+  side text not null,                     -- team name (spread/moneyline), 'over'/'under' (total),
+                                           -- or free text for a prop (over/under/yes/anytime/...) -
+                                           -- prop sides are too varied for a fixed pair of options
+  player text,                            -- prop bets only - free text, no player roster table exists
+  prop_type text,                         -- prop bets only - free text (e.g. "Passing Yards",
+                                           -- "Anytime TD") rather than a fixed enum, same reasoning
+                                           -- as sportsbook: real prop markets are too varied to enumerate
   line numeric not null,                  -- the number actually bet, from the bettor's own side (spread convention: negative = favored)
   odds integer not null default -110,     -- american odds price actually taken
   stake numeric not null,                 -- units/dollars risked
@@ -526,6 +532,13 @@ create table if not exists bets (
                                            -- so it never sends twice
   result_alert_sent_at timestamptz,       -- python/alerts/bet_alerts.py - set once a win/loss/
                                            -- push Telegram alert has gone out for this bet
+  manual_result text check (manual_result in ('win', 'loss', 'push')),
+                                           -- overrides live grading when set - REQUIRED for props,
+                                           -- since no player-stats feed exists to auto-grade them
+                                           -- against (game-level home_points/away_points can't tell
+                                           -- you whether a receiver hit their yardage number). Also
+                                           -- a general escape hatch for any bet whose real result
+                                           -- needs a manual call (postponement, settlement dispute).
   placed_at timestamptz not null default now(),
   notes text,
   created_at timestamptz not null default now()

@@ -12,7 +12,7 @@ export default async function NflPage() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <SiteHeader subtitle="NFL" />
+      <SiteHeader subtitle="Bet Tracker" sport="nfl" />
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
         <p className="mb-4 text-xs text-muted">

@@ -1,5 +1,6 @@
 import LocalDateTime from "./LocalDateTime";
 import LogBetForm from "./LogBetForm";
+import LogPropBetForm from "./LogPropBetForm";
 import type { Game } from "@/lib/types";
 
 /** No odds/model for NFL yet (see sync_nfl_espn.py) - this is purely a
@@ -67,6 +68,7 @@ export default function NflGameCard({ game }: { game: Game }) {
           buttonLabel="Total"
           defaultEdgeSource="market"
         />
+        <LogPropBetForm gameId={game.id} />
       </div>
     </div>
   );
