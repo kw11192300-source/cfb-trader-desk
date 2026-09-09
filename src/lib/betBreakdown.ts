@@ -31,6 +31,30 @@ export function byWeek(graded: GradedBet[]): BreakdownRow[] {
   return summarizeBets(graded, (g) => (g.game ? `${g.game.season} W${g.game.week}` : null)).sort((a, b) => a.label.localeCompare(b.label));
 }
 
+const MARKET_LABEL: Record<string, string> = { spread: "Spread", moneyline: "Moneyline", total: "Total", prop: "Player Prop" };
+
+/** Every distinct market (Spread/Moneyline/Total/Player Prop). */
+export function byMarket(graded: GradedBet[]): BreakdownRow[] {
+  return summarizeBets(graded, (g) => MARKET_LABEL[g.bet.market] ?? g.bet.market).sort((a, b) => b.n - a.n);
+}
+
+/** Just two buckets: player props vs. the three game-level markets - the
+ * "am I actually better at picking a number for a guy, or picking a side
+ * of the game" question. */
+export function byPropVsCore(graded: GradedBet[]): BreakdownRow[] {
+  return summarizeBets(graded, (g) => (g.bet.market === "prop" ? "Player Props" : "Core 3 (Spread/ML/Total)")).sort((a, b) => b.n - a.n);
+}
+
+/** Prop bets only, grouped by player - null (non-prop bets) excluded. */
+export function byPlayer(graded: GradedBet[]): BreakdownRow[] {
+  return summarizeBets(graded, (g) => (g.bet.market === "prop" ? g.bet.player : null)).sort((a, b) => b.profit - a.profit);
+}
+
+/** Prop bets only, grouped by prop type (Passing Yards, Anytime TD, ...). */
+export function byPropType(graded: GradedBet[]): BreakdownRow[] {
+  return summarizeBets(graded, (g) => (g.bet.market === "prop" ? g.bet.prop_type : null)).sort((a, b) => b.profit - a.profit);
+}
+
 export function fmtUnits(n: number): string {
   return n > 0 ? `+${n.toFixed(2)}u` : `${n.toFixed(2)}u`;
 }
