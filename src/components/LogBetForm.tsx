@@ -105,8 +105,8 @@ export default function LogBetForm({
         type="number"
         name="stake"
         placeholder="Units"
-        step="0.5"
-        min="0.5"
+        step="0.001"
+        min="0.001"
         defaultValue={suggestedUnits ?? undefined}
         required
         title={suggestedUnits ? `Suggested: ${suggestedUnits} units` : undefined}

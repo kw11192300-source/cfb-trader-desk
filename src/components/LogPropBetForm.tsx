@@ -98,8 +98,8 @@ export default function LogPropBetForm({ gameId }: { gameId: number }) {
         type="number"
         name="stake"
         placeholder="Units"
-        step="0.5"
-        min="0.5"
+        step="0.001"
+        min="0.001"
         required
         className="w-16 rounded-md border border-border bg-surface px-2 py-1 text-xs text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
       />
