@@ -498,17 +498,31 @@ create index if not exists model_backtest_games_lookup_idx on model_backtest_gam
 -- games rather than stored, to avoid ever showing a stale result.
 create table if not exists bets (
   id bigserial primary key,
-  game_id bigint not null references games(id) on delete cascade,
+  sport text not null default 'cfb',      -- denormalized, not derived from games.sport via game_id -
+                                           -- a parlay has no single game to derive it from, so this
+                                           -- is the one source of truth for which desk a bet belongs
+                                           -- to; every page that scopes bets by sport filters on
+                                           -- this column directly, never through the game join
+  game_id bigint references games(id) on delete cascade,
+                                           -- nullable - a parlay spans multiple games, not one (see
+                                           -- market='parlay' and legs below)
   model_version text,                     -- which model's pick this was, if any (null = a manual/off-model bet)
-  market text not null default 'spread',  -- 'spread' | 'total' | 'moneyline' | 'prop'
+  market text not null default 'spread',  -- 'spread' | 'total' | 'moneyline' | 'prop' | 'parlay'
   side text not null,                     -- team name (spread/moneyline), 'over'/'under' (total),
-                                           -- or free text for a prop (over/under/yes/anytime/...) -
-                                           -- prop sides are too varied for a fixed pair of options
+                                           -- free text for a prop (over/under/yes/anytime/...), or a
+                                           -- short summary for a parlay (e.g. "3-Leg Parlay") -
+                                           -- prop/parlay sides are too varied for a fixed set of options
   player text,                            -- prop bets only - free text, no player roster table exists
   prop_type text,                         -- prop bets only - free text (e.g. "Passing Yards",
                                            -- "Anytime TD") rather than a fixed enum, same reasoning
                                            -- as sportsbook: real prop markets are too varied to enumerate
-  line numeric not null,                  -- the number actually bet, from the bettor's own side (spread convention: negative = favored)
+  legs jsonb,                             -- parlay bets only - free-text description per leg (e.g.
+                                           -- ["Chiefs -3.5", "Mahomes Over 275.5 Passing Yards"]), NOT
+                                           -- structured per-leg game/market/side like a standalone bet -
+                                           -- a parlay is always settled manually anyway (see
+                                           -- manual_result), so there's no need to model each leg
+                                           -- enough to re-derive a result the sportsbook already tells you
+  line numeric not null,                  -- the number actually bet, from the bettor's own side (spread convention: negative = favored) - 0 for moneyline/parlay, where it isn't meaningful
   odds integer not null default -110,     -- american odds price actually taken
   stake numeric not null,                 -- units/dollars risked
   sportsbook text,                        -- free text, not locked to a fixed list - plenty of
@@ -533,7 +547,7 @@ create table if not exists bets (
   result_alert_sent_at timestamptz,       -- python/alerts/bet_alerts.py - set once a win/loss/
                                            -- push Telegram alert has gone out for this bet
   manual_result text check (manual_result in ('win', 'loss', 'push')),
-                                           -- overrides live grading when set - REQUIRED for props,
+                                           -- overrides live grading when set - REQUIRED for props and parlays,
                                            -- since no player-stats feed exists to auto-grade them
                                            -- against (game-level home_points/away_points can't tell
                                            -- you whether a receiver hit their yardage number). Also

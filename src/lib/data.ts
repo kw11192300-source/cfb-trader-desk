@@ -341,22 +341,24 @@ function americanToDecimal(odds: number): number {
 /** margin > 0 means the bet's side beat its number; < 0 means it didn't;
  * 0 is a push. Spread convention throughout (negative = favored), same as
  * the rest of the site. */
-function gradeBet(bet: Bet, game: Game): { status: BetStatus; profit: number | null } {
-  // A manual call always wins - the ONLY way a prop ever gets graded (no
-  // player-stats feed exists to check a yardage/reception number against),
-  // and a general override for any bet whose real result needs a human
-  // call (postponement, settlement dispute) rather than the game score.
+function gradeBet(bet: Bet, game: Game | null): { status: BetStatus; profit: number | null } {
+  // A manual call always wins - the ONLY way a prop or parlay ever gets
+  // graded (no player-stats feed to check a prop against; a parlay spans
+  // multiple games/markets at once so there's no single game score to
+  // check it against either), and a general override for any bet whose
+  // real result needs a human call (postponement, settlement dispute)
+  // rather than the game score.
   if (bet.manual_result) {
     if (bet.manual_result === "push") return { status: "push", profit: 0 };
     const won = bet.manual_result === "win";
     return { status: won ? "win" : "loss", profit: won ? bet.stake * (americanToDecimal(bet.odds) - 1) : -bet.stake };
   }
 
-  if (bet.market === "prop") {
+  if (bet.market === "prop" || bet.market === "parlay") {
     return { status: "pending", profit: null }; // waiting on a manual result, always
   }
 
-  if (!game.completed || game.home_points === null || game.away_points === null) {
+  if (!game || !game.completed || game.home_points === null || game.away_points === null) {
     return { status: "pending", profit: null };
   }
 
@@ -392,7 +394,7 @@ export async function getBets(): Promise<GradedBet[]> {
   if (error) throw new Error(error.message);
   if (!bets || bets.length === 0) return [];
 
-  const gameIds = Array.from(new Set(bets.map((b) => b.game_id)));
+  const gameIds = Array.from(new Set(bets.map((b) => b.game_id).filter((id): id is number => id !== null)));
   const [{ data: games, error: gamesError }, { data: lines, error: linesError }, { data: oddsApiLines, error: oddsApiError }] = await Promise.all([
     supabase.from("games").select("*").in("id", gameIds),
     supabase.from("betting_lines").select("*").in("game_id", gameIds),
@@ -417,9 +419,9 @@ export async function getBets(): Promise<GradedBet[]> {
   }
 
   return (bets as Bet[]).map((bet) => {
-    const game = gameById.get(bet.game_id) ?? null;
-    const currentLine = pickHeadlineLine(mergeLines(linesByGame.get(bet.game_id) ?? [], oddsApiByGame.get(bet.game_id) ?? []));
-    if (!game) return { bet, game: null, status: "pending" as const, profit: null, currentLine };
+    const game = bet.game_id !== null ? (gameById.get(bet.game_id) ?? null) : null;
+    const currentLine =
+      bet.game_id !== null ? pickHeadlineLine(mergeLines(linesByGame.get(bet.game_id) ?? [], oddsApiByGame.get(bet.game_id) ?? [])) : null;
     const { status, profit } = gradeBet(bet, game);
     return { bet, game, status, profit, currentLine };
   });

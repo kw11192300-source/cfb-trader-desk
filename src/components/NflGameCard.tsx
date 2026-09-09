@@ -77,8 +77,8 @@ export default function NflGameCard({ game, bets = [] }: { game: Game; bets?: Gr
       )}
 
       <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-        <LogBetForm gameId={game.id} modelVersion={null} market="spread" sideOptions={teamOptions} line={0} buttonLabel="Spread" defaultEdgeSource="market" />
-        <LogBetForm gameId={game.id} modelVersion={null} market="moneyline" sideOptions={teamOptions} line={0} buttonLabel="ML" defaultEdgeSource="market" />
+        <LogBetForm gameId={game.id} modelVersion={null} market="spread" sideOptions={teamOptions} line={0} buttonLabel="Spread" defaultEdgeSource="market" sport="nfl" />
+        <LogBetForm gameId={game.id} modelVersion={null} market="moneyline" sideOptions={teamOptions} line={0} buttonLabel="ML" defaultEdgeSource="market" sport="nfl" />
         <LogBetForm
           gameId={game.id}
           modelVersion={null}
@@ -90,8 +90,9 @@ export default function NflGameCard({ game, bets = [] }: { game: Game; bets?: Gr
           line={0}
           buttonLabel="Total"
           defaultEdgeSource="market"
+          sport="nfl"
         />
-        <LogPropBetForm gameId={game.id} />
+        <LogPropBetForm gameId={game.id} sport="nfl" />
       </div>
     </div>
   );

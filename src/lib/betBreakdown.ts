@@ -31,7 +31,7 @@ export function byWeek(graded: GradedBet[]): BreakdownRow[] {
   return summarizeBets(graded, (g) => (g.game ? `${g.game.season} W${g.game.week}` : null)).sort((a, b) => a.label.localeCompare(b.label));
 }
 
-const MARKET_LABEL: Record<string, string> = { spread: "Spread", moneyline: "Moneyline", total: "Total", prop: "Player Prop" };
+const MARKET_LABEL: Record<string, string> = { spread: "Spread", moneyline: "Moneyline", total: "Total", prop: "Player Prop", parlay: "Parlay" };
 
 /** Every distinct market (Spread/Moneyline/Total/Player Prop). */
 export function byMarket(graded: GradedBet[]): BreakdownRow[] {

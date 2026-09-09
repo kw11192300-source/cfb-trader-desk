@@ -41,10 +41,10 @@ def _grade_bet(bet: dict, game: dict) -> tuple[str, float | None]:
         won = manual_result == "win"
         return ("win" if won else "loss"), (bet["stake"] * (_american_to_decimal(bet["odds"]) - 1) if won else -bet["stake"])
 
-    if bet["market"] == "prop":
-        return "pending", None  # no player-stats feed to auto-grade against - always waits on a manual result
+    if bet["market"] in ("prop", "parlay"):
+        return "pending", None  # no auto-grade path for either - always waits on a manual result
 
-    if not game["completed"] or game["home_points"] is None or game["away_points"] is None:
+    if not game or not game["completed"] or game["home_points"] is None or game["away_points"] is None:
         return "pending", None
 
     if bet["market"] == "total":

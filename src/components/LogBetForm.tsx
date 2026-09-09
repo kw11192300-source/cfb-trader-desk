@@ -31,10 +31,14 @@ export default function LogBetForm({
   suggestedUnits,
   buttonLabel = "Log bet",
   defaultEdgeSource = "model",
+  sport = "cfb",
 }: {
   gameId: number;
   modelVersion: string | null;
   market: string;
+  /** Which desk this bet belongs to - denormalized onto the bet itself
+   * (not derived from the game) so filtering never depends on a join. */
+  sport?: string;
   /** Fixed side (a team name, for spread/moneyline) - ignored if sideOptions is given. */
   side?: string;
   /** Lets the bettor pick the side themselves (e.g. totals: over/under,
@@ -79,6 +83,7 @@ export default function LogBetForm({
       onClick={(e) => e.stopPropagation()}
     >
       <input type="hidden" name="game_id" value={gameId} />
+      <input type="hidden" name="sport" value={sport} />
       <input type="hidden" name="model_version" value={modelVersion ?? ""} />
       <input type="hidden" name="market" value={market} />
       {sideOptions ? (

@@ -181,12 +181,14 @@ export type ModelBacktest = {
  * so a graded result can never go stale. */
 export type Bet = {
   id: number;
-  game_id: number;
+  sport: string; // 'cfb' | 'nfl' | ... - denormalized, NOT derived via game_id (a parlay has no single game)
+  game_id: number | null; // null for a parlay - it spans multiple games, not one
   model_version: string | null;
-  market: "spread" | "total" | "moneyline" | "prop" | string;
-  side: string; // team name (spread/moneyline), "over"/"under" (total), or free text (prop)
+  market: "spread" | "total" | "moneyline" | "prop" | "parlay" | string;
+  side: string; // team name (spread/moneyline), "over"/"under" (total), free text (prop), or a short summary (parlay, e.g. "3-Leg Parlay")
   player: string | null; // prop bets only
   prop_type: string | null; // prop bets only, e.g. "Passing Yards", "Anytime TD"
+  legs: string[] | null; // parlay bets only - free-text description per leg (e.g. "Chiefs -3.5")
   line: number; // bettor's own side, spread convention (negative = favored)
   odds: number; // american odds actually taken
   stake: number;

@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export default async function NflBetsPage() {
   const allBets = await getBets();
-  const nflBets = allBets.filter((b) => b.game?.sport === "nfl");
+  const nflBets = allBets.filter((b) => b.bet.sport === "nfl");
   const graded = nflBets.filter((b) => b.status !== "pending");
 
   return (

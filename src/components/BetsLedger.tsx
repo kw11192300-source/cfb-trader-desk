@@ -211,9 +211,20 @@ export default function BetsLedger({ bets, showSettle = false }: { bets: GradedB
                       "—"
                     )}
                   </td>
-                  <td className="px-4 py-2.5 whitespace-nowrap text-foreground">{game ? `${game.away_team} @ ${game.home_team}` : "—"}</td>
-                  <td className="px-4 py-2.5 whitespace-nowrap font-mono text-foreground">
-                    {bet.market === "prop" ? (
+                  <td className="px-4 py-2.5 whitespace-nowrap text-foreground">
+                    {bet.market === "parlay" ? "Parlay" : game ? `${game.away_team} @ ${game.home_team}` : "—"}
+                  </td>
+                  <td className="px-4 py-2.5 font-mono text-foreground">
+                    {bet.market === "parlay" ? (
+                      <div>
+                        <div>{bet.side}</div>
+                        {bet.legs?.map((leg, i) => (
+                          <div key={i} className="text-[11px] text-muted">
+                            {leg}
+                          </div>
+                        ))}
+                      </div>
+                    ) : bet.market === "prop" ? (
                       <>
                         {bet.player} {bet.side} {fmtLine(bet.line)}
                         <span className="text-muted"> {bet.prop_type}</span>

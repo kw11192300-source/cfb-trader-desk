@@ -1,3 +1,4 @@
+import LogParlayForm from "@/components/LogParlayForm";
 import NflGameCard from "@/components/NflGameCard";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
@@ -21,7 +22,7 @@ export default async function NflPage({ searchParams }: { searchParams: Promise<
 
   const betsByGame = new Map<number, GradedBet[]>();
   for (const gb of allBets) {
-    if (gb.game?.sport !== "nfl") continue;
+    if (gb.bet.sport !== "nfl" || gb.bet.game_id === null) continue;
     betsByGame.set(gb.bet.game_id, [...(betsByGame.get(gb.bet.game_id) ?? []), gb]);
   }
 
@@ -32,8 +33,12 @@ export default async function NflPage({ searchParams }: { searchParams: Promise<
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
         <p className="mb-4 text-xs text-muted">
           Schedule + live/final scores only (ESPN) — no odds or model yet, just a place to log and track NFL bets. Pick a market
-          below each game to log what you actually bet.
+          below each game to log what you actually bet, or log a parlay across multiple games below.
         </p>
+
+        <div className="mb-4">
+          <LogParlayForm sport="nfl" />
+        </div>
 
         {current && <WeekTabs weeks={weeks} activeWeek={board?.week ?? current.week} currentWeek={current.week} basePath="/nfl" />}
 

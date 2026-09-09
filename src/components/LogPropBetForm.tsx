@@ -39,7 +39,7 @@ const COMMON_BOOKS = [
  * separate component from LogBetForm rather than another market option
  * on it - the field shape genuinely differs (player + prop type, free-
  * text side) not just the market label. */
-export default function LogPropBetForm({ gameId }: { gameId: number }) {
+export default function LogPropBetForm({ gameId, sport = "cfb" }: { gameId: number; sport?: string }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
 
@@ -69,6 +69,7 @@ export default function LogPropBetForm({ gameId }: { gameId: number }) {
       onClick={(e) => e.stopPropagation()}
     >
       <input type="hidden" name="game_id" value={gameId} />
+      <input type="hidden" name="sport" value={sport} />
       <input type="hidden" name="market" value="prop" />
       <input type="hidden" name="edge_source" value="market" />
       <input
