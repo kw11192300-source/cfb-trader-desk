@@ -168,7 +168,7 @@ export default function BetsLedger({ bets, showSettle = false }: { bets: GradedB
 
       {bets.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">
-          No bets logged yet — click &quot;Log bet&quot; on a pick in This Week&apos;s Picks.
+          No bets logged yet — click a market button on a game above to log one.
         </div>
       ) : (
         <div className="max-h-[65vh] overflow-auto rounded-lg border border-border">

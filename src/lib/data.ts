@@ -25,11 +25,12 @@ import type {
  * its own query (not shared code with Python) since it's a two-line lookup,
  * not worth a cross-language shared module for.
  */
-export async function getCurrentWeek(): Promise<{ season: number; week: number; seasonType: string } | null> {
+export async function getCurrentWeek(sport: string = "cfb"): Promise<{ season: number; week: number; seasonType: string } | null> {
   const year = new Date().getFullYear();
   const { data, error } = await supabase
     .from("games")
     .select("season, week, season_type, start_date")
+    .eq("sport", sport)
     .eq("season", year)
     .eq("completed", false)
     .order("start_date", { ascending: true })
@@ -44,8 +45,13 @@ export async function getCurrentWeek(): Promise<{ season: number; week: number; 
  * for, ascending - powers the Board's week tabs. Not restricted to weeks
  * up to "current" - the full schedule is usually backfilled well ahead,
  * so future weeks show up too (browsing ahead works the same as back). */
-export async function getAvailableWeeks(season: number): Promise<number[]> {
-  const { data, error } = await supabase.from("games").select("week").eq("season", season).eq("season_type", "regular");
+export async function getAvailableWeeks(season: number, sport: string = "cfb"): Promise<number[]> {
+  const { data, error } = await supabase
+    .from("games")
+    .select("week")
+    .eq("sport", sport)
+    .eq("season", season)
+    .eq("season_type", "regular");
   if (error) throw new Error(error.message);
   const weeks = Array.from(new Set((data ?? []).map((r) => r.week as number)));
   return weeks.sort((a, b) => a - b);
@@ -125,6 +131,7 @@ export async function getBoard(
   season?: number,
   week?: number,
   seasonType?: string,
+  sport: string = "cfb",
 ): Promise<{
   season: number;
   week: number;
@@ -135,7 +142,7 @@ export async function getBoard(
   if (season !== undefined && week !== undefined && seasonType !== undefined) {
     target = { season, week, seasonType };
   } else {
-    const current = await getCurrentWeek();
+    const current = await getCurrentWeek(sport);
     if (!current) return null;
     target = current;
   }
@@ -143,6 +150,7 @@ export async function getBoard(
   const { data: games, error: gamesError } = await supabase
     .from("games")
     .select("*")
+    .eq("sport", sport)
     .eq("season", target.season)
     .eq("week", target.week)
     .eq("season_type", target.seasonType)

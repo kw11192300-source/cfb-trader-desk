@@ -37,7 +37,7 @@ export async function logBet(formData: FormData): Promise<void> {
   if (error) throw new Error(error.message);
 
   revalidatePath("/bets");
-  revalidatePath("/nfl");
+  revalidatePath("/nfl/bets");
 }
 
 /** Manually settles a bet - the ONLY way a prop ever gets graded (no
@@ -48,7 +48,7 @@ export async function setManualResult(id: number, result: "win" | "loss" | "push
   const { error } = await supabaseAdmin.from("bets").update({ manual_result: result }).eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/bets");
-  revalidatePath("/nfl");
+  revalidatePath("/nfl/bets");
 }
 
 /** Removes a logged bet (e.g. a typo, or a bet that never actually got
@@ -58,5 +58,5 @@ export async function deleteBet(id: number): Promise<void> {
   const { error } = await supabaseAdmin.from("bets").delete().eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/bets");
-  revalidatePath("/nfl");
+  revalidatePath("/nfl/bets");
 }

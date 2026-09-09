@@ -21,7 +21,10 @@ const NAV_ITEMS: Record<Sport, { href: string; label: string; prefetch?: boolean
     { href: "/backtest", label: "Backtest" },
     { href: "/futures", label: "Futures" },
   ],
-  nfl: [{ href: "/nfl", label: "Board" }],
+  nfl: [
+    { href: "/nfl", label: "Board" },
+    { href: "/nfl/bets", label: "Bets" },
+  ],
 };
 
 const SPORT_LABEL: Record<Sport, string> = { cfb: "CFB", nfl: "NFL" };
