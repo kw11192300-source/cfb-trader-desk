@@ -11,12 +11,26 @@ const COMMON_PROP_TYPES = [
   "Rushing Yards",
   "Receiving Yards",
   "Receptions",
+  "Rushing Attempts",
   "Passing TDs",
   "Rushing + Receiving Yards",
   "Anytime TD",
   "Completions",
 ];
-const COMMON_BOOKS = ["DraftKings", "FanDuel", "BetMGM", "Caesars", "ESPN Bet", "Fanatics", "Pinnacle", "Circa", "Bet365", "Boomers", "STN"];
+const COMMON_BOOKS = [
+  "DraftKings",
+  "FanDuel",
+  "BetMGM",
+  "Caesars",
+  "ESPN Bet",
+  "Fanatics",
+  "Pinnacle",
+  "Circa",
+  "Bet365",
+  "Boomers",
+  "STN",
+  "William Hill",
+];
 
 /** Player props have no auto-grading path (no player-stats feed exists -
  * see schema.sql's manual_result docstring), so every one of these sits
