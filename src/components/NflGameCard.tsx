@@ -14,11 +14,25 @@ function fmtBet(bet: Bet): string {
   return `${bet.side} ${fmtLine(bet.line)}`;
 }
 
+function fmtOdds(odds: number): string {
+  return odds > 0 ? `+${odds}` : `${odds}`;
+}
+
 /** No odds/model for NFL yet (see sync_nfl_espn.py) - this is purely a
  * schedule + score card with a log-bet control per market, unlike
  * GameCard/MyGameCard which both assume CFB's lines/predictions exist. */
+const STATUS_CLASS: Record<string, string> = { win: "text-up", loss: "text-down", push: "text-muted", pending: "text-muted" };
+
+/** Stake column: pending/push show the flat stake risked; a settled
+ * win/loss shows the actual result (profit or -stake) instead, so the
+ * card reads as "what happened" once a bet is graded, not just "what was
+ * risked". */
+function fmtStakeOrResult({ status, profit, bet }: GradedBet): string {
+  if (status === "win" || status === "loss") return `${(profit ?? 0) >= 0 ? "+" : ""}${(profit ?? 0).toFixed(2)}u`;
+  return `${bet.stake.toFixed(2)}u`;
+}
+
 export default function NflGameCard({ game, bets = [] }: { game: Game; bets?: GradedBet[] }) {
-  const pendingBets = bets.filter((b) => b.status === "pending");
   const teamOptions = [
     { value: game.away_team, label: game.away_team },
     { value: game.home_team, label: game.home_team },
@@ -65,12 +79,15 @@ export default function NflGameCard({ game, bets = [] }: { game: Game; bets?: Gr
         </div>
       </div>
 
-      {pendingBets.length > 0 && (
+      {bets.length > 0 && (
         <div className="flex flex-col gap-1 border-t border-border pt-3">
-          {pendingBets.map(({ bet }) => (
-            <div key={bet.id} className="flex items-center justify-between text-xs">
-              <span className="font-mono text-foreground">{fmtBet(bet)}</span>
-              <span className="text-muted">{bet.stake.toFixed(2)}u</span>
+          {bets.map((gb) => (
+            <div key={gb.bet.id} className={`flex items-center justify-between text-xs ${STATUS_CLASS[gb.status]}`}>
+              <span className="font-mono">
+                {fmtBet(gb.bet)}
+                {gb.status === "pending" && <span className="text-muted/60"> {fmtOdds(gb.bet.odds)}</span>}
+              </span>
+              <span>{fmtStakeOrResult(gb)}</span>
             </div>
           ))}
         </div>
