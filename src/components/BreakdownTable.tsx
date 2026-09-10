@@ -4,7 +4,7 @@ import { fmtPct, fmtUnits, type BreakdownRow } from "@/lib/betBreakdown";
  * surfaced near the top so it's visible as new weeks' results land). */
 export default function BreakdownTable({ title, rows, labelHeader = "Week" }: { title: string; rows: BreakdownRow[]; labelHeader?: string }) {
   return (
-    <div className="rounded-lg border border-border bg-surface p-4">
+    <div className="rounded-xl border border-border bg-surface p-4 shadow-card">
       <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">{title}</h3>
       {rows.length === 0 ? (
         <p className="text-xs text-muted">No graded bets yet.</p>

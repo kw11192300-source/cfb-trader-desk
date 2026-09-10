@@ -54,7 +54,7 @@ export default function EdgesTable({ rows, generatedAt }: { rows: EdgeRow[]; gen
       </div>
 
       {rows.length === 0 ? (
-        <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">
+        <div className="rounded-xl border border-border bg-surface p-8 shadow-card text-center text-muted">
           No edges computed yet — run <code className="text-foreground">python -m modeling.predict_week1</code>.
         </div>
       ) : !showAll ? (
@@ -67,7 +67,7 @@ export default function EdgesTable({ rows, generatedAt }: { rows: EdgeRow[]; gen
             const pickLogo = pickHome ? r.homeLogo : r.awayLogo;
             const { market, model } = pickPerspectiveSpread(p.market_spread, p.predicted_margin, pickHome);
             return (
-              <div key={p.game_id} className="rounded-lg border border-border bg-surface p-4">
+              <div key={p.game_id} className="rounded-xl border border-border bg-surface p-4 shadow-card">
                 <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <span className="w-5 shrink-0 text-right font-mono text-xs text-muted">{i + 1}</span>

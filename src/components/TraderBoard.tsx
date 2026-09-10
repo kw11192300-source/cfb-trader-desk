@@ -4,7 +4,7 @@ import type { BoardRow } from "@/lib/types";
 export default function TraderBoard({ rows }: { rows: BoardRow[] }) {
   if (rows.length === 0) {
     return (
-      <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">
+      <div className="rounded-xl border border-border bg-surface p-8 shadow-card text-center text-muted">
         No games found for the current week yet — check back once this week&apos;s slate has synced.
       </div>
     );

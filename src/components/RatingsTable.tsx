@@ -98,9 +98,9 @@ export default function RatingsTable({ rows }: { rows: PowerRatingRow[] }) {
       </div>
 
       {rows.length === 0 ? (
-        <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">No ratings available yet.</div>
+        <div className="rounded-xl border border-border bg-surface p-8 shadow-card text-center text-muted">No ratings available yet.</div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">No teams match &quot;{query}&quot;.</div>
+        <div className="rounded-xl border border-border bg-surface p-8 shadow-card text-center text-muted">No teams match &quot;{query}&quot;.</div>
       ) : (
         <div className="max-h-[75vh] overflow-auto rounded-lg border border-border">
           <table className="w-full border-collapse text-sm">

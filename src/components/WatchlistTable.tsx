@@ -20,7 +20,7 @@ function StatusBadge({ row }: { row: WatchlistRow }) {
 export default function WatchlistTable({ rows }: { rows: WatchlistRow[] }) {
   if (rows.length === 0) {
     return (
-      <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">
+      <div className="rounded-xl border border-border bg-surface p-8 shadow-card text-center text-muted">
         No candidates on the watchlist right now — run <code className="text-foreground">python -m modeling.watchlist</code>, or
         check back once teams have played their first game of the season.
       </div>
@@ -28,7 +28,7 @@ export default function WatchlistTable({ rows }: { rows: WatchlistRow[] }) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+    <div className="overflow-x-auto rounded-xl border border-border bg-surface shadow-card">
       <table className="w-full min-w-[820px] border-collapse text-sm">
         <thead>
           <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted">

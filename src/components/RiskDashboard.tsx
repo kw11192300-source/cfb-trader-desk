@@ -1,4 +1,5 @@
 import BreakdownTable from "./BreakdownTable";
+import StatTile from "./StatTile";
 import { byWeek as summarizeByWeek, fmtPct, fmtUnits, summarizeBets } from "@/lib/betBreakdown";
 import type { Game } from "@/lib/types";
 import type { GradedBet } from "@/lib/data";
@@ -23,7 +24,7 @@ function betExposure(bet: GradedBet["bet"], game: Game | null): { team: string |
 
 function ExposureList({ title, rows }: { title: string; rows: { label: string; units: number }[] }) {
   return (
-    <div className="rounded-lg border border-border bg-surface p-4">
+    <div className="rounded-xl border border-border bg-surface p-4 shadow-card">
       <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">{title}</h3>
       {rows.length === 0 ? (
         <p className="text-xs text-muted">No pending exposure right now.</p>
@@ -50,7 +51,7 @@ function ExposureList({ title, rows }: { title: string; rows: { label: string; u
 function PnlChart({ points }: { points: { date: string; cumulative: number }[] }) {
   if (points.length < 2) {
     return (
-      <div className="rounded-lg border border-border bg-surface p-8 text-center text-xs text-muted">
+      <div className="rounded-xl border border-border bg-surface p-8 shadow-card text-center text-xs text-muted">
         Not enough graded bets yet for a P&amp;L chart.
       </div>
     );
@@ -83,7 +84,7 @@ function PnlChart({ points }: { points: { date: string; cumulative: number }[] }
   }
 
   return (
-    <div className="rounded-lg border border-border bg-surface p-4">
+    <div className="rounded-xl border border-border bg-surface p-4 shadow-card">
       <div className="mb-2 flex items-baseline justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">P&amp;L over time (graded bets)</h3>
         <span className="font-mono text-xs text-muted">
@@ -153,25 +154,14 @@ export default function RiskDashboard({ bets }: { bets: GradedBet[] }) {
   return (
     <div className="flex flex-col gap-5">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-lg border border-border bg-surface p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted">Pending exposure</div>
-          <div className="font-mono text-lg text-foreground">{totalPending.toFixed(2)}u</div>
-          <div className="text-[10px] text-muted">{pending.length} open bet{pending.length === 1 ? "" : "s"}</div>
-        </div>
-        <div className="rounded-lg border border-border bg-surface p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted">Graded bets</div>
-          <div className="font-mono text-lg text-foreground">{graded.length}</div>
-        </div>
-        <div className="rounded-lg border border-border bg-surface p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted">Overall ROI</div>
-          <div className={`font-mono text-lg ${(overallRoi ?? 0) >= 0 ? "text-up" : "text-down"}`}>{fmtPct(overallRoi)}</div>
-        </div>
-        <div className="rounded-lg border border-border bg-surface p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted" title="Stake-weighted, from the actual odds taken on graded bets - not a flat -110 assumption">
-            Break-even (your odds)
-          </div>
-          <div className="font-mono text-lg text-muted">{weightedBreakEven !== null ? `${(weightedBreakEven * 100).toFixed(1)}%` : "—"}</div>
-        </div>
+        <StatTile label="Pending exposure" value={`${totalPending.toFixed(2)}u`} sub={`${pending.length} open bet${pending.length === 1 ? "" : "s"}`} />
+        <StatTile label="Graded bets" value={`${graded.length}`} />
+        <StatTile label="Overall ROI" value={fmtPct(overallRoi)} tone={(overallRoi ?? 0) >= 0 ? "up" : "down"} />
+        <StatTile
+          label="Break-even (your odds)"
+          value={weightedBreakEven !== null ? `${(weightedBreakEven * 100).toFixed(1)}%` : "—"}
+          title="Stake-weighted, from the actual odds taken on graded bets - not a flat -110 assumption"
+        />
       </div>
 
       <PnlChart points={pnlPoints} />

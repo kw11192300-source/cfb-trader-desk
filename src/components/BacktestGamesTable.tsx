@@ -122,7 +122,7 @@ export default function BacktestGamesTable({ games }: { games: ModelBacktestGame
       </div>
 
       {filtered.length === 0 ? (
-        <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">No games match these filters.</div>
+        <div className="rounded-xl border border-border bg-surface p-8 shadow-card text-center text-muted">No games match these filters.</div>
       ) : (
         <div className="max-h-[65vh] overflow-auto rounded-lg border border-border">
           <table className="w-full border-collapse text-sm">

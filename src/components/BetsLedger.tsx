@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import BreakdownTable from "./BreakdownTable";
 import LocalDateTime from "./LocalDateTime";
+import StatTile from "./StatTile";
 import { deleteBet, setManualResult } from "@/lib/actions";
 import { byWeek } from "@/lib/betBreakdown";
 import type { GradedBet } from "@/lib/data";
@@ -104,38 +105,16 @@ export default function BetsLedger({ bets, showSettle = false }: { bets: GradedB
   return (
     <div>
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
-        <div className="rounded-lg border border-border bg-surface p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted">Record</div>
-          <div className="font-mono text-lg text-foreground">
-            {wins}-{losses}
-            {pushes > 0 ? `-${pushes}` : ""}
-          </div>
-        </div>
-        <div className="rounded-lg border border-border bg-surface p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted" title="Finished bets only">
-            Staked
-          </div>
-          <div className="font-mono text-lg text-foreground">{totalStaked.toFixed(2)}</div>
-        </div>
-        <div className="rounded-lg border border-border bg-surface p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted">Profit</div>
-          <div className={`font-mono text-lg ${totalProfit >= 0 ? "text-up" : "text-down"}`}>{fmtProfit(totalProfit)}</div>
-        </div>
-        <div className="rounded-lg border border-border bg-surface p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted">ROI</div>
-          <div className={`font-mono text-lg ${roi >= 0 ? "text-up" : "text-down"}`}>
-            {graded.length > 0 ? `${roi >= 0 ? "+" : ""}${roi.toFixed(1)}%` : "—"}
-          </div>
-        </div>
-        <div className="rounded-lg border border-border bg-surface p-3">
-          <div className="text-[10px] uppercase tracking-wide text-muted">Pending</div>
-          <div className="font-mono text-lg text-accent">{pendingUnits.toFixed(2)}u</div>
-          {pendingBets.length > 0 && (
-            <div className="text-[10px] text-muted">
-              {pendingBets.length} bet{pendingBets.length === 1 ? "" : "s"}
-            </div>
-          )}
-        </div>
+        <StatTile label="Record" value={`${wins}-${losses}${pushes > 0 ? `-${pushes}` : ""}`} />
+        <StatTile label="Staked" value={totalStaked.toFixed(2)} title="Finished bets only" />
+        <StatTile label="Profit" value={fmtProfit(totalProfit)} tone={totalProfit >= 0 ? "up" : "down"} />
+        <StatTile label="ROI" value={graded.length > 0 ? `${roi >= 0 ? "+" : ""}${roi.toFixed(1)}%` : "—"} tone={roi >= 0 ? "up" : "down"} />
+        <StatTile
+          label="Pending"
+          value={`${pendingUnits.toFixed(2)}u`}
+          tone="accent"
+          sub={pendingBets.length > 0 ? `${pendingBets.length} bet${pendingBets.length === 1 ? "" : "s"}` : undefined}
+        />
       </div>
 
       <div className="mb-4">
@@ -167,7 +146,7 @@ export default function BetsLedger({ bets, showSettle = false }: { bets: GradedB
       )}
 
       {bets.length === 0 ? (
-        <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">
+        <div className="rounded-xl border border-border bg-surface p-8 shadow-card text-center text-muted">
           No bets logged yet — click a market button on a game above to log one.
         </div>
       ) : (

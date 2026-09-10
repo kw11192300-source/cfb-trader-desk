@@ -60,7 +60,7 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
           ← Back to board
         </Link>
 
-        <div className="mt-4 rounded-lg border border-border bg-surface p-6">
+        <div className="mt-4 rounded-xl border border-border bg-surface p-6 shadow-card">
           {game.live_status && (
             <div className="mb-4 flex items-center justify-center gap-1.5 text-xs font-medium text-down">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-down" />
@@ -99,7 +99,7 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface p-4">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface p-4 shadow-card">
           <div className="text-sm text-foreground">
             {game.away_team} @ {game.home_team} <span className="text-muted">— Total</span>
             {(bestOver ?? bestUnder) != null && <span className="ml-2 font-mono text-muted">{(bestOver ?? bestUnder)!.toFixed(1)}</span>}
@@ -164,7 +164,7 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
             <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-muted">Prediction markets</h2>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {predictionMarkets.map((pm) => (
-                <div key={pm.source} className="rounded-lg border border-border bg-surface p-4">
+                <div key={pm.source} className="rounded-xl border border-border bg-surface p-4 shadow-card">
                   <div className="mb-2 flex items-center justify-between text-xs">
                     <span className="font-medium capitalize text-foreground">{pm.source}</span>
                     <span className="text-muted">
@@ -197,7 +197,7 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
         <h2 className="mt-8 mb-3 text-sm font-medium uppercase tracking-wide text-muted">Odds comparison</h2>
 
         {books.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface p-6 text-center text-muted">No lines available for this game yet.</div>
+          <div className="rounded-xl border border-border bg-surface p-6 shadow-card text-center text-muted">No lines available for this game yet.</div>
         ) : (
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full min-w-[700px] border-collapse text-sm">
@@ -251,11 +251,11 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
 
         <h2 className="mt-8 mb-3 text-sm font-medium uppercase tracking-wide text-muted">Line movement</h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="rounded-lg border border-border bg-surface p-4">
+          <div className="rounded-xl border border-border bg-surface p-4 shadow-card">
             <div className="mb-2 text-xs text-muted">Spread</div>
             <LineMovementChart snapshots={history} field="spread" label="Spread" />
           </div>
-          <div className="rounded-lg border border-border bg-surface p-4">
+          <div className="rounded-xl border border-border bg-surface p-4 shadow-card">
             <div className="mb-2 text-xs text-muted">Total</div>
             <LineMovementChart snapshots={history} field="over_under" label="Total" />
           </div>

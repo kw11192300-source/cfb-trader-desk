@@ -38,7 +38,7 @@ export default function MyGameCard({
   return (
     <Link
       href={`/games/${game.id}`}
-      className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4 transition-colors hover:border-accent/60 hover:bg-surface-raised"
+      className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4 shadow-card transition-colors hover:border-accent/60 hover:bg-surface-raised hover:shadow-card-hover"
     >
       <div className="flex items-center justify-between text-[11px] text-muted">
         {game.completed ? (
@@ -63,7 +63,7 @@ export default function MyGameCard({
           <TeamLogo src={awayLogo} alt={game.away_team} />
           <span className="flex-1 truncate text-sm text-foreground">{game.away_team}</span>
           {game.completed && game.away_points !== null && (
-            <span className={`font-mono text-sm ${(game.away_points ?? 0) > (game.home_points ?? 0) ? "font-semibold text-foreground" : "text-muted"}`}>
+            <span className={`font-mono text-base ${(game.away_points ?? 0) > (game.home_points ?? 0) ? "font-bold text-foreground" : "text-muted"}`}>
               {game.away_points}
             </span>
           )}
@@ -73,7 +73,7 @@ export default function MyGameCard({
           <TeamLogo src={homeLogo} alt={game.home_team} />
           <span className="flex-1 truncate text-sm text-foreground">{game.home_team}</span>
           {game.completed && game.home_points !== null && (
-            <span className={`font-mono text-sm ${(game.home_points ?? 0) > (game.away_points ?? 0) ? "font-semibold text-foreground" : "text-muted"}`}>
+            <span className={`font-mono text-base ${(game.home_points ?? 0) > (game.away_points ?? 0) ? "font-bold text-foreground" : "text-muted"}`}>
               {game.home_points}
             </span>
           )}

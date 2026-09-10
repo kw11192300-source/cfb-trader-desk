@@ -2,6 +2,7 @@ import LogParlayForm from "@/components/LogParlayForm";
 import NflGameCard from "@/components/NflGameCard";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
+import StatTile from "@/components/StatTile";
 import WeekTabs from "@/components/WeekTabs";
 import { getAvailableWeeks, getBets, getBoard, getCurrentWeek, type GradedBet } from "@/lib/data";
 
@@ -26,6 +27,14 @@ export default async function NflPage({ searchParams }: { searchParams: Promise<
     betsByGame.set(gb.bet.game_id, [...(betsByGame.get(gb.bet.game_id) ?? []), gb]);
   }
 
+  // KPI strip - scoped to this week's board only (not season-wide), same
+  // "pending = stake risked, not yet settled" definition BetsLedger/
+  // RiskDashboard already use.
+  const liveCount = games.filter((g) => g.live_status).length;
+  const weekGameIds = new Set(games.map((g) => g.id));
+  const weekPendingBets = [...betsByGame.values()].flat().filter((gb) => gb.status === "pending" && weekGameIds.has(gb.bet.game_id!));
+  const weekPendingUnits = weekPendingBets.reduce((s, gb) => s + gb.bet.stake, 0);
+
   return (
     <div className="flex min-h-screen flex-col">
       <SiteHeader subtitle="Board" sport="nfl" />
@@ -36,6 +45,17 @@ export default async function NflPage({ searchParams }: { searchParams: Promise<
           below each game to log what you actually bet, or log a parlay across multiple games below.
         </p>
 
+        <div className="mb-4 grid grid-cols-3 gap-3">
+          <StatTile label="Games this week" value={`${games.length}`} />
+          <StatTile label="Live now" value={`${liveCount}`} tone={liveCount > 0 ? "down" : "neutral"} />
+          <StatTile
+            label="Pending"
+            value={`${weekPendingUnits.toFixed(2)}u`}
+            tone="accent"
+            sub={weekPendingBets.length > 0 ? `${weekPendingBets.length} bet${weekPendingBets.length === 1 ? "" : "s"}` : undefined}
+          />
+        </div>
+
         <div className="mb-4">
           <LogParlayForm sport="nfl" />
         </div>
@@ -43,7 +63,7 @@ export default async function NflPage({ searchParams }: { searchParams: Promise<
         {current && <WeekTabs weeks={weeks} activeWeek={board?.week ?? current.week} currentWeek={current.week} basePath="/nfl" />}
 
         {games.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">
+          <div className="rounded-xl border border-border bg-surface p-8 shadow-card text-center text-muted">
             No NFL games synced yet — run <code className="text-foreground">python -m cfbd_ingest.sync_nfl_espn</code>.
           </div>
         ) : (

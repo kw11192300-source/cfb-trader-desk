@@ -23,7 +23,7 @@ export default function SharpMoneyTable({ rows }: { rows: SharpMoneyRow[] }) {
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">
+      <div className="rounded-xl border border-border bg-surface p-8 shadow-card text-center text-muted">
         No overlapping prediction-market + sportsbook data yet — run{" "}
         <code className="text-foreground">python -m cfbd_ingest.sync_prediction_markets</code>.
       </div>

@@ -16,6 +16,13 @@
   --down: #ef4444;
   --flat: #7d8798;
   --warn: #f5a623;
+
+  /* Elevation for card/panel chrome - a soft ambient shadow plus a
+     tighter contact shadow, tuned against the near-black background so a
+     card reads as a raised panel rather than a visible dark box. Hover
+     variant is the same shape, just deeper, for interactive cards. */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.5), 0 12px 24px -14px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+  --shadow-card-hover: 0 2px 4px rgba(0, 0, 0, 0.55), 0 20px 36px -14px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.03) inset;
 }
 
 @theme inline {
@@ -30,6 +37,8 @@
   --color-down: var(--down);
   --color-flat: var(--flat);
   --color-warn: var(--warn);
+  --shadow-card: var(--shadow-card);
+  --shadow-card-hover: var(--shadow-card-hover);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

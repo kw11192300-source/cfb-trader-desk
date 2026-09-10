@@ -40,7 +40,7 @@ export default async function MyGamesPage() {
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
         {rows.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">
+          <div className="rounded-xl border border-border bg-surface p-8 shadow-card text-center text-muted">
             No upcoming or live games with a logged pick right now — see <span className="text-foreground">Bets</span> for the full history.
           </div>
         ) : (

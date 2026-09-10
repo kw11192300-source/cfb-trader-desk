@@ -24,7 +24,7 @@ export default function PositionScenarios({ bets, game }: { bets: Bet[]; game: G
   const worst = Math.min(...scenarios.map((s) => s.netProfit));
 
   return (
-    <div className="mt-4 rounded-lg border border-border bg-surface p-6">
+    <div className="mt-4 rounded-xl border border-border bg-surface p-6 shadow-card">
       <h2 className="mb-1 text-sm font-medium uppercase tracking-wide text-muted">Your position</h2>
       <p className="mb-3 text-xs text-muted">
         Net profit across every spread/moneyline bet you&apos;ve logged on this game, by how it actually finishes.

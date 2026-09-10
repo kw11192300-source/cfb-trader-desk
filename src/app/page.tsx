@@ -1,9 +1,10 @@
 import FreshnessBanner from "@/components/FreshnessBanner";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
+import StatTile from "@/components/StatTile";
 import TraderBoard from "@/components/TraderBoard";
 import WeekTabs from "@/components/WeekTabs";
-import { getAvailableWeeks, getBoard, getCurrentWeek } from "@/lib/data";
+import { getAvailableWeeks, getBets, getBoard, getCurrentWeek } from "@/lib/data";
 import { mergeLines, mostRecentFetch } from "@/lib/mergedLines";
 
 // Odds change throughout the week (poll_lines.py updates them every few
@@ -31,11 +32,31 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ w
   const weeks = current ? await getAvailableWeeks(current.season) : [];
   const freshestFetch = mostRecentFetch((board?.rows ?? []).flatMap((r) => mergeLines(r.lines, r.oddsApiLines)));
 
+  // KPI strip - scoped to this week's board only, same "pending = stake
+  // risked, not yet settled" definition BetsLedger/RiskDashboard use.
+  const games = (board?.rows ?? []).map((r) => r.game);
+  const liveCount = games.filter((g) => g.live_status).length;
+  const weekGameIds = new Set(games.map((g) => g.id));
+  const allBets = await getBets();
+  const weekPendingBets = allBets.filter((gb) => gb.bet.sport === "cfb" && gb.status === "pending" && gb.bet.game_id !== null && weekGameIds.has(gb.bet.game_id));
+  const weekPendingUnits = weekPendingBets.reduce((s, gb) => s + gb.bet.stake, 0);
+
   return (
     <div className="flex min-h-screen flex-col">
       <SiteHeader subtitle={board ? `${board.season} · Week ${board.week} · ${seasonTypeLabel(board.seasonType)}` : "No active week"} />
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
+        <div className="mb-4 grid grid-cols-3 gap-3">
+          <StatTile label="Games this week" value={`${games.length}`} />
+          <StatTile label="Live now" value={`${liveCount}`} tone={liveCount > 0 ? "down" : "neutral"} />
+          <StatTile
+            label="Pending"
+            value={`${weekPendingUnits.toFixed(2)}u`}
+            tone="accent"
+            sub={weekPendingBets.length > 0 ? `${weekPendingBets.length} bet${weekPendingBets.length === 1 ? "" : "s"}` : undefined}
+          />
+        </div>
+
         {current && <WeekTabs weeks={weeks} activeWeek={board?.week ?? current.week} currentWeek={current.week} />}
         <FreshnessBanner iso={freshestFetch} />
         <TraderBoard rows={board?.rows ?? []} />

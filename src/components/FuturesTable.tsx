@@ -92,11 +92,11 @@ export default function FuturesTable({ rows }: { rows: SeasonFutureRow[] }) {
       </div>
 
       {rows.length === 0 ? (
-        <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">
+        <div className="rounded-xl border border-border bg-surface p-8 shadow-card text-center text-muted">
           No futures projections yet — run <code className="text-foreground">python -m modeling.season_sim</code>.
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">No teams match &quot;{query}&quot;.</div>
+        <div className="rounded-xl border border-border bg-surface p-8 shadow-card text-center text-muted">No teams match &quot;{query}&quot;.</div>
       ) : (
         <div className="max-h-[75vh] overflow-auto rounded-lg border border-border">
           <table className="w-full border-collapse text-sm">

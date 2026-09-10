@@ -60,13 +60,13 @@ export default function NflGameCard({ game, bets = [] }: { game: Game; bets?: Gr
   const summary = game.completed ? gameSummary(bets) : null;
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
+    <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4 shadow-card">
       <div className="flex items-center justify-between text-[11px] text-muted">
         {game.completed ? (
           <span className="flex items-center gap-1.5 font-medium text-muted">
             FINAL
             {summary && (
-              <span className={summary.profit >= 0 ? "text-up" : "text-down"}>
+              <span className={`font-mono text-xs font-semibold ${summary.profit >= 0 ? "text-up" : "text-down"}`}>
                 {summary.profit >= 0 ? "+" : ""}
                 {summary.profit.toFixed(2)}u ({summary.roi >= 0 ? "+" : ""}
                 {summary.roi.toFixed(1)}%)
@@ -92,7 +92,7 @@ export default function NflGameCard({ game, bets = [] }: { game: Game; bets?: Gr
         <div className="flex items-center justify-between text-sm">
           <span className="text-foreground">{game.away_team}</span>
           {game.completed && game.away_points !== null && (
-            <span className={`font-mono ${(game.away_points ?? 0) > (game.home_points ?? 0) ? "font-semibold text-foreground" : "text-muted"}`}>
+            <span className={`font-mono text-base ${(game.away_points ?? 0) > (game.home_points ?? 0) ? "font-bold text-foreground" : "text-muted"}`}>
               {game.away_points}
             </span>
           )}
@@ -101,7 +101,7 @@ export default function NflGameCard({ game, bets = [] }: { game: Game; bets?: Gr
         <div className="flex items-center justify-between text-sm">
           <span className="text-foreground">{game.home_team}</span>
           {game.completed && game.home_points !== null && (
-            <span className={`font-mono ${(game.home_points ?? 0) > (game.away_points ?? 0) ? "font-semibold text-foreground" : "text-muted"}`}>
+            <span className={`font-mono text-base ${(game.home_points ?? 0) > (game.away_points ?? 0) ? "font-bold text-foreground" : "text-muted"}`}>
               {game.home_points}
             </span>
           )}

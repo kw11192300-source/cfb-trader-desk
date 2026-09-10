@@ -51,7 +51,7 @@ export default function LogParlayForm({ sport = "cfb" }: { sport?: string }) {
           setPending(false);
         }
       }}
-      className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-4"
+      className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-4 shadow-card"
     >
       <input type="hidden" name="sport" value={sport} />
       <input type="hidden" name="market" value="parlay" />
