@@ -4,14 +4,22 @@ import LogPropBetForm from "./LogPropBetForm";
 import type { GradedBet } from "@/lib/data";
 import type { Bet, Game } from "@/lib/types";
 
-function fmtLine(n: number): string {
+/** Spreads only: "+" means this side is getting points (underdog). */
+function fmtSpreadLine(n: number): string {
   return n > 0 ? `+${n.toFixed(1)}` : n.toFixed(1);
+}
+
+/** Props and totals: just a number/threshold, no sign - a "+" here would
+ * misleadingly read like a spread. */
+function fmtLine(n: number): string {
+  return n.toFixed(1);
 }
 
 function fmtBet(bet: Bet): string {
   if (bet.market === "prop") return `${bet.player} ${bet.side} ${fmtLine(bet.line)} ${bet.prop_type ?? ""}`.trim();
   if (bet.market === "moneyline") return `${bet.side} ML`;
-  return `${bet.side} ${fmtLine(bet.line)}`;
+  if (bet.market === "total") return `${bet.side} ${fmtLine(bet.line)}`;
+  return `${bet.side} ${fmtSpreadLine(bet.line)}`;
 }
 
 function fmtOdds(odds: number): string {
