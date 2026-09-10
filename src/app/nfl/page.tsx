@@ -36,7 +36,7 @@ export default async function NflPage({ searchParams }: { searchParams: Promise<
   const weekPendingUnits = weekPendingBets.reduce((s, gb) => s + gb.bet.stake, 0);
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col md:pl-16 pb-16 md:pb-0">
       <SiteHeader subtitle="Board" sport="nfl" />
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">

@@ -13,7 +13,7 @@ export default async function NflBetsPage() {
   const graded = nflBets.filter((b) => b.status !== "pending");
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col md:pl-16 pb-16 md:pb-0">
       <SiteHeader subtitle="Bets" sport="nfl" />
 
       <main className="mx-auto w-full max-w-7xl flex-1 px-6 py-6">

@@ -52,7 +52,7 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
   const bestUnder = bestUnderTotal(books);
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col md:pl-16 pb-16 md:pb-0">
       <SiteHeader subtitle={`${game.season} · Week ${game.week}`} />
 
       <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-6">

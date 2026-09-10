@@ -23,6 +23,13 @@
      variant is the same shape, just deeper, for interactive cards. */
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.5), 0 12px 24px -14px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
   --shadow-card-hover: 0 2px 4px rgba(0, 0, 0, 0.55), 0 20px 36px -14px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+
+  /* HUD glow - a soft accent-colored halo for active nav/live/brand
+     elements. Deliberately subtle: this is a signal for "this is the
+     active/live thing," not a decoration on everything. */
+  --glow-accent: 0 0 0 1px rgba(59, 167, 255, 0.4), 0 0 12px rgba(59, 167, 255, 0.35), 0 0 28px rgba(59, 167, 255, 0.15);
+  --glow-up: 0 0 8px rgba(34, 197, 94, 0.5);
+  --glow-down: 0 0 8px rgba(239, 68, 68, 0.5);
 }
 
 @theme inline {
@@ -39,12 +46,28 @@
   --color-warn: var(--warn);
   --shadow-card: var(--shadow-card);
   --shadow-card-hover: var(--shadow-card-hover);
+  --shadow-glow-accent: var(--glow-accent);
+  --shadow-glow-up: var(--glow-up);
+  --shadow-glow-down: var(--glow-down);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 body {
-  background: var(--background);
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.012) 0px, rgba(255, 255, 255, 0.012) 1px, transparent 1px, transparent 3px),
+    var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Continuous horizontal scroll for LiveTicker - duplicated content loops
+   seamlessly since the translate distance is exactly one copy's width. */
+@keyframes ticker-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
 }

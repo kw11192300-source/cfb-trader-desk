@@ -12,7 +12,7 @@ export default async function EdgesPage() {
   const generatedAt = rows.length > 0 ? rows[0].prediction.created_at : null;
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col md:pl-16 pb-16 md:pb-0">
       <SiteHeader subtitle="Model Edges" />
 
       <main className="mx-auto w-full max-w-7xl flex-1 px-6 py-6">

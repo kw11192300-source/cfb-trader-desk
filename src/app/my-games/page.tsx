@@ -35,7 +35,7 @@ export default async function MyGamesPage() {
   const logoBySchool = new Map((teams ?? []).map((t) => [t.school as string, t.logo_url as string | null]));
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col md:pl-16 pb-16 md:pb-0">
       <SiteHeader subtitle="My Games" />
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">

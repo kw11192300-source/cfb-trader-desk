@@ -42,7 +42,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ w
   const weekPendingUnits = weekPendingBets.reduce((s, gb) => s + gb.bet.stake, 0);
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col md:pl-16 pb-16 md:pb-0">
       <SiteHeader subtitle={board ? `${board.season} · Week ${board.week} · ${seasonTypeLabel(board.seasonType)}` : "No active week"} />
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">

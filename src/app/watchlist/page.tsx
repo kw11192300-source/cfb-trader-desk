@@ -11,7 +11,7 @@ export default async function WatchlistPage() {
   const rows = await getWatchlist(MODEL_VERSION);
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col md:pl-16 pb-16 md:pb-0">
       <SiteHeader subtitle="In-Season Watchlist" />
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
