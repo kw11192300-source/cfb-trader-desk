@@ -18,6 +18,18 @@ function fmtOdds(odds: number): string {
   return odds > 0 ? `+${odds}` : `${odds}`;
 }
 
+/** Game-level P/L + ROI next to FINAL, settled bets only (mirrors the
+ * rest of the app's "staked = finished bets only" convention) - null when
+ * there's nothing settled yet to summarize (no bets, or all still pending
+ * props/parlays on an otherwise-finished game). */
+function gameSummary(bets: GradedBet[]): { profit: number; roi: number } | null {
+  const settled = bets.filter((b) => b.status !== "pending");
+  if (settled.length === 0) return null;
+  const profit = settled.reduce((s, b) => s + (b.profit ?? 0), 0);
+  const staked = settled.reduce((s, b) => s + b.bet.stake, 0);
+  return { profit, roi: staked > 0 ? (profit / staked) * 100 : 0 };
+}
+
 /** No odds/model for NFL yet (see sync_nfl_espn.py) - this is purely a
  * schedule + score card with a log-bet control per market, unlike
  * GameCard/MyGameCard which both assume CFB's lines/predictions exist. */
@@ -37,12 +49,22 @@ export default function NflGameCard({ game, bets = [] }: { game: Game; bets?: Gr
     { value: game.away_team, label: game.away_team },
     { value: game.home_team, label: game.home_team },
   ];
+  const summary = game.completed ? gameSummary(bets) : null;
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
       <div className="flex items-center justify-between text-[11px] text-muted">
         {game.completed ? (
-          <span className="font-medium text-muted">FINAL</span>
+          <span className="flex items-center gap-1.5 font-medium text-muted">
+            FINAL
+            {summary && (
+              <span className={summary.profit >= 0 ? "text-up" : "text-down"}>
+                {summary.profit >= 0 ? "+" : ""}
+                {summary.profit.toFixed(2)}u ({summary.roi >= 0 ? "+" : ""}
+                {summary.roi.toFixed(1)}%)
+              </span>
+            )}
+          </span>
         ) : game.live_status ? (
           <span className="flex items-center gap-1.5 font-medium text-down">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-down" />
