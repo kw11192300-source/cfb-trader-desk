@@ -35,6 +35,16 @@ from .team_match import find_best_school_match
 
 ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard"
 
+# ESPN's `groups` param is FBS-only (80) unless told otherwise - confirmed
+# live: querying without a groups filter at all silently returns the same
+# FBS-only set, NOT "everything". Our own schedule includes plenty of
+# FCS/small-school games (buy games, FCS-vs-FCS), which is exactly what
+# was going stale here - group 80 alone missed them, they never got
+# marked complete, and the oldest of them being permanently "incomplete"
+# is what get_current_week() uses to decide the current week, so this
+# silently stuck the whole site on week 1 days after it actually ended.
+ESPN_GROUPS = (80, 81)  # 80 = FBS, 81 = FCS
+
 
 def _espn_week_number(our_week: int) -> int:
     # Our own `week` numbering already matches CFBD's, which ESPN's
@@ -73,14 +83,18 @@ def run() -> None:
         return
     our_schools = list({g["home_team"] for g in ours} | {g["away_team"] for g in ours})
 
-    resp = requests.get(
-        ESPN_SCOREBOARD_URL,
-        params={"year": season, "week": _espn_week_number(week), "seasontype": 2, "groups": 80, "limit": 300},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    events = resp.json().get("events", [])
-    print(f"{len(events)} ESPN events for {season} week {week}; matching against {len(ours)} of our own games.")
+    events_by_id: dict[str, dict] = {}
+    for group in ESPN_GROUPS:
+        resp = requests.get(
+            ESPN_SCOREBOARD_URL,
+            params={"year": season, "week": _espn_week_number(week), "seasontype": 2, "groups": group, "limit": 300},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        for e in resp.json().get("events", []):
+            events_by_id[e["id"]] = e  # dedupe - a game can't appear in both groups
+    events = list(events_by_id.values())
+    print(f"{len(events)} ESPN events for {season} week {week} across groups {ESPN_GROUPS}; matching against {len(ours)} of our own games.")
 
     finals = live = matched = unmatched = 0
     for e in events:

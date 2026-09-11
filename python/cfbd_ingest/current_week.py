@@ -15,14 +15,18 @@ import datetime
 from .supabase_client import get_client
 
 
-def get_current_week() -> tuple[int, int, str] | None:
+def get_current_week(sport: str = "cfb") -> tuple[int, int, str] | None:
     """Returns (season, week, season_type), or None if there's no upcoming
-    game in our own database (e.g. off-season with nothing backfilled yet)."""
+    game in our own database (e.g. off-season with nothing backfilled yet).
+    Every caller today is CFB-only, but scoped explicitly rather than left
+    implicit - a stray NFL row (negative id, same games table) shouldn't
+    ever be able to influence this."""
     client = get_client()
     year = datetime.date.today().year
     res = (
         client.table("games")
         .select("season,week,season_type,start_date")
+        .eq("sport", sport)
         .eq("season", year)
         .eq("completed", False)
         .order("start_date")
