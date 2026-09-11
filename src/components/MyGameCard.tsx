@@ -38,7 +38,7 @@ export default function MyGameCard({
   return (
     <Link
       href={`/games/${game.id}`}
-      className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4 shadow-card transition-colors hover:border-accent/60 hover:bg-surface-raised hover:shadow-card-hover"
+      className="flex flex-col gap-3 rounded-xl border border-accent/25 bg-surface p-4 shadow-card transition-colors hover:border-accent hover:bg-surface-raised hover:shadow-card-hover"
     >
       <div className="flex items-center justify-between text-[11px] text-muted">
         {game.completed ? (

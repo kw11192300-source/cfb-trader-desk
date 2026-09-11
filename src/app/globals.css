@@ -21,6 +21,10 @@
   --down: #ef4444;
   --flat: #7d8798;
   --warn: #eab308;
+  /* Representative swatch of the metallic gold used by .gold-frame below -
+     for the one-off spots (corner ticks, small badges) that just need a
+     flat gold color rather than the full shimmering gradient. */
+  --gold: #f0c14b;
 
   /* Elevation for card/panel chrome - a soft ambient shadow plus a
      tighter contact shadow, tuned against the near-black background so a
@@ -35,6 +39,10 @@
   --glow-accent: 0 0 0 1px rgba(255, 149, 0, 0.4), 0 0 12px rgba(255, 149, 0, 0.35), 0 0 28px rgba(255, 149, 0, 0.15);
   --glow-up: 0 0 8px rgba(34, 197, 94, 0.5);
   --glow-down: 0 0 8px rgba(239, 68, 68, 0.5);
+  /* A model edge is the rarest, highest-signal thing on the board - one
+     step up from the accent, in an actual metallic gold (not amber, not
+     yellow) so it can't be mistaken for "just another orange card." */
+  --glow-gold: 0 0 0 1px rgba(240, 193, 75, 0.45), 0 0 14px rgba(240, 193, 75, 0.4), 0 0 32px rgba(212, 160, 23, 0.2);
 }
 
 @theme inline {
@@ -49,11 +57,13 @@
   --color-down: var(--down);
   --color-flat: var(--flat);
   --color-warn: var(--warn);
+  --color-gold: var(--gold);
   --shadow-card: var(--shadow-card);
   --shadow-card-hover: var(--shadow-card-hover);
   --shadow-glow-accent: var(--glow-accent);
   --shadow-glow-up: var(--glow-up);
   --shadow-glow-down: var(--glow-down);
+  --shadow-glow-gold: var(--glow-gold);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -74,5 +84,39 @@ body {
   }
   to {
     transform: translateX(-50%);
+  }
+}
+
+/* Genuine metallic gold, for a model-edge card's border - a plain solid
+   gold border reads as "yellow," not "shiny." This is the standard
+   two-layer-background trick (one flat fill in the padding-box, one wide
+   gradient in the border-box) plus a slow background-position sweep so
+   the highlight actually catches like light on metal, instead of a
+   static flat gradient. Only a handful of cards on a board ever get
+   this - it needs to read as rare. */
+.gold-frame {
+  border: 1px solid transparent;
+  background-image:
+    linear-gradient(var(--surface), var(--surface)),
+    linear-gradient(115deg, #8a6a1c 0%, #f0c14b 25%, #fff6d9 40%, #f0c14b 55%, #8a6a1c 75%, #f0c14b 100%);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  background-size:
+    100% 100%,
+    250% 250%;
+  animation: gold-shimmer 6s ease-in-out infinite;
+}
+
+@keyframes gold-shimmer {
+  0%,
+  100% {
+    background-position:
+      0 0,
+      0% 50%;
+  }
+  50% {
+    background-position:
+      0 0,
+      100% 50%;
   }
 }

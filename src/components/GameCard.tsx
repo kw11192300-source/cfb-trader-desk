@@ -53,14 +53,17 @@ export default function GameCard({ row, sparklineSnapshots = [] }: { row: BoardR
   return (
     <Link
       href={`/games/${game.id}`}
-      className={`relative flex flex-col gap-3 rounded-xl border p-4 shadow-card transition-colors hover:bg-surface-raised hover:shadow-card-hover ${
-        hasModel ? "border-accent/50 bg-accent/[0.03] shadow-glow-accent hover:border-accent" : "border-border bg-surface hover:border-accent/60"
+      className={`relative flex flex-col gap-3 rounded-xl p-4 shadow-card transition-colors hover:bg-surface-raised hover:shadow-card-hover ${
+        hasModel
+          ? "gold-frame shadow-glow-gold hover:shadow-glow-gold"
+          : "border border-accent/25 bg-surface hover:border-accent"
       }`}
     >
-      {/* A model edge is the one thing on a 200-card board actually worth
-          your attention - flag it the way a terminal flags a mover,
-          rather than making every card compete for the same attention. */}
-      {hasModel && <CornerBrackets />}
+      {/* A model edge is the rarest, highest-signal thing on a 200-card
+          board - gold, one step up from every other card's baseline
+          amber, so it reads as "this one's actually worth a look"
+          instead of blending into 200 identically-styled cards. */}
+      {hasModel && <CornerBrackets tone="gold" />}
       <div className="flex items-center justify-between text-[11px] text-muted">
         {game.completed ? (
           <span className="font-medium text-muted">FINAL</span>
@@ -131,13 +134,13 @@ export default function GameCard({ row, sparklineSnapshots = [] }: { row: BoardR
       </div>
 
       {hasModel && (
-        <div className="flex items-center justify-between rounded-md border border-accent/30 bg-accent/10 px-2.5 py-1.5 text-[11px]">
-          <span className="text-accent">
+        <div className="flex items-center justify-between rounded-md border border-gold/30 bg-gold/10 px-2.5 py-1.5 text-[11px]">
+          <span className="text-gold">
             Model likes <span className="font-medium">{pickTeam}</span>{" "}
             <span className="font-mono">{fmtSpread(modelView)}</span>
             <span className="text-muted"> (mkt {fmtSpread(modelMarketView)})</span>
           </span>
-          <span className="font-mono font-bold text-accent">{Math.abs(edge!).toFixed(1)} edge</span>
+          <span className="font-mono font-bold text-gold">{Math.abs(edge!).toFixed(1)} edge</span>
         </div>
       )}
 

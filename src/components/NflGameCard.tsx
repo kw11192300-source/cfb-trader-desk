@@ -60,7 +60,7 @@ export default function NflGameCard({ game, bets = [] }: { game: Game; bets?: Gr
   const summary = game.completed ? gameSummary(bets) : null;
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4 shadow-card">
+    <div className="flex flex-col gap-3 rounded-xl border border-accent/25 bg-surface p-4 shadow-card">
       <div className="flex items-center justify-between text-[11px] text-muted">
         {game.completed ? (
           <span className="flex items-center gap-1.5 font-medium text-muted">
