@@ -18,13 +18,15 @@ export default function StatTile({
   title?: string;
 }) {
   const toneClass = tone === "up" ? "text-up" : tone === "down" ? "text-down" : tone === "accent" ? "text-accent" : "text-foreground";
+  const stripeClass = tone === "up" ? "bg-up shadow-glow-up" : tone === "down" ? "bg-down shadow-glow-down" : tone === "accent" ? "bg-accent shadow-glow-accent" : "bg-border";
 
   return (
-    <div className="rounded-xl border border-border bg-surface p-3 shadow-card">
+    <div className="relative overflow-hidden rounded-xl border border-border bg-surface p-3 pl-4 shadow-card">
+      <span className={`absolute top-0 left-0 h-full w-1 ${stripeClass}`} />
       <div className="text-[10px] font-medium font-mono uppercase tracking-wide text-muted" title={title}>
         {label}
       </div>
-      <div className={`font-mono text-2xl font-semibold tabular-nums ${toneClass}`}>{value}</div>
+      <div className={`font-mono text-3xl font-bold tabular-nums ${toneClass}`}>{value}</div>
       {sub && <div className="text-[10px] text-muted">{sub}</div>}
     </div>
   );

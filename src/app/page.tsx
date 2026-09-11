@@ -1,3 +1,4 @@
+import CornerBrackets from "@/components/CornerBrackets";
 import FreshnessBanner from "@/components/FreshnessBanner";
 import LiveRefresher from "@/components/LiveRefresher";
 import LiveTicker from "@/components/LiveTicker";
@@ -53,7 +54,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ w
       <LiveRefresher active={liveCount > 0} />
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
-        <div className="mb-4 grid grid-cols-3 gap-3">
+        <div className="relative mb-4 grid grid-cols-3 gap-3 p-1">
+          <CornerBrackets />
           <StatTile label="Games this week" value={`${games.length}`} />
           <StatTile label="Live now" value={`${liveCount}`} tone={liveCount > 0 ? "down" : "neutral"} />
           <StatTile

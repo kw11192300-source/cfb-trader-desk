@@ -1,3 +1,4 @@
+import CornerBrackets from "@/components/CornerBrackets";
 import LiveRefresher from "@/components/LiveRefresher";
 import LiveTicker from "@/components/LiveTicker";
 import LogParlayForm from "@/components/LogParlayForm";
@@ -48,7 +49,8 @@ export default async function NflPage({ searchParams }: { searchParams: Promise<
           below each game to log what you actually bet, or log a parlay across multiple games below.
         </p>
 
-        <div className="mb-4 grid grid-cols-3 gap-3">
+        <div className="relative mb-4 grid grid-cols-3 gap-3 p-1">
+          <CornerBrackets />
           <StatTile label="Games this week" value={`${games.length}`} />
           <StatTile label="Live now" value={`${liveCount}`} tone={liveCount > 0 ? "down" : "neutral"} />
           <StatTile

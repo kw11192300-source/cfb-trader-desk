@@ -1,4 +1,5 @@
 import BreakdownTable from "./BreakdownTable";
+import CornerBrackets from "./CornerBrackets";
 import StatTile from "./StatTile";
 import { byWeek as summarizeByWeek, fmtPct, fmtUnits, summarizeBets } from "@/lib/betBreakdown";
 import type { Game } from "@/lib/types";
@@ -90,26 +91,37 @@ function PnlChart({ points }: { points: { date: string; cumulative: number }[] }
   }
 
   return (
-    <div className="rounded-xl border border-border bg-surface p-4 shadow-card">
+    <div className="relative rounded-xl border border-border bg-surface p-4 shadow-card">
+      <CornerBrackets />
       <div className="mb-2 flex items-baseline justify-between">
         <h3 className="text-xs font-semibold font-mono uppercase tracking-wide text-muted">P&amp;L over time (graded bets)</h3>
         <span className="font-mono text-xs text-muted">
           max drawdown <span className="text-down">{maxDD.toFixed(2)}u</span>
         </span>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 260 }}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 260, overflow: "visible" }}>
         <defs>
           <linearGradient id="pnl-area-fill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity={0.35} />
             <stop offset="100%" stopColor={color} stopOpacity={0} />
           </linearGradient>
+          {/* Neon bloom on the line itself, not just the fill - a plain
+              stroke read as "chart," this is what makes it read as a
+              glowing terminal readout. */}
+          <filter id="pnl-glow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="3.5" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
         </defs>
         <line x1={padL} x2={W - padR} y1={zeroY} y2={zeroY} stroke="var(--border)" strokeWidth={1} strokeDasharray="4 3" />
         <text x={padL - 6} y={zeroY + 3} fontSize={10} fill="var(--muted)" fontFamily="var(--font-mono)" textAnchor="end">
           0
         </text>
         <path d={areaD} fill="url(#pnl-area-fill)" stroke="none" />
-        <path d={pathD} fill="none" stroke={color} strokeWidth={2} />
+        <path d={pathD} fill="none" stroke={color} strokeWidth={2} filter="url(#pnl-glow)" />
         {points.map((p, i) => (
           <circle key={i} cx={x(i)} cy={y(p.cumulative)} r={2.5} fill={color} />
         ))}
