@@ -1,0 +1,30 @@
+name: Predict week-2+ edges (unvalidated model view)
+
+# Retrains the plain independent margin model and refreshes inseason_edges
+# for this week's post-week-1 FBS-vs-FBS games. Deliberately writes to
+# inseason_edges, NOT predictions - see predict_inseason.py's own
+# docstring on why. No Telegram alerting here (unlike predict-week1.yml) -
+# this isn't a validated signal, so it doesn't get pushed notifications,
+# only a plainly-labeled page section you can choose to look at. Same 4h
+# cadence as predict-week1.yml for the same reason (Supabase-only reads,
+# a full retrain barely changes hour to hour) - tighten/loosen freely.
+on:
+  schedule:
+    - cron: "0 */4 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  predict:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r python/requirements.txt
+      - name: Predict in-season edges
+        working-directory: python
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: python -m modeling.predict_inseason

@@ -337,6 +337,33 @@ create table if not exists predictions (
 
 create index if not exists predictions_game_id_idx on predictions(game_id);
 
+-- Week-2+ "model view" - deliberately NOT part of `predictions`. That
+-- table backs the Board's gold/validated-edge treatment purely on "does a
+-- row exist for this game," with no per-model trust distinction - putting
+-- an unvalidated model's output there would make it visually
+-- indistinguishable from the real, backtested week-1 strategy. This table
+-- is read by its own, separately-styled UI section only (see
+-- python/modeling/predict_inseason.py, src/app/edges/page.tsx).
+create table if not exists inseason_edges (
+  game_id bigint not null references games(id) on delete cascade,
+  model_version text not null,
+
+  predicted_margin numeric,
+  market_spread numeric,                  -- home team's spread, matches betting_lines convention
+  edge_spread numeric,                    -- predicted_margin - (-market_spread)
+
+  rationale text,
+  suggested_units numeric,                -- always null for now - no validated win rate exists
+                                           -- to size against; column kept only so the existing
+                                           -- EdgesTable component renders unchanged
+
+  created_at timestamptz not null default now(),
+
+  primary key (game_id, model_version)
+);
+
+create index if not exists inseason_edges_game_id_idx on inseason_edges(game_id);
+
 -- Tiny key/value store for bot machinery that isn't really "data" - right
 -- now just the Telegram inbound poller's last-seen update_id, so restarts
 -- don't reprocess or drop messages. Not meant to grow into a general config
@@ -588,6 +615,7 @@ alter table bot_state enable row level security;
 alter table season_futures enable row level security;
 alter table watchlist_picks enable row level security;
 alter table prediction_market_lines enable row level security;
+alter table inseason_edges enable row level security;
 
 create policy "public read" on teams for select using (true);
 create policy "public read" on games for select using (true);
@@ -608,6 +636,7 @@ create policy "public read" on player_transfers for select using (true);
 create policy "public read" on season_futures for select using (true);
 create policy "public read" on watchlist_picks for select using (true);
 create policy "public read" on prediction_market_lines for select using (true);
+create policy "public read" on inseason_edges for select using (true);
 -- NO policy on bets at all, not even public read - real stakes/P&L, the
 -- one genuinely sensitive table in this app. Only the secret key (service
 -- role, bypasses RLS) can read OR write it - reads go through

@@ -289,6 +289,67 @@ export async function getEdges(modelVersion: string): Promise<EdgeRow[]> {
     .sort((a, b) => Math.abs(b.prediction.edge_spread ?? 0) - Math.abs(a.prediction.edge_spread ?? 0));
 }
 
+/** Week-2+ "model view" (python/modeling/predict_inseason.py) - reads a
+ * SEPARATE table from getEdges' `predictions`, deliberately: this model
+ * has no validated edge (see /edges page's own disclaimer), and keeping
+ * it out of `predictions` means the Board's gold/validated-edge treatment
+ * (which just checks "does a predictions row exist," not which model)
+ * can never accidentally pick it up. Reuses the same EdgeRow/Prediction
+ * shape as getEdges purely so the existing EdgesTable component renders
+ * it unchanged - every predictions-only field (win prob, total, CLV,
+ * alert) is simply null here, same as any other model version that
+ * doesn't populate them. */
+export async function getInseasonEdges(modelVersion: string): Promise<EdgeRow[]> {
+  const { data: rows, error: rowsError } = await supabase
+    .from("inseason_edges")
+    .select("*")
+    .eq("model_version", modelVersion)
+    .not("edge_spread", "is", null);
+  if (rowsError) throw new Error(rowsError.message);
+  if (!rows || rows.length === 0) return [];
+
+  const gameIds = rows.map((r) => r.game_id);
+  const [{ data: games, error: gamesError }, { data: teams, error: teamsError }] = await Promise.all([
+    supabase.from("games").select("*").in("id", gameIds),
+    supabase.from("teams").select("id, logo_url"),
+  ]);
+  if (gamesError) throw new Error(gamesError.message);
+  if (teamsError) throw new Error(teamsError.message);
+
+  const gameById = new Map((games as Game[]).map((g) => [g.id, g]));
+  const logoById = new Map((teams as { id: number; logo_url: string | null }[]).map((t) => [t.id, t.logo_url]));
+
+  return rows
+    .map((row) => {
+      const game = gameById.get(row.game_id);
+      if (!game) return null;
+      const prediction: Prediction = {
+        game_id: row.game_id,
+        model_version: row.model_version,
+        predicted_home_win_prob: null,
+        predicted_margin: row.predicted_margin,
+        predicted_total: null,
+        market_spread: row.market_spread,
+        market_total: null,
+        edge_spread: row.edge_spread,
+        edge_total: null,
+        predicted_clv_move: null,
+        predicted_clv_direction: null,
+        rationale: row.rationale,
+        suggested_units: row.suggested_units,
+        created_at: row.created_at,
+      };
+      return {
+        prediction,
+        game,
+        homeLogo: game.home_id !== null ? (logoById.get(game.home_id) ?? null) : null,
+        awayLogo: game.away_id !== null ? (logoById.get(game.away_id) ?? null) : null,
+      };
+    })
+    .filter((r): r is EdgeRow => r !== null)
+    .sort((a, b) => Math.abs(b.prediction.edge_spread ?? 0) - Math.abs(a.prediction.edge_spread ?? 0));
+}
+
 /** Stored walk-forward backtest rows for one model version, grouped by
  * group_key (e.g. "season_win_rate" -> one row per test season). */
 export async function getBacktestResults(modelVersion: string): Promise<Record<string, ModelBacktest[]>> {

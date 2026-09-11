@@ -90,11 +90,32 @@ def _load_games(seasons: list[int], include_incomplete: bool = False) -> pd.Data
     that targets margin drops NaN targets before fitting)."""
     df = _fetch_seasons(
         "games",
-        "id,season,week,season_type,start_date,completed,neutral_site,home_id,home_team,home_conference,home_points,away_id,away_team,away_conference,away_points",
+        "id,sport,season,week,season_type,start_date,completed,neutral_site,home_id,home_team,home_conference,home_points,away_id,away_team,away_conference,away_points",
         seasons,
     )
     if df.empty:
         return df
+    # `games` is shared across sports (NFL rows added the same season this
+    # module's live-scoring path started actually getting exercised for a
+    # current season - see sync_nfl_espn.py). NFL rows have no home_id/
+    # away_id (that sync never resolves against our CFB `teams` table),
+    # which silently corrupts every team_id-keyed merge downstream
+    # (_asof_elo etc.) via a float64/int64 dtype mismatch the moment any
+    # NFL row is present - confirmed live: build_training_dataset never
+    # hit this (its season range predates NFL data existing at all), but
+    # build_live_features did the first time it was ever run against a
+    # season with real NFL rows in the table.
+    df = df[df["sport"] == "cfb"].copy()
+    if df.empty:
+        return df
+    # Filtering rows doesn't undo the float64 upcast the NFL rows' null
+    # home_id/away_id already forced onto the whole column at fetch time -
+    # pandas never re-infers a narrower dtype after the fact. Safe to cast
+    # back to int now: every remaining row is a real CFB game with a real
+    # resolved team id (confirmed live - 0 nulls in home_id/away_id across
+    # every CFB season on file).
+    df["home_id"] = df["home_id"].astype("int64")
+    df["away_id"] = df["away_id"].astype("int64")
     df = df if include_incomplete else df[df["completed"]].copy()
     # Real for completed games; NaN (not crashing) for incomplete ones, so
     # actual_margin/actual_total/home_win downstream come out NaN rather

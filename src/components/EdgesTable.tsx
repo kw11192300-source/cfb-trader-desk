@@ -21,9 +21,22 @@ function TeamLogo({ src, alt, size = 28 }: { src: string | null; alt: string; si
 
 const TOP_N = 15;
 
-export default function EdgesTable({ rows, generatedAt }: { rows: EdgeRow[]; generatedAt: string | null }) {
+export default function EdgesTable({
+  rows,
+  generatedAt,
+  unvalidated = false,
+}: {
+  rows: EdgeRow[];
+  generatedAt: string | null;
+  /** No proven backtested edge behind these rows (see /edges page's own
+   * disclaimer for that model) - swaps the accent/gold-adjacent styling
+   * for plain muted so this never reads as equally trustworthy to a
+   * validated section using the same component. */
+  unvalidated?: boolean;
+}) {
   const [showAll, setShowAll] = useState(false);
   const visible = showAll ? rows : rows.slice(0, TOP_N); // rows already sorted by |edge| in getEdges
+  const edgeColor = unvalidated ? "text-muted" : "text-accent";
 
   return (
     <div>
@@ -55,7 +68,8 @@ export default function EdgesTable({ rows, generatedAt }: { rows: EdgeRow[]; gen
 
       {rows.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">
-          No edges computed yet — run <code className="text-foreground">python -m modeling.predict_week1</code>.
+          No edges computed yet — run{" "}
+          <code className="text-foreground">python -m modeling.{unvalidated ? "predict_inseason" : "predict_week1"}</code>.
         </div>
       ) : !showAll ? (
         <div className="flex flex-col gap-3">
@@ -95,7 +109,7 @@ export default function EdgesTable({ rows, generatedAt }: { rows: EdgeRow[]; gen
                     </div>
                     <div className="text-right">
                       <div className="text-[10px] uppercase tracking-wide text-muted">Edge</div>
-                      <div className="font-medium text-accent">{Math.abs(edge).toFixed(1)}</div>
+                      <div className={`font-medium ${edgeColor}`}>{Math.abs(edge).toFixed(1)}</div>
                     </div>
                     <div className="flex items-center gap-1.5 rounded-md bg-surface-raised px-2.5 py-1.5">
                       <TeamLogo src={pickLogo} alt={pickTeam} size={20} />
@@ -166,7 +180,7 @@ export default function EdgesTable({ rows, generatedAt }: { rows: EdgeRow[]; gen
                     </td>
                     <td className="border-l border-border px-4 py-2.5 text-right font-mono text-foreground">{fmtSpread(market)}</td>
                     <td className="border-l border-border px-4 py-2.5 text-right font-mono text-foreground">{fmtSpread(model)}</td>
-                    <td className="border-l border-border px-4 py-2.5 text-right font-mono font-medium text-accent">{Math.abs(edge).toFixed(1)}</td>
+                    <td className={`border-l border-border px-4 py-2.5 text-right font-mono font-medium ${edgeColor}`}>{Math.abs(edge).toFixed(1)}</td>
                     <td className="border-l border-border px-4 py-2.5 whitespace-nowrap">
                       <div className="flex items-center gap-1.5 text-foreground">
                         <TeamLogo src={pickLogo} alt={pickTeam} />
