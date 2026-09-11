@@ -60,7 +60,7 @@ function SeasonChart({ rows }: { rows: ModelBacktest[] }) {
 function BreakdownTable({ title, rows, note }: { title: string; rows: ModelBacktest[]; note?: string }) {
   return (
     <div className="rounded-xl border border-border bg-surface p-4 shadow-card">
-      <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">{title}</h3>
+      <h3 className="mb-1 text-xs font-semibold font-mono uppercase tracking-wide text-muted">{title}</h3>
       {note && <p className="mb-3 text-[11px] text-muted">{note}</p>}
       <table className="w-full border-collapse text-sm">
         <tbody>
@@ -109,7 +109,7 @@ export default function EdgeBacktestPanel({
     <div className="flex flex-col gap-5">
       <div className="rounded-xl border border-border bg-surface p-4 shadow-card">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
+          <h3 className="text-xs font-semibold font-mono uppercase tracking-wide text-muted">
             Top-15-by-edge win rate, FBS vs FBS week-1 games, walk-forward
           </h3>
           <span className="font-mono text-sm">
@@ -155,7 +155,7 @@ export default function EdgeBacktestPanel({
       </div>
 
       <div>
-        <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">Every graded game</h3>
+        <h3 className="mb-1 text-xs font-semibold font-mono uppercase tracking-wide text-muted">Every graded game</h3>
         <p className="mb-3 text-[11px] text-muted">
           All week-1 games 2016-2025, every matchup type — defaults to just the top-15-by-edge pool actually bet each season. Widen the filters
           to see the games that got left out (and why). Click a row for the model&apos;s reasoning on that specific pick, same rationale format

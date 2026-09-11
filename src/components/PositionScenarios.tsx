@@ -25,7 +25,7 @@ export default function PositionScenarios({ bets, game }: { bets: Bet[]; game: G
 
   return (
     <div className="mt-4 rounded-xl border border-border bg-surface p-6 shadow-card">
-      <h2 className="mb-1 text-sm font-medium uppercase tracking-wide text-muted">Your position</h2>
+      <h2 className="mb-1 text-sm font-medium font-mono uppercase tracking-wide text-muted">Your position</h2>
       <p className="mb-3 text-xs text-muted">
         Net profit across every spread/moneyline bet you&apos;ve logged on this game, by how it actually finishes.
       </p>

@@ -105,7 +105,7 @@ export default function RatingsTable({ rows }: { rows: PowerRatingRow[] }) {
         <div className="max-h-[75vh] overflow-auto rounded-lg border border-border">
           <table className="w-full border-collapse text-sm">
             <thead>
-              <tr className="border-b border-border bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
+              <tr className="border-b border-border bg-surface-raised text-left text-xs font-mono uppercase tracking-wide text-muted">
                 <th className="sticky top-0 left-0 z-20 w-10 bg-surface-raised px-3 py-3 font-medium text-right">#</th>
                 <th className="sticky top-0 left-10 z-20 bg-surface-raised px-4 py-3 font-medium">Team</th>
                 <th className="sticky top-0 z-10 border-l border-border bg-surface-raised px-4 py-3 font-medium text-right">Overall</th>

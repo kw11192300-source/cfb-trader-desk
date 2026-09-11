@@ -25,7 +25,7 @@ function betExposure(bet: GradedBet["bet"], game: Game | null): { team: string |
 function ExposureList({ title, rows }: { title: string; rows: { label: string; units: number }[] }) {
   return (
     <div className="rounded-xl border border-border bg-surface p-4 shadow-card">
-      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">{title}</h3>
+      <h3 className="mb-3 text-xs font-semibold font-mono uppercase tracking-wide text-muted">{title}</h3>
       {rows.length === 0 ? (
         <p className="text-xs text-muted">No pending exposure right now.</p>
       ) : (
@@ -92,7 +92,7 @@ function PnlChart({ points }: { points: { date: string; cumulative: number }[] }
   return (
     <div className="rounded-xl border border-border bg-surface p-4 shadow-card">
       <div className="mb-2 flex items-baseline justify-between">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">P&amp;L over time (graded bets)</h3>
+        <h3 className="text-xs font-semibold font-mono uppercase tracking-wide text-muted">P&amp;L over time (graded bets)</h3>
         <span className="font-mono text-xs text-muted">
           max drawdown <span className="text-down">{maxDD.toFixed(2)}u</span>
         </span>

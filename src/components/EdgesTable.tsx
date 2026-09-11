@@ -86,15 +86,15 @@ export default function EdgesTable({ rows, generatedAt }: { rows: EdgeRow[]; gen
                   </div>
                   <div className="flex items-center gap-4 font-mono text-sm">
                     <div className="text-right">
-                      <div className="text-[10px] uppercase tracking-wide text-muted">Market</div>
+                      <div className="text-[10px] font-mono uppercase tracking-wide text-muted">Market</div>
                       <div className="text-foreground">{fmtSpread(market)}</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-[10px] uppercase tracking-wide text-muted">Model</div>
+                      <div className="text-[10px] font-mono uppercase tracking-wide text-muted">Model</div>
                       <div className="text-foreground">{fmtSpread(model)}</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-[10px] uppercase tracking-wide text-muted">Edge</div>
+                      <div className="text-[10px] font-mono uppercase tracking-wide text-muted">Edge</div>
                       <div className="font-medium text-accent">{Math.abs(edge).toFixed(1)}</div>
                     </div>
                     <div className="flex items-center gap-1.5 rounded-md bg-surface-raised px-2.5 py-1.5">
@@ -129,7 +129,7 @@ export default function EdgesTable({ rows, generatedAt }: { rows: EdgeRow[]; gen
         <div className="max-h-[75vh] overflow-auto rounded-lg border border-border">
           <table className="w-full border-collapse text-sm">
             <thead>
-              <tr className="border-b border-border bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
+              <tr className="border-b border-border bg-surface-raised text-left text-xs font-mono uppercase tracking-wide text-muted">
                 <th className="sticky top-0 left-0 z-20 w-10 bg-surface-raised px-3 py-3 font-medium text-right">#</th>
                 <th className="sticky top-0 left-10 z-20 bg-surface-raised px-4 py-3 font-medium">Matchup</th>
                 <th className="sticky top-0 z-10 border-l border-border bg-surface-raised px-4 py-3 font-medium text-right">Market</th>

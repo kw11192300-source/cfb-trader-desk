@@ -21,7 +21,7 @@ export default function StatTile({
 
   return (
     <div className="rounded-xl border border-border bg-surface p-3 shadow-card">
-      <div className="text-[10px] font-medium uppercase tracking-wide text-muted" title={title}>
+      <div className="text-[10px] font-medium font-mono uppercase tracking-wide text-muted" title={title}>
         {label}
       </div>
       <div className={`font-mono text-2xl font-semibold tabular-nums ${toneClass}`}>{value}</div>

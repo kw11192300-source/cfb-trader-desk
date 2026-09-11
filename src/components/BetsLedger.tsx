@@ -153,7 +153,7 @@ export default function BetsLedger({ bets, showSettle = false }: { bets: GradedB
         <div className="max-h-[65vh] overflow-auto rounded-lg border border-border">
           <table className="w-full border-collapse text-sm">
             <thead>
-              <tr className="border-b border-border bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
+              <tr className="border-b border-border bg-surface-raised text-left text-xs font-mono uppercase tracking-wide text-muted">
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Placed</th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Kickoff</th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Matchup</th>

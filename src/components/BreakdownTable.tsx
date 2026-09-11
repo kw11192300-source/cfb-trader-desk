@@ -5,14 +5,14 @@ import { fmtPct, fmtUnits, type BreakdownRow } from "@/lib/betBreakdown";
 export default function BreakdownTable({ title, rows, labelHeader = "Week" }: { title: string; rows: BreakdownRow[]; labelHeader?: string }) {
   return (
     <div className="rounded-xl border border-border bg-surface p-4 shadow-card">
-      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">{title}</h3>
+      <h3 className="mb-3 text-xs font-semibold font-mono uppercase tracking-wide text-muted">{title}</h3>
       {rows.length === 0 ? (
         <p className="text-xs text-muted">No graded bets yet.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead>
-              <tr className="text-left text-[10px] uppercase tracking-wide text-muted">
+              <tr className="text-left text-[10px] font-mono uppercase tracking-wide text-muted">
                 <th className="pb-2 pr-3 font-medium">{labelHeader}</th>
                 <th className="pb-2 pr-3 text-right font-medium">Record</th>
                 <th className="pb-2 pr-3 text-right font-medium">Staked</th>

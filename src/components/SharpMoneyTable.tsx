@@ -53,7 +53,7 @@ export default function SharpMoneyTable({ rows }: { rows: SharpMoneyRow[] }) {
       <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full min-w-[820px] border-collapse text-sm">
           <thead>
-            <tr className="border-b border-border bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
+            <tr className="border-b border-border bg-surface-raised text-left text-xs font-mono uppercase tracking-wide text-muted">
               <th className="px-4 py-3 font-medium">Matchup</th>
               <th className="px-4 py-3 font-medium">Source</th>
               <th className="px-4 py-3 font-medium">PM likes</th>

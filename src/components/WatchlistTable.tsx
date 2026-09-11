@@ -31,7 +31,7 @@ export default function WatchlistTable({ rows }: { rows: WatchlistRow[] }) {
     <div className="overflow-x-auto rounded-xl border border-border bg-surface shadow-card">
       <table className="w-full min-w-[820px] border-collapse text-sm">
         <thead>
-          <tr className="border-b border-border text-left text-[11px] uppercase tracking-wide text-muted">
+          <tr className="border-b border-border text-left text-[11px] font-mono uppercase tracking-wide text-muted">
             <th className="px-3 py-2">Matchup</th>
             <th className="px-3 py-2">Pick</th>
             <th className="px-3 py-2 text-right">Edge</th>

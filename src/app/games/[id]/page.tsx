@@ -119,18 +119,18 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
         {hasModel && (
           <div className="mt-4 rounded-lg border border-accent/30 bg-accent/5 p-6">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-sm font-medium uppercase tracking-wide text-accent">Model view</h2>
+              <h2 className="text-sm font-medium font-mono uppercase tracking-wide text-accent">Model view</h2>
               <div className="flex items-center gap-4 font-mono text-sm">
                 <div className="text-right">
-                  <div className="text-[10px] uppercase tracking-wide text-muted">Market</div>
+                  <div className="text-[10px] font-mono uppercase tracking-wide text-muted">Market</div>
                   <div className="text-foreground">{fmtSpread(modelMarketView)}</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-[10px] uppercase tracking-wide text-muted">Model</div>
+                  <div className="text-[10px] font-mono uppercase tracking-wide text-muted">Model</div>
                   <div className="text-foreground">{fmtSpread(modelView)}</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-[10px] uppercase tracking-wide text-muted">Edge</div>
+                  <div className="text-[10px] font-mono uppercase tracking-wide text-muted">Edge</div>
                   <div className="font-medium text-accent">{Math.abs(edge!).toFixed(1)}</div>
                 </div>
                 <div className="rounded-md bg-surface-raised px-2.5 py-1.5 text-foreground">{pickTeam}</div>
@@ -161,7 +161,7 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
 
         {predictionMarkets.length > 0 && (
           <div className="mt-4">
-            <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-muted">Prediction markets</h2>
+            <h2 className="mb-3 text-sm font-medium font-mono uppercase tracking-wide text-muted">Prediction markets</h2>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {predictionMarkets.map((pm) => (
                 <div key={pm.source} className="rounded-xl border border-border bg-surface p-4 shadow-card">
@@ -194,7 +194,7 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
           </div>
         )}
 
-        <h2 className="mt-8 mb-3 text-sm font-medium uppercase tracking-wide text-muted">Odds comparison</h2>
+        <h2 className="mt-8 mb-3 text-sm font-medium font-mono uppercase tracking-wide text-muted">Odds comparison</h2>
 
         {books.length === 0 ? (
           <div className="rounded-xl border border-border bg-surface p-6 shadow-card text-center text-muted">No lines available for this game yet.</div>
@@ -202,7 +202,7 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full min-w-[700px] border-collapse text-sm">
               <thead>
-                <tr className="border-b border-border bg-surface-raised text-left text-xs uppercase tracking-wide text-muted">
+                <tr className="border-b border-border bg-surface-raised text-left text-xs font-mono uppercase tracking-wide text-muted">
                   <th className="px-4 py-3 font-medium">Book</th>
                   <th className="px-4 py-3 font-medium">Spread</th>
                   <th className="px-4 py-3 font-medium">Open</th>
@@ -249,7 +249,7 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
           The Odds API carries real per-book pricing; books sourced only from CFBD show points only.
         </p>
 
-        <h2 className="mt-8 mb-3 text-sm font-medium uppercase tracking-wide text-muted">Line movement</h2>
+        <h2 className="mt-8 mb-3 text-sm font-medium font-mono uppercase tracking-wide text-muted">Line movement</h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="rounded-xl border border-border bg-surface p-4 shadow-card">
             <div className="mb-2 text-xs text-muted">Spread</div>
