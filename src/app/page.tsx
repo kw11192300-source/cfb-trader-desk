@@ -1,10 +1,12 @@
 import FreshnessBanner from "@/components/FreshnessBanner";
+import LiveRefresher from "@/components/LiveRefresher";
+import LiveTicker from "@/components/LiveTicker";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
 import StatTile from "@/components/StatTile";
 import TraderBoard from "@/components/TraderBoard";
 import WeekTabs from "@/components/WeekTabs";
-import { getAvailableWeeks, getBets, getBoard, getCurrentWeek } from "@/lib/data";
+import { getAvailableWeeks, getBets, getBoard, getCurrentWeek, getLineHistoryForGames } from "@/lib/data";
 import { mergeLines, mostRecentFetch } from "@/lib/mergedLines";
 
 // Odds change throughout the week (poll_lines.py updates them every few
@@ -41,9 +43,14 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ w
   const weekPendingBets = allBets.filter((gb) => gb.bet.sport === "cfb" && gb.status === "pending" && gb.bet.game_id !== null && weekGameIds.has(gb.bet.game_id));
   const weekPendingUnits = weekPendingBets.reduce((s, gb) => s + gb.bet.stake, 0);
 
+  // One batched line_snapshots query for every card's sparkline, not one
+  // per card - a CFB week can be 200+ games.
+  const lineHistory = await getLineHistoryForGames(games.map((g) => g.id));
+
   return (
     <div className="flex min-h-screen flex-col md:pl-16 pb-16 md:pb-0">
       <SiteHeader subtitle={board ? `${board.season} · Week ${board.week} · ${seasonTypeLabel(board.seasonType)}` : "No active week"} />
+      <LiveRefresher active={liveCount > 0} />
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
         <div className="mb-4 grid grid-cols-3 gap-3">
@@ -58,8 +65,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ w
         </div>
 
         {current && <WeekTabs weeks={weeks} activeWeek={board?.week ?? current.week} currentWeek={current.week} />}
+        <LiveTicker games={games} />
         <FreshnessBanner iso={freshestFetch} />
-        <TraderBoard rows={board?.rows ?? []} />
+        <TraderBoard rows={board?.rows ?? []} lineHistory={lineHistory} />
       </main>
 
       <SiteFooter />

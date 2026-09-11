@@ -1,3 +1,4 @@
+import LiveRefresher from "@/components/LiveRefresher";
 import MyGameCard from "@/components/MyGameCard";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
@@ -37,6 +38,7 @@ export default async function MyGamesPage() {
   return (
     <div className="flex min-h-screen flex-col md:pl-16 pb-16 md:pb-0">
       <SiteHeader subtitle="My Games" />
+      <LiveRefresher active={rows.some((r) => r.game.live_status)} />
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
         {rows.length === 0 ? (

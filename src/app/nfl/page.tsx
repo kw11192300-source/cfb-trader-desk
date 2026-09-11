@@ -1,3 +1,5 @@
+import LiveRefresher from "@/components/LiveRefresher";
+import LiveTicker from "@/components/LiveTicker";
 import LogParlayForm from "@/components/LogParlayForm";
 import NflGameCard from "@/components/NflGameCard";
 import SiteFooter from "@/components/SiteFooter";
@@ -38,6 +40,7 @@ export default async function NflPage({ searchParams }: { searchParams: Promise<
   return (
     <div className="flex min-h-screen flex-col md:pl-16 pb-16 md:pb-0">
       <SiteHeader subtitle="Board" sport="nfl" />
+      <LiveRefresher active={liveCount > 0} />
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
         <p className="mb-4 text-xs text-muted">
@@ -61,6 +64,7 @@ export default async function NflPage({ searchParams }: { searchParams: Promise<
         </div>
 
         {current && <WeekTabs weeks={weeks} activeWeek={board?.week ?? current.week} currentWeek={current.week} basePath="/nfl" />}
+        <LiveTicker games={games} />
 
         {games.length === 0 ? (
           <div className="rounded-xl border border-border bg-surface p-8 shadow-card text-center text-muted">

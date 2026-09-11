@@ -72,6 +72,12 @@ function PnlChart({ points }: { points: { date: string; cumulative: number }[] }
   const y = (v: number) => padT + plotH - ((v - minV) / range) * plotH;
   const zeroY = y(0);
   const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(p.cumulative)}`).join(" ");
+  // Same line, closed back down to the zero baseline - the filled area
+  // under/over the curve that makes an equity curve read as a chart
+  // instead of a line plot. One fill color for the whole series (keyed
+  // off where it currently stands) rather than per-segment sign - that's
+  // the standard convention and avoids a jarring color-swap mid-line.
+  const areaD = `${pathD} L ${x(points.length - 1)} ${zeroY} L ${x(0)} ${zeroY} Z`;
   const last = points[points.length - 1].cumulative;
   const color = last >= 0 ? "var(--up)" : "var(--down)";
 
@@ -92,10 +98,17 @@ function PnlChart({ points }: { points: { date: string; cumulative: number }[] }
         </span>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 260 }}>
+        <defs>
+          <linearGradient id="pnl-area-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity={0.35} />
+            <stop offset="100%" stopColor={color} stopOpacity={0} />
+          </linearGradient>
+        </defs>
         <line x1={padL} x2={W - padR} y1={zeroY} y2={zeroY} stroke="var(--border)" strokeWidth={1} strokeDasharray="4 3" />
         <text x={padL - 6} y={zeroY + 3} fontSize={10} fill="var(--muted)" fontFamily="var(--font-mono)" textAnchor="end">
           0
         </text>
+        <path d={areaD} fill="url(#pnl-area-fill)" stroke="none" />
         <path d={pathD} fill="none" stroke={color} strokeWidth={2} />
         {points.map((p, i) => (
           <circle key={i} cx={x(i)} cy={y(p.cumulative)} r={2.5} fill={color} />

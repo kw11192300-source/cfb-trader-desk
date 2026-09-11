@@ -225,6 +225,28 @@ export async function getLineHistory(gameId: number): Promise<LineSnapshot[]> {
   return (data ?? []) as LineSnapshot[];
 }
 
+/** Same history as getLineHistory, but for every game on a Board page in
+ * ONE query instead of one-per-card (a CFB week can be 200+ games) —
+ * grouped client-side by game_id, each list oldest-first same as above.
+ * Games with no snapshots yet (most of a fresh week) simply don't appear
+ * as a key, so callers should use `.get(id) ?? []`. */
+export async function getLineHistoryForGames(gameIds: number[]): Promise<Map<number, LineSnapshot[]>> {
+  const byGame = new Map<number, LineSnapshot[]>();
+  if (gameIds.length === 0) return byGame;
+  const { data, error } = await supabase
+    .from("line_snapshots")
+    .select("*")
+    .in("game_id", gameIds)
+    .order("captured_at", { ascending: true });
+  if (error) throw new Error(error.message);
+  for (const row of (data ?? []) as LineSnapshot[]) {
+    const list = byGame.get(row.game_id) ?? [];
+    list.push(row);
+    byGame.set(row.game_id, list);
+  }
+  return byGame;
+}
+
 /** A power rating row with its team's logo joined in, for display. */
 export type PowerRatingRow = TeamPowerRating & { logo_url: string | null };
 

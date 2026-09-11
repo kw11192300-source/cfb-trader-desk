@@ -1,10 +1,11 @@
 import Link from "next/link";
 import Image from "next/image";
+import LineSparkline from "./LineSparkline";
 import LocalDateTime from "./LocalDateTime";
 import { pickHeadlineLine as pickCfbdHeadline, spreadMovement, totalMovement } from "@/lib/lines";
 import { formatPrice, formatSpread, mergeLines, pickHeadlineLine } from "@/lib/mergedLines";
 import { fmtSpread, pickPerspectiveSpread } from "@/lib/spread";
-import type { BoardRow } from "@/lib/types";
+import type { BoardRow, LineSnapshot } from "@/lib/types";
 
 function TeamLogo({ src, alt, size = 28 }: { src: string | null; alt: string; size?: number }) {
   if (!src) return <div className="shrink-0 rounded-full bg-surface-raised" style={{ width: size, height: size }} />;
@@ -24,7 +25,7 @@ function MoveTag({ delta, direction }: { delta: number; direction: "up" | "down"
 
 const BOOKS_PREVIEW = 3;
 
-export default function GameCard({ row }: { row: BoardRow }) {
+export default function GameCard({ row, sparklineSnapshots = [] }: { row: BoardRow; sparklineSnapshots?: LineSnapshot[] }) {
   const { game, lines, oddsApiLines, homeLogo, awayLogo, prediction } = row;
   const books = mergeLines(lines, oddsApiLines);
   const headline = pickHeadlineLine(books);
@@ -104,7 +105,10 @@ export default function GameCard({ row }: { row: BoardRow }) {
           {headline?.homeSpreadPrice !== null && headline?.homeSpreadPrice !== undefined && (
             <div className="font-mono text-[11px] text-muted">{formatPrice(headline.homeSpreadPrice)}</div>
           )}
-          {sMove && <MoveTag delta={sMove.delta} direction={sMove.direction} />}
+          <div className="mt-1 flex items-center gap-2">
+            {sMove && <MoveTag delta={sMove.delta} direction={sMove.direction} />}
+            <LineSparkline snapshots={sparklineSnapshots} />
+          </div>
         </div>
         <div className="text-right">
           <div className="font-mono text-base text-foreground">
