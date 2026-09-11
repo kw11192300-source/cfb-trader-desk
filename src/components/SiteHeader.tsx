@@ -1,5 +1,6 @@
 import Link from "next/link";
 import BottomNav from "./BottomNav";
+import CommandPaletteHint from "./CommandPaletteHint";
 import { OTHER_SPORT, SPORT_HOME, SPORT_LABEL, type Sport } from "./navConfig";
 import Sidebar from "./Sidebar";
 
@@ -30,6 +31,8 @@ export default function SiteHeader({ subtitle, sport = "cfb" }: { subtitle: stri
             </Link>
             <p className="text-xs text-muted">{subtitle}</p>
           </div>
+
+          <CommandPaletteHint />
 
           <div className="flex items-center gap-3 text-xs md:hidden">
             <Link

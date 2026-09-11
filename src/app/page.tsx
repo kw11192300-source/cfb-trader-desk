@@ -1,3 +1,4 @@
+import BoardView from "@/components/BoardView";
 import CornerBrackets from "@/components/CornerBrackets";
 import FreshnessBanner from "@/components/FreshnessBanner";
 import LiveRefresher from "@/components/LiveRefresher";
@@ -5,7 +6,6 @@ import LiveTicker from "@/components/LiveTicker";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
 import StatTile from "@/components/StatTile";
-import TraderBoard from "@/components/TraderBoard";
 import WeekTabs from "@/components/WeekTabs";
 import { getAvailableWeeks, getBets, getBoard, getCurrentWeek, getLineHistoryForGames } from "@/lib/data";
 import { mergeLines, mostRecentFetch } from "@/lib/mergedLines";
@@ -53,7 +53,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ w
       <SiteHeader subtitle={board ? `${board.season} · Week ${board.week} · ${seasonTypeLabel(board.seasonType)}` : "No active week"} />
       <LiveRefresher active={liveCount > 0} />
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-6 py-6">
         <div className="relative mb-4 grid grid-cols-3 gap-3 p-1">
           <CornerBrackets />
           <StatTile label="Games this week" value={`${games.length}`} />
@@ -69,7 +69,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ w
         {current && <WeekTabs weeks={weeks} activeWeek={board?.week ?? current.week} currentWeek={current.week} />}
         <LiveTicker games={games} />
         <FreshnessBanner iso={freshestFetch} />
-        <TraderBoard rows={board?.rows ?? []} lineHistory={lineHistory} />
+        <BoardView rows={board?.rows ?? []} lineHistory={lineHistory} />
       </main>
 
       <SiteFooter />
