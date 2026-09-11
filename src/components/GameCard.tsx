@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
+import CornerBrackets from "./CornerBrackets";
 import LineSparkline from "./LineSparkline";
 import LocalDateTime from "./LocalDateTime";
 import { pickHeadlineLine as pickCfbdHeadline, spreadMovement, totalMovement } from "@/lib/lines";
@@ -52,8 +53,14 @@ export default function GameCard({ row, sparklineSnapshots = [] }: { row: BoardR
   return (
     <Link
       href={`/games/${game.id}`}
-      className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-4 shadow-card transition-colors hover:border-accent/60 hover:bg-surface-raised hover:shadow-card-hover"
+      className={`relative flex flex-col gap-3 rounded-xl border p-4 shadow-card transition-colors hover:bg-surface-raised hover:shadow-card-hover ${
+        hasModel ? "border-accent/50 bg-accent/[0.03] shadow-glow-accent hover:border-accent" : "border-border bg-surface hover:border-accent/60"
+      }`}
     >
+      {/* A model edge is the one thing on a 200-card board actually worth
+          your attention - flag it the way a terminal flags a mover,
+          rather than making every card compete for the same attention. */}
+      {hasModel && <CornerBrackets />}
       <div className="flex items-center justify-between text-[11px] text-muted">
         {game.completed ? (
           <span className="font-medium text-muted">FINAL</span>
@@ -99,7 +106,7 @@ export default function GameCard({ row, sparklineSnapshots = [] }: { row: BoardR
 
       <div className="flex items-center justify-between border-t border-border pt-3">
         <div>
-          <div className="font-mono text-base text-foreground">
+          <div className="font-mono text-lg font-semibold text-foreground">
             {headline ? formatSpread(game.home_team, game.away_team, headline.homeSpread) : "—"}
           </div>
           {headline?.homeSpreadPrice !== null && headline?.homeSpreadPrice !== undefined && (
@@ -111,7 +118,7 @@ export default function GameCard({ row, sparklineSnapshots = [] }: { row: BoardR
           </div>
         </div>
         <div className="text-right">
-          <div className="font-mono text-base text-foreground">
+          <div className="font-mono text-lg font-semibold text-foreground">
             {headline?.total !== null && headline?.total !== undefined ? `O/U ${headline.total.toFixed(1)}` : "—"}
           </div>
           {headline?.overPrice !== null && headline?.overPrice !== undefined && (
@@ -124,13 +131,13 @@ export default function GameCard({ row, sparklineSnapshots = [] }: { row: BoardR
       </div>
 
       {hasModel && (
-        <div className="flex items-center justify-between rounded-md bg-accent/10 px-2.5 py-1.5 text-[11px]">
+        <div className="flex items-center justify-between rounded-md border border-accent/30 bg-accent/10 px-2.5 py-1.5 text-[11px]">
           <span className="text-accent">
             Model likes <span className="font-medium">{pickTeam}</span>{" "}
             <span className="font-mono">{fmtSpread(modelView)}</span>
             <span className="text-muted"> (mkt {fmtSpread(modelMarketView)})</span>
           </span>
-          <span className="font-mono font-medium text-accent">{Math.abs(edge!).toFixed(1)} edge</span>
+          <span className="font-mono font-bold text-accent">{Math.abs(edge!).toFixed(1)} edge</span>
         </div>
       )}
 

@@ -26,7 +26,7 @@ export default function StatTile({
       <div className="text-[10px] font-medium font-mono uppercase tracking-wide text-muted" title={title}>
         {label}
       </div>
-      <div className={`font-mono text-3xl font-bold tabular-nums ${toneClass}`}>{value}</div>
+      <div className={`truncate font-mono text-xl font-bold tabular-nums sm:text-3xl ${toneClass}`}>{value}</div>
       {sub && <div className="text-[10px] text-muted">{sub}</div>}
     </div>
   );
