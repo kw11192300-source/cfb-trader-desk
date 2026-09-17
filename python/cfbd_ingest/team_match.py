@@ -42,6 +42,13 @@ ALIASES: dict[str, str] = {
     # "Southern Mississippi" but fails the word-boundary check (continues
     # mid-word into "-issippi"), so it needs an explicit alias despite looking
     # like it should just work.
+    "St. Thomas (MN)": "St. Thomas",  # ESPN/Odds API both drop the "(MN)"
+    # disambiguator our own name carries - bitten sync_results_espn.py's
+    # matcher twice now (two different St. Thomas (MN) games, two different
+    # weeks, both silently stuck `completed=false` for days since the
+    # unmatched game never got closed out - which is also what was pinning
+    # get_current_week() on the wrong week both times), so worth the
+    # permanent fix rather than a third one-off manual close-out.
     # Verified against live CFBD team names; matched fine without an alias:
     # "Sam Houston" (Odds API also just says "Sam Houston").
 }

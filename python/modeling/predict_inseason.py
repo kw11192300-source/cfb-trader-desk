@@ -23,6 +23,7 @@ import datetime
 
 import pandas as pd
 
+from cfbd_ingest.current_week import get_current_week
 from cfbd_ingest.supabase_client import get_client
 
 from .features import build_live_features, build_training_dataset
@@ -55,6 +56,20 @@ def run() -> None:
     if live.empty:
         print("No post-week-1 upcoming games found (still week 1, or nothing synced yet).")
         return
+
+    # THIS week only - not every future week Odds API happens to have a
+    # line posted for yet. Re-run each week; stale rows from a past
+    # "current week" are deleted below before writing this run's picks.
+    current = get_current_week()
+    if current is None:
+        print("No current week found - nothing to predict.")
+        return
+    current_season, current_week, current_season_type = current
+    live = live[(live["season"] == current_season) & (live["week"] == current_week)].copy()
+    if live.empty:
+        print(f"No upcoming post-week-1 games found for {current_season} week {current_week}.")
+        return
+    print(f"Scoped to {current_season} week {current_week} ({current_season_type}).")
 
     game_ids = live["game_id"].astype(int).tolist()
     games_meta = pd.DataFrame(
@@ -116,6 +131,12 @@ def run() -> None:
         )
 
     client = get_client()
+    # Clear every existing row for this model version first - this run is
+    # a full, from-scratch recompute of exactly "this week's" games, not
+    # an incremental update, so a game that rolled off (kicked off, or a
+    # past week's leftover from before this week-scoping existed) should
+    # actually disappear from the page, not linger.
+    client.table("inseason_edges").delete().eq("model_version", MODEL_VERSION).execute()
     for i in range(0, len(records), 500):
         client.table("inseason_edges").upsert(records[i : i + 500], on_conflict="game_id,model_version").execute()
     print(f"Wrote {len(records)} in-season edge(s) (model_version={MODEL_VERSION}).")
