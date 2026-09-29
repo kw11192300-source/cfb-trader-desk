@@ -31,6 +31,12 @@ from .team_match import match_odds_events_to_games
 
 CHUNK_SIZE = 500
 
+# The one book in this feed worth tracking as a movement signal in its own
+# right - see sharp_steam.py, which reads exactly these rows out of
+# line_snapshots. Keyed by the-odds-api's own bookmaker key, not display
+# name.
+SHARP_PROVIDER_KEY = "pinnacle"
+
 
 def chunked(items, size=CHUNK_SIZE):
     for i in range(0, len(items), size):
@@ -71,6 +77,7 @@ def run() -> None:
 
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     records = []
+    snapshot_rows = []
     for event in events:
         game_id = matches.get(event["id"])
         if game_id is None:
@@ -88,17 +95,19 @@ def run() -> None:
             under_o = _outcome(totals, "Under")
             home_ml_o = _outcome(h2h, home_team)
             away_ml_o = _outcome(h2h, away_team)
+            home_spread = home_spread_o.get("point") if home_spread_o else None
+            total_point = over_o.get("point") if over_o else (under_o.get("point") if under_o else None)
 
             records.append(
                 {
                     "game_id": game_id,
                     "bookmaker": bm["key"],
                     "bookmaker_title": bm["title"],
-                    "home_spread": home_spread_o.get("point") if home_spread_o else None,
+                    "home_spread": home_spread,
                     "home_spread_price": home_spread_o.get("price") if home_spread_o else None,
                     "away_spread": away_spread_o.get("point") if away_spread_o else None,
                     "away_spread_price": away_spread_o.get("price") if away_spread_o else None,
-                    "total": over_o.get("point") if over_o else (under_o.get("point") if under_o else None),
+                    "total": total_point,
                     "over_price": over_o.get("price") if over_o else None,
                     "under_price": under_o.get("price") if under_o else None,
                     "home_moneyline": home_ml_o.get("price") if home_ml_o else None,
@@ -108,6 +117,24 @@ def run() -> None:
                 }
             )
 
+            # Append-only history for the one book worth tracking as a
+            # movement signal - see sharp_steam.py. Reuses line_snapshots
+            # (already generic/provider-keyed for CFBD's own CLV model)
+            # rather than a new table; only Pinnacle rows get logged here,
+            # everything else in `records` above stays current-state-only.
+            if bm["key"] == SHARP_PROVIDER_KEY and home_spread is not None:
+                snapshot_rows.append(
+                    {
+                        "game_id": game_id,
+                        "provider": SHARP_PROVIDER_KEY,
+                        "spread": home_spread,
+                        "over_under": total_point,
+                        "home_moneyline": home_ml_o.get("price") if home_ml_o else None,
+                        "away_moneyline": away_ml_o.get("price") if away_ml_o else None,
+                        "captured_at": now,
+                    }
+                )
+
     if not records:
         print("No bookmaker rows to write (no matched events had odds).")
         return
@@ -115,6 +142,11 @@ def run() -> None:
     for batch in chunked(records):
         client.table("odds_api_lines").upsert(batch, on_conflict="game_id,bookmaker").execute()
     print(f"Upserted {len(records)} (game, bookmaker) rows into odds_api_lines")
+
+    for batch in chunked(snapshot_rows):
+        client.table("line_snapshots").insert(batch).execute()
+    if snapshot_rows:
+        print(f"Logged {len(snapshot_rows)} Pinnacle snapshot row(s) to line_snapshots.")
 
 
 if __name__ == "__main__":

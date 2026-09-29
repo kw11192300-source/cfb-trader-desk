@@ -17,6 +17,16 @@ from .config import ODDS_API_KEY
 ODDS_API_BASE = "https://api.the-odds-api.com/v4"
 
 
+
+# "us" alone is standard licensed US books only (DraftKings, FanDuel, BetMGM,
+# ...) - no genuinely sharp book among them. Pinnacle - confirmed live via a
+# direct API call this session - only shows up under "eu". Cost is
+# markets x regions per call (3 markets x 2 regions = 6 credits/call here,
+# vs. 3 for "us" alone - see python/README.md's credit-cost tables before
+# tightening sync-odds-api.yml's cadence on top of this).
+ODDS_API_REGIONS = "us,eu"
+
+
 def fetch_ncaaf_odds() -> tuple[list[dict], dict]:
     """Returns (events, usage) — usage has 'remaining' and 'used' credit counts
     from the response headers, useful for logging spend against the free tier."""
@@ -26,7 +36,7 @@ def fetch_ncaaf_odds() -> tuple[list[dict], dict]:
         f"{ODDS_API_BASE}/sports/americanfootball_ncaaf/odds",
         params={
             "apiKey": ODDS_API_KEY,
-            "regions": "us",
+            "regions": ODDS_API_REGIONS,
             "markets": "spreads,totals,h2h",
             "oddsFormat": "american",
         },

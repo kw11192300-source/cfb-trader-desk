@@ -1,0 +1,29 @@
+name: Sharp steam alerts (Pinnacle)
+
+# Cheap DB-only comparison, same reasoning as refresh-watchlist.yml - no
+# external API calls of its own, so */15 costs nothing extra to run. Real
+# ceiling on how fast a steam move can be caught is sync-odds-api.yml's own
+# cadence (currently every 6h on the free Odds API tier - see
+# python/README.md) - tighten that first if this needs to be faster.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r python/requirements.txt
+      - name: Check for sharp steam moves
+        working-directory: python
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m modeling.sharp_steam

@@ -106,3 +106,45 @@ def send_watchlist_confirmation_alerts(client, model_version: str, rows: list[di
             client.table("watchlist_picks").update({"alert_sent_at": now}).in_("id", batch).execute()
 
     return len(sent_ids)
+
+
+def send_sharp_steam_alerts(client, rows: list[dict], games_by_id: dict[int, dict]) -> int:
+    """sharp_steam.py's signal - NOT model-based like the two above, and has
+    no backtest behind it yet (see schema.sql's sharp_steam_alerts
+    docstring), so the message says so plainly. Fires once Pinnacle's own
+    line has moved >= sharp_steam.STEAM_MOVE_THRESHOLD from the first value
+    seen for that game. `rows` are sharp_steam_alerts rows (dicts, `id`
+    required) that just crossed the threshold and haven't been alerted yet;
+    `games_by_id` supplies team names for the message text. Returns how
+    many alerts actually sent."""
+    if not telegram_bot.is_configured() or not rows:
+        return 0
+
+    sent_ids: list[int] = []
+    for r in rows:
+        game = games_by_id.get(r["game_id"])
+        matchup = f"{game['away_team']} @ {game['home_team']}" if game else f"game {r['game_id']}"
+        move = r["move"]
+        # home_spread convention: negative move = line shifted toward the
+        # home team (more favored / less of an underdog than before).
+        toward = game["home_team"] if game and move < 0 else (game["away_team"] if game else "one side")
+        text = (
+            f"\U0001f4c8 Sharp move: {matchup}\n\n"
+            f"Pinnacle moved {abs(move):.1f} pts toward {toward} "
+            f"({r['reference_spread']:+.1f} → {r['current_spread']:+.1f}).\n\n"
+            f"Exploratory - no backtest behind this signal yet, unlike the week-1 strategy or the watchlist. "
+            f"A real Pinnacle move, nothing more."
+        )
+        try:
+            telegram_bot.send_message(text)
+            sent_ids.append(r["id"])
+        except Exception as e:  # best-effort - one failed send shouldn't block the rest or fail the run
+            print(f"Telegram sharp steam alert failed for row {r['id']}: {e}")
+
+    if sent_ids:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        for i in range(0, len(sent_ids), 500):
+            batch = sent_ids[i : i + 500]
+            client.table("sharp_steam_alerts").update({"alert_sent_at": now}).in_("id", batch).execute()
+
+    return len(sent_ids)
