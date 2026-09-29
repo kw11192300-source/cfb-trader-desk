@@ -18,16 +18,22 @@ from .supabase_client import get_client
 def get_current_week(sport: str = "cfb") -> tuple[int, int, str] | None:
     """Returns (season, week, season_type), or None if there's no upcoming
     game in our own database (e.g. off-season with nothing backfilled yet).
-    Every caller today is CFB-only, but scoped explicitly rather than left
-    implicit - a stray NFL row (negative id, same games table) shouldn't
-    ever be able to influence this."""
+    Scoped explicitly by sport - a stray row from another sport (negative
+    id, same shared games table) shouldn't ever be able to influence this.
+
+    `season` is stored by start-year (e.g. the 2026-27 NHL/NFL season is
+    `season=2026`), but a season that crosses the calendar boundary still
+    has real games in the new year - so this checks both the current and
+    prior calendar year, not just today's, or every NHL/NFL game from
+    January onward would be invisible to this query (CFB doesn't cross the
+    boundary, so this is a no-op widening for it)."""
     client = get_client()
     year = datetime.date.today().year
     res = (
         client.table("games")
         .select("season,week,season_type,start_date")
         .eq("sport", sport)
-        .eq("season", year)
+        .in_("season", [year, year - 1])
         .eq("completed", False)
         .order("start_date")
         .limit(1)

@@ -21,9 +21,15 @@ import type {
 
 /**
  * Same idea as the Python side's current_week.py: the earliest
- * not-yet-completed game this calendar year is "the current week." Kept as
- * its own query (not shared code with Python) since it's a two-line lookup,
- * not worth a cross-language shared module for.
+ * not-yet-completed game is "the current week." Kept as its own query (not
+ * shared code with Python) since it's a two-line lookup, not worth a
+ * cross-language shared module for.
+ *
+ * Checks both this calendar year and last as the `season` value - a season
+ * is stored by start-year, but one that crosses the calendar boundary
+ * (NFL/NHL) still has real games in the new year; filtering to only
+ * today's year would make every one of those invisible to this query once
+ * January hits. No-op widening for CFB, which never crosses the boundary.
  */
 export async function getCurrentWeek(sport: string = "cfb"): Promise<{ season: number; week: number; seasonType: string } | null> {
   const year = new Date().getFullYear();
@@ -31,7 +37,7 @@ export async function getCurrentWeek(sport: string = "cfb"): Promise<{ season: n
     .from("games")
     .select("season, week, season_type, start_date")
     .eq("sport", sport)
-    .eq("season", year)
+    .in("season", [year, year - 1])
     .eq("completed", false)
     .order("start_date", { ascending: true })
     .limit(1)
