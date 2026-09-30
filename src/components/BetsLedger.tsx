@@ -33,6 +33,11 @@ function impliedProb(odds: number): number {
 
 type Clv = { value: number; unit: "pts" | "%" };
 
+function moneylineClv(bet: Bet, currentForSide: number | null): Clv | null {
+  if (currentForSide === null) return null;
+  return { value: (impliedProb(currentForSide) - impliedProb(bet.odds)) * 100, unit: "%" };
+}
+
 /** Closing-line value vs. the game's CURRENT line (not necessarily the
  * eventual true close - if the game hasn't kicked off yet this will keep
  * moving; betting_lines/odds_api_lines freeze at the last real prematch
@@ -45,10 +50,25 @@ type Clv = { value: number; unit: "pts" | "%" };
  * isn't a meaningful subtraction, but "38.5% implied -> 45.5% implied" is.
  * Different units on purpose (see the `unit` tag) - a point of spread CLV
  * and a point of moneyline-probability CLV aren't the same thing and
- * shouldn't be displayed as if they were. */
+ * shouldn't be displayed as if they were.
+ *
+ * A `market: "spread"` bet with `line` of exactly +/-0.5 is treated as a
+ * moneyline logged the CFB-convention way (a straight ML bet recorded as
+ * a "spread" so it grades the same as one - see gradeBet) - +/-0.5 isn't
+ * a real spread number to compare against the point-spread market, it's
+ * shorthand for "no real spread here, just win/lose." Comparing it against
+ * currentLine.homeSpread (e.g. -6.5 for an actual favorite) would be
+ * comparing two unrelated markets and produce a meaningless number -
+ * route these through the same implied-probability math moneyline uses,
+ * against the moneyline market instead. */
 function computeClv(bet: Bet, game: Game | null, currentLine: DisplayLine | null): Clv | null {
   if (!game || !currentLine) return null;
   const isHome = bet.side === game.home_team;
+  const currentMoneylineForSide = isHome ? currentLine.homeMoneyline : currentLine.awayMoneyline;
+
+  if (bet.market === "spread" && Math.abs(bet.line) === 0.5) {
+    return moneylineClv(bet, currentMoneylineForSide);
+  }
   if (bet.market === "spread") {
     if (currentLine.homeSpread === null) return null;
     const currentForSide = isHome ? currentLine.homeSpread : -currentLine.homeSpread;
@@ -60,9 +80,7 @@ function computeClv(bet: Bet, game: Game | null, currentLine: DisplayLine | null
     return { value, unit: "pts" };
   }
   if (bet.market === "moneyline") {
-    const currentForSide = isHome ? currentLine.homeMoneyline : currentLine.awayMoneyline;
-    if (currentForSide === null) return null;
-    return { value: (impliedProb(currentForSide) - impliedProb(bet.odds)) * 100, unit: "%" };
+    return moneylineClv(bet, currentMoneylineForSide);
   }
   return null;
 }
