@@ -22,30 +22,55 @@ function fmtProfit(n: number | null): string {
   return n > 0 ? `+${n.toFixed(2)}` : n.toFixed(2);
 }
 
-/** Closing-line value, in points, vs. the game's CURRENT line (not
- * necessarily the eventual true close - if the game hasn't kicked off yet
- * this will keep moving). Positive = the number you got is better than
- * what's available now. Spread/total only - moneyline CLV needs an
- * implied-probability conversion to be meaningful, skipped here to keep
- * this simple; the raw odds are still shown in their own column. */
-function computeClv(bet: Bet, game: Game | null, currentLine: DisplayLine | null): number | null {
+/** American odds -> implied win probability (no-vig adjustment - this is
+ * the raw, vig-included probability the price itself implies, which is
+ * all moneyline CLV below needs: comparing the SAME side's own price at
+ * two points in time, the vig doesn't change between them, so it cancels
+ * out of the comparison either way). */
+function impliedProb(odds: number): number {
+  return odds > 0 ? 100 / (odds + 100) : -odds / (-odds + 100);
+}
+
+type Clv = { value: number; unit: "pts" | "%" };
+
+/** Closing-line value vs. the game's CURRENT line (not necessarily the
+ * eventual true close - if the game hasn't kicked off yet this will keep
+ * moving; betting_lines/odds_api_lines freeze at the last real prematch
+ * value once a game starts, so for a finished game "current" already IS
+ * the true close). Positive = the number you got is better than what's
+ * available now.
+ *
+ * Spread/total: points, computed directly off the line. Moneyline: an
+ * implied-probability swing (%), NOT a raw odds difference - "+150 -> +120"
+ * isn't a meaningful subtraction, but "38.5% implied -> 45.5% implied" is.
+ * Different units on purpose (see the `unit` tag) - a point of spread CLV
+ * and a point of moneyline-probability CLV aren't the same thing and
+ * shouldn't be displayed as if they were. */
+function computeClv(bet: Bet, game: Game | null, currentLine: DisplayLine | null): Clv | null {
   if (!game || !currentLine) return null;
+  const isHome = bet.side === game.home_team;
   if (bet.market === "spread") {
     if (currentLine.homeSpread === null) return null;
-    const isHome = bet.side === game.home_team;
     const currentForSide = isHome ? currentLine.homeSpread : -currentLine.homeSpread;
-    return bet.line - currentForSide;
+    return { value: bet.line - currentForSide, unit: "pts" };
   }
   if (bet.market === "total") {
     if (currentLine.total === null) return null;
-    return bet.side === "over" ? currentLine.total - bet.line : bet.line - currentLine.total;
+    const value = bet.side === "over" ? currentLine.total - bet.line : bet.line - currentLine.total;
+    return { value, unit: "pts" };
+  }
+  if (bet.market === "moneyline") {
+    const currentForSide = isHome ? currentLine.homeMoneyline : currentLine.awayMoneyline;
+    if (currentForSide === null) return null;
+    return { value: (impliedProb(currentForSide) - impliedProb(bet.odds)) * 100, unit: "%" };
   }
   return null;
 }
 
-function fmtClv(n: number | null): string {
-  if (n === null) return "—";
-  return n > 0 ? `+${n.toFixed(1)}` : n.toFixed(1);
+function fmtClv(clv: Clv | null): string {
+  if (clv === null) return "—";
+  const sign = clv.value > 0 ? "+" : "";
+  return `${sign}${clv.value.toFixed(1)}${clv.unit === "%" ? "%" : ""}`;
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -179,7 +204,7 @@ export default function BetsLedger({ bets, showSettle = false }: { bets: GradedB
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Kickoff</th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Matchup</th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Bet</th>
-                <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium text-right" title="Closing line value vs. the game's current line, in points">
+                <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium text-right" title="Closing line value vs. the game's current line - points for spread/total, implied-probability swing (%) for moneyline">
                   CLV
                 </th>
                 <th className="sticky top-0 z-10 bg-surface-raised px-4 py-3 font-medium">Source</th>
@@ -235,7 +260,7 @@ export default function BetsLedger({ bets, showSettle = false }: { bets: GradedB
                       </>
                     )}
                   </td>
-                  <td className={`px-4 py-2.5 text-right font-mono text-xs font-medium ${clv === null ? "text-muted" : clv >= 0 ? "text-up" : "text-down"}`}>
+                  <td className={`px-4 py-2.5 text-right font-mono text-xs font-medium ${clv === null ? "text-muted" : clv.value >= 0 ? "text-up" : "text-down"}`}>
                     {fmtClv(clv)}
                   </td>
                   <td className="px-4 py-2.5 whitespace-nowrap">
