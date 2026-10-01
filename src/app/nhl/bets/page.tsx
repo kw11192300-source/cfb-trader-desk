@@ -1,5 +1,6 @@
 import BetsLedger from "@/components/BetsLedger";
 import BreakdownTable from "@/components/BreakdownTable";
+import PnlChart from "@/components/PnlChart";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import { byMarket, byPlayer, byPropType, byPropVsCore } from "@/lib/betBreakdown";
@@ -22,6 +23,10 @@ export default async function NhlBetsPage() {
           score, same as CFB/NFL — props have no auto-grading path (no player-stats feed exists), so settle those yourself with
           the Settle column below.
         </p>
+
+        <div className="mb-5">
+          <PnlChart bets={nhlBets} />
+        </div>
 
         <div className="mb-5 grid gap-5 md:grid-cols-2">
           <BreakdownTable title="Player Props vs. Core 3" rows={byPropVsCore(graded)} labelHeader="Type" />
