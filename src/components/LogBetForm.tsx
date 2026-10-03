@@ -42,8 +42,11 @@ export default function LogBetForm({
   /** Fixed side (a team name, for spread/moneyline) - ignored if sideOptions is given. */
   side?: string;
   /** Lets the bettor pick the side themselves (e.g. totals: over/under,
-   * which aren't tied to a team) instead of it being fixed by the parent. */
-  sideOptions?: { value: string; label: string }[];
+   * which aren't tied to a team) instead of it being fixed by the parent.
+   * An option's `line` (that side's own number - spread convention, negative
+   * = favored) auto-fills the line input when picked; options without one
+   * leave whatever's in the box alone. */
+  sideOptions?: { value: string; label: string; line?: number }[];
   line: number;
   suggestedUnits?: number | null;
   /** Collapsed-button text - override when several of these sit side by
@@ -56,6 +59,7 @@ export default function LogBetForm({
 }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
+  const [lineValue, setLineValue] = useState(String(sideOptions?.[0]?.line ?? line));
 
   if (!open) {
     return (
@@ -90,6 +94,10 @@ export default function LogBetForm({
         <select
           name="side"
           defaultValue={sideOptions[0]?.value}
+          onChange={(e) => {
+            const picked = sideOptions.find((o) => o.value === e.target.value);
+            if (picked?.line !== undefined) setLineValue(String(picked.line));
+          }}
           className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-foreground focus:border-accent focus:outline-none"
         >
           {sideOptions.map((o) => (
@@ -104,7 +112,8 @@ export default function LogBetForm({
       <input
         type="number"
         name="line"
-        defaultValue={line}
+        value={lineValue}
+        onChange={(e) => setLineValue(e.target.value)}
         step="0.5"
         title="Spread actually taken - edit if it differs from the market number shown above"
         className="w-16 rounded-md border border-border bg-surface px-2 py-1 text-xs text-foreground placeholder:text-muted focus:border-accent focus:outline-none"

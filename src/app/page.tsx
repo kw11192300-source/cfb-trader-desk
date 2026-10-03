@@ -1,4 +1,5 @@
 import FreshnessBanner from "@/components/FreshnessBanner";
+import LogParlayForm from "@/components/LogParlayForm";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
 import TraderBoard from "@/components/TraderBoard";
@@ -36,6 +37,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ w
       <SiteHeader subtitle={board ? `${board.season} · Week ${board.week} · ${seasonTypeLabel(board.seasonType)}` : "No active week"} />
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
+        <div className="mb-4">
+          <LogParlayForm sport="cfb" />
+        </div>
         {current && <WeekTabs weeks={weeks} activeWeek={board?.week ?? current.week} currentWeek={current.week} />}
         <FreshnessBanner iso={freshestFetch} />
         <TraderBoard rows={board?.rows ?? []} />

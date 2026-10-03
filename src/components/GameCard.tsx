@@ -1,6 +1,8 @@
 import Link from "next/link";
 import Image from "next/image";
 import LocalDateTime from "./LocalDateTime";
+import LogBetForm from "./LogBetForm";
+import LogPropBetForm from "./LogPropBetForm";
 import { pickHeadlineLine as pickCfbdHeadline, spreadMovement, totalMovement } from "@/lib/lines";
 import { formatPrice, formatSpread, mergeLines, pickHeadlineLine } from "@/lib/mergedLines";
 import { fmtSpread, pickPerspectiveSpread } from "@/lib/spread";
@@ -48,11 +50,24 @@ export default function GameCard({ row }: { row: BoardRow }) {
     ? pickPerspectiveSpread(prediction!.market_spread, prediction!.predicted_margin, pickHome)
     : { market: null, model: null };
 
+  // Manual logging controls (the on-site fallback for when Telegram is
+  // down, same idea as the NFL/NHL cards) - pre-filled from this game's
+  // current headline line. Each side's own number, spread convention
+  // (negative = favored): away is the flip of the home-perspective spread.
+  const homeSpread = headline?.homeSpread ?? null;
+  const spreadOptions = [
+    { value: game.away_team, label: game.away_team, line: homeSpread !== null ? -homeSpread : undefined },
+    { value: game.home_team, label: game.home_team, line: homeSpread ?? undefined },
+  ];
+  const moneylineOptions = [
+    { value: game.away_team, label: game.away_team },
+    { value: game.home_team, label: game.home_team },
+  ];
+  const modelVersion = prediction?.model_version ?? null;
+
   return (
-    <Link
-      href={`/games/${game.id}`}
-      className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4 transition-colors hover:border-accent/60 hover:bg-surface-raised"
-    >
+    <div className="flex flex-col rounded-lg border border-border bg-surface transition-colors hover:border-accent/60">
+    <Link href={`/games/${game.id}`} className="flex flex-col gap-3 rounded-t-lg p-4 transition-colors hover:bg-surface-raised">
       <div className="flex items-center justify-between text-[11px] text-muted">
         {game.completed ? (
           <span className="font-medium text-muted">FINAL</span>
@@ -142,5 +157,40 @@ export default function GameCard({ row }: { row: BoardRow }) {
         </div>
       )}
     </Link>
+
+    <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3">
+      <LogBetForm
+        gameId={game.id}
+        modelVersion={modelVersion}
+        market="spread"
+        sideOptions={spreadOptions}
+        line={homeSpread !== null ? -homeSpread : 0}
+        buttonLabel="Spread"
+        defaultEdgeSource="market"
+      />
+      <LogBetForm
+        gameId={game.id}
+        modelVersion={modelVersion}
+        market="moneyline"
+        sideOptions={moneylineOptions}
+        line={0}
+        buttonLabel="ML"
+        defaultEdgeSource="market"
+      />
+      <LogBetForm
+        gameId={game.id}
+        modelVersion={modelVersion}
+        market="total"
+        sideOptions={[
+          { value: "over", label: "Over" },
+          { value: "under", label: "Under" },
+        ]}
+        line={headline?.total ?? 0}
+        buttonLabel="Total"
+        defaultEdgeSource="market"
+      />
+      <LogPropBetForm gameId={game.id} />
+    </div>
+    </div>
   );
 }
