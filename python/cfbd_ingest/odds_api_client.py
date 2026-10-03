@@ -24,7 +24,10 @@ ODDS_API_BASE = "https://api.the-odds-api.com/v4"
 # markets x regions per call (3 markets x 2 regions = 6 credits/call here,
 # vs. 3 for "us" alone - see python/README.md's credit-cost tables before
 # tightening sync-odds-api.yml's cadence on top of this).
-ODDS_API_REGIONS = "us,eu"
+# Set back to "us" until a cadence/tier decision is made - "us,eu" doubles
+# the credit burn and the free tier's 500/mo can't cover it at the current
+# polling cadence. Switch to "us,eu" to turn Pinnacle tracking on.
+ODDS_API_REGIONS = "us"
 
 
 def fetch_ncaaf_odds() -> tuple[list[dict], dict]:

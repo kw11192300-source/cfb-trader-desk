@@ -5,9 +5,12 @@ name: Sharp steam alerts (Pinnacle)
 # ceiling on how fast a steam move can be caught is sync-odds-api.yml's own
 # cadence (currently every 6h on the free Odds API tier - see
 # python/README.md) - tighten that first if this needs to be faster.
+# Scheduled trigger OFF (manual-only) until the sharp_steam_alerts table
+# exists (migration in supabase/schema.sql) and Pinnacle tracking is turned
+# on in odds_api_client.py - otherwise every run just fails. To enable,
+# restore:   schedule:
+#              - cron: "*/15 * * * *"
 on:
-  schedule:
-    - cron: "*/15 * * * *"
   workflow_dispatch: {}
 
 jobs:
