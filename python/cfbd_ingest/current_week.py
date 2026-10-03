@@ -14,6 +14,8 @@ import datetime
 
 from .supabase_client import get_client
 
+STALE_INCOMPLETE_HOURS = 18
+
 
 def get_current_week(sport: str = "cfb") -> tuple[int, int, str] | None:
     """Returns (season, week, season_type), or None if there's no upcoming
@@ -29,12 +31,22 @@ def get_current_week(sport: str = "cfb") -> tuple[int, int, str] | None:
     boundary, so this is a no-op widening for it)."""
     client = get_client()
     year = datetime.date.today().year
+    # A game that kicked off 18+ hours ago and still isn't marked completed
+    # is stale data, not "in progress" (real games, even with delays, are
+    # long over by then) - without this cutoff, any game whose score the
+    # sync can never find (an NAIA/D-II opponent ESPN doesn't carry, a name
+    # the matcher misses) permanently pins the whole site's "current week"
+    # on its own week. Bitten three times now: St. Thomas (MN) twice,
+    # Lane College once, University of Rio Grande once - each fixed by hand
+    # until this made it structurally impossible.
+    stale_cutoff = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=STALE_INCOMPLETE_HOURS)).isoformat()
     res = (
         client.table("games")
         .select("season,week,season_type,start_date")
         .eq("sport", sport)
         .in_("season", [year, year - 1])
         .eq("completed", False)
+        .gt("start_date", stale_cutoff)
         .order("start_date")
         .limit(1)
         .execute()

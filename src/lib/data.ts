@@ -33,12 +33,18 @@ import type {
  */
 export async function getCurrentWeek(sport: string = "cfb"): Promise<{ season: number; week: number; seasonType: string } | null> {
   const year = new Date().getFullYear();
+  // Same stale cutoff as current_week.py: a game that kicked off 18+ hours
+  // ago and still isn't completed is stale data, not in progress - without
+  // this, one game the score sync can never find permanently pins the
+  // whole site on its own week.
+  const staleCutoff = new Date(Date.now() - 18 * 60 * 60 * 1000).toISOString();
   const { data, error } = await supabase
     .from("games")
     .select("season, week, season_type, start_date")
     .eq("sport", sport)
     .in("season", [year, year - 1])
     .eq("completed", false)
+    .gt("start_date", staleCutoff)
     .order("start_date", { ascending: true })
     .limit(1)
     .maybeSingle();
