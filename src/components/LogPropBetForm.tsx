@@ -6,7 +6,7 @@ import { logBet } from "@/lib/actions";
 // Suggestions only, not a fixed list - real prop markets are too varied
 // to enumerate (same reasoning as sportsbook/prop_type being free text
 // in schema.sql).
-const COMMON_PROP_TYPES = [
+const FOOTBALL_PROP_TYPES = [
   "Passing Yards",
   "Rushing Yards",
   "Receiving Yards",
@@ -18,6 +18,21 @@ const COMMON_PROP_TYPES = [
   "Anytime TD",
   "Completions",
 ];
+const HOCKEY_PROP_TYPES = [
+  "Goals",
+  "Assists",
+  "Points",
+  "Shots",
+  "Shots on Goal",
+  "Saves",
+  "Blocked Shots",
+  "Power Play Points",
+  "Hits",
+  "Anytime Goalscorer",
+  "Time on Ice",
+  "Goals Against",
+];
+const PROP_TYPES_BY_SPORT: Record<string, string[]> = { nhl: HOCKEY_PROP_TYPES };
 const COMMON_BOOKS = [
   "DraftKings",
   "FanDuel",
@@ -42,6 +57,7 @@ const COMMON_BOOKS = [
 export default function LogPropBetForm({ gameId, sport = "cfb" }: { gameId: number; sport?: string }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
+  const propTypes = PROP_TYPES_BY_SPORT[sport] ?? FOOTBALL_PROP_TYPES;
 
   if (!open) {
     return (
@@ -82,13 +98,13 @@ export default function LogPropBetForm({ gameId, sport = "cfb" }: { gameId: numb
       <input
         type="text"
         name="prop_type"
-        list="prop-type-options"
+        list={`prop-type-options-${sport}`}
         placeholder="Prop type"
         required
         className="w-32 rounded-md border border-border bg-surface px-2 py-1 text-xs text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
       />
-      <datalist id="prop-type-options">
-        {COMMON_PROP_TYPES.map((p) => (
+      <datalist id={`prop-type-options-${sport}`}>
+        {propTypes.map((p) => (
           <option key={p} value={p} />
         ))}
       </datalist>

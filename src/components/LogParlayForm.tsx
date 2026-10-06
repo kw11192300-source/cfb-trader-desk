@@ -25,6 +25,11 @@ const COMMON_BOOKS = [
  * is always settled manually (see schema.sql's manual_result docstring),
  * so there's no need to model each leg structurally just to re-derive a
  * result the sportsbook's own slip already tells you. */
+const LEGS_PLACEHOLDER: Record<string, string> = {
+  nhl: "Bruins ML\nMcDavid Over 1.5 Points\nMatthews Over 3.5 Shots on Goal",
+};
+const DEFAULT_LEGS_PLACEHOLDER = "Chiefs -3.5\nMahomes Over 275.5 Passing Yards\nKelce Anytime TD";
+
 export default function LogParlayForm({ sport = "cfb" }: { sport?: string }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
@@ -62,7 +67,7 @@ export default function LogParlayForm({ sport = "cfb" }: { sport?: string }) {
           name="legs"
           required
           rows={4}
-          placeholder={"Chiefs -3.5\nMahomes Over 275.5 Passing Yards\nKelce Anytime TD"}
+          placeholder={LEGS_PLACEHOLDER[sport] ?? DEFAULT_LEGS_PLACEHOLDER}
           className="mt-1 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-foreground placeholder:text-muted focus:border-accent focus:outline-none"
         />
       </label>
