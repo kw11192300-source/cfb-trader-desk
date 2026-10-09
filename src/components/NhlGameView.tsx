@@ -3,6 +3,7 @@ import LocalDateTime from "./LocalDateTime";
 import NhlMarketComparison from "./NhlMarketComparison";
 import NhlTeamLogo from "./NhlTeamLogo";
 import NhlWinBar from "./NhlWinBar";
+import NhlYourLine from "./NhlYourLine";
 import ProbOdds from "./ProbOdds";
 import ScoreGrid from "./ScoreGrid";
 import { matchupColors } from "@/lib/nhlColors";
@@ -111,6 +112,12 @@ export default function NhlGameView({ game, prediction, xg }: { game: Game; pred
 
           <Card title={`Model vs ${m?.provider ?? "the book"}`} note="moneyline · puck line · total">
             <NhlMarketComparison rows={marketEdges(prediction, home, away)} provider={m?.provider ?? null} />
+            <NhlYourLine
+              home={home}
+              away={away}
+              dists={{ p_home: prediction.p_home, margin_dist: prediction.margin_dist, total_dist: prediction.total_dist }}
+              defaults={{ homeSpread: m?.spread_home_line ?? null, total: m?.total_line ?? null }}
+            />
           </Card>
 
           <Card title="Score probabilities" note={`most likely: ${away} ${mostLikelyScore(prediction).away} – ${mostLikelyScore(prediction).home} ${home} (${pct(mostLikelyScore(prediction).p)}, ${fairOdds(mostLikelyScore(prediction).p)})`}>
@@ -140,7 +147,7 @@ export default function NhlGameView({ game, prediction, xg }: { game: Game; pred
                         <tr key={line} className={`border-b border-border last:border-0 ${isMarket ? "bg-accent/5" : ""}`}>
                           <td className="px-3 py-1.5 font-mono text-foreground">
                             {line % 1 === 0 ? line.toFixed(0) : line.toFixed(1)}
-                            {isMarket && <span className="ml-1.5 text-[10px] text-accent">book</span>}
+                            {isMarket && <span className="ml-1.5 text-[10px] text-accent">{m?.provider ? "DK line" : "book line"}</span>}
                           </td>
                           <Cell strong>
                             <ProbOdds p={f.over / live} />
@@ -194,7 +201,7 @@ export default function NhlGameView({ game, prediction, xg }: { game: Game; pred
                           <td className="px-3 py-1.5 text-right font-mono text-foreground">
                             <ProbOdds p={awayP} />
                             <span className={`ml-2 inline-block w-10 text-right font-semibold ${Math.abs(line) === 1.5 ? "text-foreground" : "text-muted"}`}>{signed(-line)}</span>
-                            {isBook && <span className="ml-1.5 text-[10px] text-accent">book</span>}
+                            {isBook && <span className="ml-1.5 text-[10px] text-accent">DK line</span>}
                           </td>
                         </tr>
                       );

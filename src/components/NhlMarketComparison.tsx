@@ -18,7 +18,7 @@ export default function NhlMarketComparison({ rows, provider }: { rows: EdgeRow[
       <p className="mb-3 text-xs text-muted">
         {beats ? (
           <>
-            Largest gap: <span className="text-foreground">{best.side}</span> ({best.market.toLowerCase()}) - model {pct(best.model)} vs {book}&apos;s no-vig {pct(best.bookNoVig)}, worth{" "}
+            Largest gap: <span className="text-foreground">{best.side}</span> ({best.market.toLowerCase()}) - model {pct(best.model)} vs the {pct(best.bookImplied)} that {fmtOdds(best.bookOdds)} needs to break even, worth{" "}
             <span className="font-mono text-accent">
               {pts(best.edgePts)} pts / {best.ev >= 0 ? "+" : ""}
               {(best.ev * 100).toFixed(1)}% EV
@@ -26,7 +26,7 @@ export default function NhlMarketComparison({ rows, provider }: { rows: EdgeRow[
             at {fmtOdds(best.bookOdds)}.
           </>
         ) : (
-          <>No side beats {book}&apos;s posted price by our numbers - the model agrees with the market everywhere or is on the wrong side of the vig.</>
+          <>No side beats {book}&apos;s posted price by our numbers - the model agrees with the market, or only disagrees by less than the vig.</>
         )}
       </p>
       <div className="overflow-x-auto">
@@ -38,14 +38,14 @@ export default function NhlMarketComparison({ rows, provider }: { rows: EdgeRow[
               <th className="px-3 py-1.5 text-right font-medium" title="The price the book is offering">
                 {book}
               </th>
-              <th className="px-3 py-1.5 text-right font-medium" title="The book's probability with the vig taken out">
-                Book no-vig
+              <th className="px-3 py-1.5 text-right font-medium" title="The win probability the posted price needs to break even - the vig is included">
+                Break-even
               </th>
               <th className="px-3 py-1.5 text-right font-medium">Model</th>
               <th className="px-3 py-1.5 text-right font-medium" title="Our fair (no-vig) price">
                 Model price
               </th>
-              <th className="px-3 py-1.5 text-right font-medium" title="Model probability minus the book's no-vig probability">
+              <th className="px-3 py-1.5 text-right font-medium" title="Model probability minus the break-even probability of the posted price">
                 Edge (pts)
               </th>
               <th className="px-3 py-1.5 text-right font-medium" title="Expected profit per $1 staked at the book's price if the model is right">
@@ -66,7 +66,7 @@ export default function NhlMarketComparison({ rows, provider }: { rows: EdgeRow[
                     {strong && <span className="ml-2 rounded bg-accent px-1.5 py-0.5 text-[10px] font-semibold text-background">EDGE</span>}
                   </td>
                   <td className="px-3 py-1.5 text-right font-mono text-up">{fmtOdds(r.bookOdds)}</td>
-                  <td className="px-3 py-1.5 text-right font-mono text-foreground">{pct(r.bookNoVig)}</td>
+                  <td className="px-3 py-1.5 text-right font-mono text-foreground">{pct(r.bookImplied)}</td>
                   <td className="px-3 py-1.5 text-right font-mono text-foreground">{pct(r.model)}</td>
                   <td className="px-3 py-1.5 text-right font-mono font-semibold text-foreground">{fairOdds(r.model)}</td>
                   <td className={`px-3 py-1.5 text-right font-mono ${r.edgePts > 0 ? "text-accent" : "text-warn"}`}>{pts(r.edgePts)}</td>
@@ -81,8 +81,9 @@ export default function NhlMarketComparison({ rows, provider }: { rows: EdgeRow[
         </table>
       </div>
       <p className="mt-2 text-[11px] text-muted">
-        Edge = our probability minus the book&apos;s no-vig probability. EV = what a $1 bet at the book&apos;s price earns on average if our probability is right.
-        Whole-number totals refund a push, so those are priced without it. Lit rows are where our number beats the price; EDGE marks EV of 3% or more. Our
+        Break-even is the win probability the posted price needs, vig included (-110 needs 52.4%). Edge = our probability minus that, so it is measured against
+        the price you would actually get. EV = what a $1 bet at that price earns on average if our probability is right. Whole-number totals refund a push, so
+        those are priced without it. Lit rows are where our number beats the price; EDGE marks EV of 3% or more. Our
         backtest says this model does not beat the closing line, so treat a lit row as &quot;the model disagrees with the market&quot; - often a lineup, injury or
         roster change it can&apos;t see - not as a bet.
       </p>

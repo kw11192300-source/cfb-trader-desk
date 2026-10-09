@@ -40,6 +40,21 @@ export function puckLineCover(margin: Record<string, number>, side: "home" | "aw
   return p;
 }
 
+/** P(a team wins / pushes a handicap bet) from the FINAL home-margin distribution. `line` is that team's own handicap
+ * (-1.5, +1.5, 0, -1 ...); a whole-number line can push. */
+export function marginCover(margin: Record<string, number>, side: "home" | "away", line: number): { win: number; push: number; lose: number } {
+  let win = 0;
+  let push = 0;
+  let lose = 0;
+  for (const [k, v] of Object.entries(margin)) {
+    const m = (side === "home" ? Number(k) : -Number(k)) + line;
+    if (m > 0) win += v;
+    else if (m === 0) push += v;
+    else lose += v;
+  }
+  return { win, push, lose };
+}
+
 export function americanToProb(odds: number): number {
   return odds > 0 ? 100 / (odds + 100) : -odds / (-odds + 100);
 }
