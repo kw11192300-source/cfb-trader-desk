@@ -64,11 +64,22 @@ def _side(odds: dict, stage: str):
     return ml, pts, price
 
 
+def _valid_line(tot: float | None) -> float | None:
+    """A real NHL total is a half-point between 3 and 10. Some ESPN BET
+    records (mostly 2022-23) put the over PRICE (-125) in the `total` field
+    instead of the line - treat anything else as missing rather than guess."""
+    if tot is None or not (3.0 <= tot <= 10.0) or (tot * 2) % 1 != 0:
+        return None
+    return tot
+
+
 def _total(item: dict, stage: str):
     st = item.get(stage) or {}
-    tot, over, under = _am(st.get("total")), _am(st.get("over")), _am(st.get("under"))
+    tot, over, under = _valid_line(_am(st.get("total"))), _am(st.get("over")), _am(st.get("under"))
     if stage == "current" and tot is None:
-        tot, over, under = _am(item.get("overUnder")), _am(item.get("overOdds")), _am(item.get("underOdds"))
+        tot, over, under = _valid_line(_am(item.get("overUnder"))), _am(item.get("overOdds")), _am(item.get("underOdds"))
+    if tot is None:
+        over = under = None  # prices without a trustworthy line are unusable
     return tot, over, under
 
 
