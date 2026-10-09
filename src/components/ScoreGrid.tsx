@@ -1,13 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { fairOdds } from "@/lib/nhlModel";
 
 const SHOW = 8; // goals 0..7 on each axis - everything past that is a rounding error in the tails
 
-function cellText(p: number): string {
-  if (p >= 0.0995) return (p * 100).toFixed(1);
-  if (p >= 0.001) return (p * 100).toFixed(1);
-  return "";
+function cellText(p: number, show: "pct" | "odds"): string {
+  if (p < 0.001) return "";
+  return show === "odds" ? fairOdds(p) : (p * 100).toFixed(1);
 }
 
 /** Probability of every score as a heatmap: columns are the home team's goals, rows the away team's.
@@ -17,6 +17,7 @@ function cellText(p: number): string {
  * regulation ties muted - never green/red, which this app reserves for profit and loss. */
 export default function ScoreGrid({ home, away, finalGrid, regGrid }: { home: string; away: string; finalGrid: number[][]; regGrid: number[][] }) {
   const [mode, setMode] = useState<"final" | "reg">("final");
+  const [show, setShow] = useState<"pct" | "odds">("pct");
   const grid = mode === "final" ? finalGrid : regGrid;
   const cells = grid.slice(0, SHOW).flatMap((row) => row.slice(0, SHOW));
   const max = Math.max(...cells, 1e-9);
@@ -41,7 +42,23 @@ export default function ScoreGrid({ home, away, finalGrid, regGrid }: { home: st
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-3 text-[11px] text-muted">
+        <div className="flex w-fit gap-1 rounded-lg border border-border bg-surface p-1">
+          {(
+            [
+              ["pct", "%"],
+              ["odds", "Odds"],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setShow(key)}
+              className={`rounded px-3 py-1 text-xs font-medium transition-colors ${show === key ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="flex w-full items-center gap-3 text-[11px] text-muted">
           <span className="flex items-center gap-1">
             <span className="h-2.5 w-2.5 rounded-sm" style={{ background: "var(--accent)" }} />
             {home} wins
@@ -85,11 +102,11 @@ export default function ScoreGrid({ home, away, finalGrid, regGrid }: { home: st
                   return (
                     <td
                       key={h}
-                      title={`${home} ${h} – ${away} ${a}: ${(p * 100).toFixed(2)}%`}
+                      title={`${home} ${h} – ${away} ${a}: ${(p * 100).toFixed(2)}% (${fairOdds(p)})`}
                       className="h-9 w-11 rounded text-foreground"
                       style={{ background: p > 0.0005 ? `color-mix(in srgb, ${tone} ${strength}%, transparent)` : "transparent" }}
                     >
-                      {cellText(p)}
+                      {cellText(p, show)}
                     </td>
                   );
                 })}
@@ -99,7 +116,7 @@ export default function ScoreGrid({ home, away, finalGrid, regGrid }: { home: st
         </table>
       </div>
       <p className="mt-2 text-[11px] text-muted">
-        Cells are % chance of that exact score. Grid covers 0–7 goals each ({(shown * 100).toFixed(1)}% of all outcomes).
+        Cells are the chance of that exact score (or its fair no-vig American price when Odds is selected). Grid covers 0–7 goals each ({(shown * 100).toFixed(1)}% of all outcomes).
         {mode === "final" && " A game tied after 60:00 ends one goal apart on the official score, so the diagonal is empty."}
       </p>
     </div>

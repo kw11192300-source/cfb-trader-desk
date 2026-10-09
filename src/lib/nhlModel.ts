@@ -50,6 +50,17 @@ export function fmtOdds(n: number | null): string {
   return n > 0 ? `+${n}` : `${n}`;
 }
 
+/** Fair (no-vig) American price for a probability, rounded to a whole number; null when it's too close to 0 or 1 to mean anything. */
+export function probToAmerican(p: number): number | null {
+  if (!Number.isFinite(p) || p < 0.001 || p > 0.999) return null;
+  return p >= 0.5 ? -Math.round((100 * p) / (1 - p)) : Math.round((100 * (1 - p)) / p);
+}
+
+/** "-134" / "+287" for a probability, or "—". */
+export function fairOdds(p: number): string {
+  return fmtOdds(probToAmerican(p));
+}
+
 /** Model's most likely single final score and its probability (an official final never ties). */
 export function mostLikelyScore(pred: NhlPrediction): { home: number; away: number; p: number } {
   let best = { home: 0, away: 0, p: -1 };

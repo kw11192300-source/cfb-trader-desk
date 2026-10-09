@@ -3,7 +3,7 @@ import LocalDateTime from "./LocalDateTime";
 import LogBetForm from "./LogBetForm";
 import LogPropBetForm from "./LogPropBetForm";
 import type { GradedBet } from "@/lib/data";
-import { fairMoneyline, pct, puckLineCover } from "@/lib/nhlModel";
+import { fairMoneyline, fairOdds, pct, puckLineCover } from "@/lib/nhlModel";
 import type { Bet, Game, NhlGameXg, NhlPrediction } from "@/lib/types";
 
 /** Spreads only: "+" means this side is getting points (underdog) - same
@@ -95,7 +95,7 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between text-sm">
           <span className="text-foreground">{game.away_team}</span>
-          {showModel && <span className="font-mono text-xs text-accent">{pct(1 - prediction.p_home, 0)}</span>}
+          {showModel && <span className="font-mono text-xs text-accent">{pct(1 - prediction.p_home, 0)} <span className="text-muted">{fairOdds(1 - prediction.p_home)}</span></span>}
           {game.completed && game.away_points !== null && (
             <span className={`font-mono ${(game.away_points ?? 0) > (game.home_points ?? 0) ? "font-semibold text-foreground" : "text-muted"}`}>
               {game.away_points}
@@ -106,7 +106,7 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
         </div>
         <div className="flex items-center justify-between text-sm">
           <span className="text-foreground">{game.home_team}</span>
-          {showModel && <span className="font-mono text-xs text-accent">{pct(prediction.p_home, 0)}</span>}
+          {showModel && <span className="font-mono text-xs text-accent">{pct(prediction.p_home, 0)} <span className="text-muted">{fairOdds(prediction.p_home)}</span></span>}
           {game.completed && game.home_points !== null && (
             <span className={`font-mono ${(game.home_points ?? 0) > (game.away_points ?? 0) ? "font-semibold text-foreground" : "text-muted"}`}>
               {game.home_points}
@@ -123,7 +123,7 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
             exp {prediction.exp_away.toFixed(1)}–{prediction.exp_home.toFixed(1)} · tot {prediction.exp_total.toFixed(1)}
           </span>
           <span>
-            {game.home_team.split(" ").slice(-1)[0]} -1.5 {pct(puckLineCover(prediction.margin_dist, "home", -1.5), 0)}
+            {game.home_team.split(" ").slice(-1)[0]} -1.5 {pct(puckLineCover(prediction.margin_dist, "home", -1.5), 0)} ({fairOdds(puckLineCover(prediction.margin_dist, "home", -1.5))})
             {fair ? ` · DK ${pct(fair.home, 0)}` : ""}
           </span>
         </div>

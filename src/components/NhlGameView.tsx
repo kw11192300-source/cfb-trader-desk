@@ -1,7 +1,8 @@
 import GoalieLock from "./GoalieLock";
 import LocalDateTime from "./LocalDateTime";
+import ProbOdds from "./ProbOdds";
 import ScoreGrid from "./ScoreGrid";
-import { devig, fairMoneyline, fmtOdds, mostLikelyScore, overUnder, pct, puckLineCover } from "@/lib/nhlModel";
+import { devig, fairMoneyline, fairOdds, fmtOdds, mostLikelyScore, overUnder, pct, puckLineCover } from "@/lib/nhlModel";
 import type { Game, NhlGameXg, NhlPrediction } from "@/lib/types";
 
 const LADDER = [4.5, 5.5, 6.5, 7.5, 8.5];
@@ -27,10 +28,10 @@ function WinBar({ home, away, pHome }: { home: string; away: string; pHome: numb
     <div>
       <div className="mb-1.5 flex items-baseline justify-between text-sm">
         <span className="text-foreground">
-          {away} <span className="font-mono font-semibold">{pct(1 - pHome)}</span>
+          {away} <span className="font-mono font-semibold"><ProbOdds p={1 - pHome} /></span>
         </span>
         <span className="text-foreground">
-          <span className="font-mono font-semibold">{pct(pHome)}</span> {home}
+          <span className="font-mono font-semibold"><ProbOdds p={pHome} /></span> {home}
         </span>
       </div>
       <div className="flex h-2.5 overflow-hidden rounded-full bg-surface-raised">
@@ -87,16 +88,16 @@ export default function NhlGameView({ game, prediction, xg }: { game: Game; pred
               <div>
                 <div className="text-muted">Win in regulation</div>
                 <div className="font-mono text-foreground">
-                  {away} {pct(1 - prediction.p_home_reg - prediction.p_tie_reg)} · {home} {pct(prediction.p_home_reg)}
+                  {away} <ProbOdds p={1 - prediction.p_home_reg - prediction.p_tie_reg} /> · {home} <ProbOdds p={prediction.p_home_reg} />
                 </div>
               </div>
               <div>
                 <div className="text-muted">Tied after 60:00</div>
-                <div className="font-mono text-foreground">{pct(prediction.p_tie_reg)}</div>
+                <div className="font-mono text-foreground"><ProbOdds p={prediction.p_tie_reg} /></div>
               </div>
               <div>
                 <div className="text-muted">Goes to shootout</div>
-                <div className="font-mono text-foreground">{prediction.p_shootout !== null ? pct(prediction.p_shootout) : "—"}</div>
+                <div className="font-mono text-foreground">{prediction.p_shootout !== null ? <ProbOdds p={prediction.p_shootout} /> : "—"}</div>
               </div>
               <div>
                 <div className="text-muted">Expected final score</div>
@@ -107,7 +108,8 @@ export default function NhlGameView({ game, prediction, xg }: { game: Game; pred
             </div>
             {fair && (
               <div className="mt-4 rounded-md bg-surface-raised px-3 py-2 text-xs text-muted">
-                Market ({m?.provider ?? "book"}, no-vig): {away} {pct(fair.away)} · {home} {pct(fair.home)} — model is{" "}
+                Market ({m?.provider ?? "book"}): posted {away} {fmtOdds(m?.ml_away ?? null)} / {home} {fmtOdds(m?.ml_home ?? null)}; no-vig {away}{" "}
+                <ProbOdds p={fair.away} /> · {home} <ProbOdds p={fair.home} /> — model is{" "}
                 <span className="font-mono text-foreground">
                   {prediction.p_home - fair.home >= 0 ? "+" : ""}
                   {((prediction.p_home - fair.home) * 100).toFixed(1)} pts
@@ -117,7 +119,7 @@ export default function NhlGameView({ game, prediction, xg }: { game: Game; pred
             )}
           </Card>
 
-          <Card title="Score probabilities" note={`most likely: ${away} ${mostLikelyScore(prediction).away} – ${mostLikelyScore(prediction).home} ${home} (${pct(mostLikelyScore(prediction).p)})`}>
+          <Card title="Score probabilities" note={`most likely: ${away} ${mostLikelyScore(prediction).away} – ${mostLikelyScore(prediction).home} ${home} (${pct(mostLikelyScore(prediction).p)}, ${fairOdds(mostLikelyScore(prediction).p)})`}>
             <ScoreGrid home={home} away={away} finalGrid={prediction.score_matrix} regGrid={prediction.score_matrix_reg} />
           </Card>
 
@@ -152,11 +154,11 @@ export default function NhlGameView({ game, prediction, xg }: { game: Game; pred
                             {isMarket && <span className="ml-1.5 text-[10px] text-accent">book</span>}
                           </td>
                           <Cell strong>
-                            {pct(f.over)} / {pct(f.under)}
+                            <ProbOdds p={f.over} /> / <ProbOdds p={f.under} />
                             {f.push > 0.001 && <span className="text-muted"> · push {pct(f.push)}</span>}
                           </Cell>
-                          <Cell>{o ? pct(o.over) : "—"}</Cell>
-                          <Cell>{r ? pct(r.over) : "—"}</Cell>
+                          <Cell>{o ? <ProbOdds p={o.over} stacked /> : "—"}</Cell>
+                          <Cell>{r ? <ProbOdds p={r.over} stacked /> : "—"}</Cell>
                         </tr>
                       );
                     })}
@@ -192,7 +194,7 @@ export default function NhlGameView({ game, prediction, xg }: { game: Game; pred
                         <td className="px-3 py-1.5 text-foreground">{name}</td>
                         {[-2.5, -1.5, 1.5, 2.5].map((line) => (
                           <Cell key={line} strong={Math.abs(line) === 1.5}>
-                            {pct(puckLineCover(prediction.margin_dist, side, line))}
+                            <ProbOdds p={puckLineCover(prediction.margin_dist, side, line)} stacked />
                           </Cell>
                         ))}
                       </tr>
@@ -208,8 +210,10 @@ export default function NhlGameView({ game, prediction, xg }: { game: Game; pred
                 <div className="mt-3 rounded-md bg-surface-raised px-3 py-2 text-xs text-muted">
                   {m.provider ?? "Book"}: {home} {m.spread_home_line > 0 ? "+" : ""}
                   {m.spread_home_line} ({fmtOdds(m.spread_home_odds)}) / {away} {m.spread_home_line > 0 ? "" : "+"}
-                  {-m.spread_home_line} ({fmtOdds(m.spread_away_odds)}) — no-vig {home} cover {pct(devig(m.spread_home_odds, m.spread_away_odds))}, model{" "}
-                  <span className="font-mono text-foreground">{pct(puckLineCover(prediction.margin_dist, "home", m.spread_home_line))}</span>
+                  {-m.spread_home_line} ({fmtOdds(m.spread_away_odds)}) — no-vig {home} cover <ProbOdds p={devig(m.spread_home_odds, m.spread_away_odds)} />, model{" "}
+                  <span className="font-mono text-foreground">
+                    <ProbOdds p={puckLineCover(prediction.margin_dist, "home", m.spread_home_line)} />
+                  </span>
                 </div>
               )}
             </Card>
@@ -218,10 +222,10 @@ export default function NhlGameView({ game, prediction, xg }: { game: Game; pred
           {m && m.total_line !== null && m.over_odds !== null && m.under_odds !== null && (
             <Card title={`Totals vs ${m.provider ?? "the book"}`}>
               <div className="text-xs text-muted">
-                Line {m.total_line.toFixed(1)} (over {fmtOdds(m.over_odds)} / under {fmtOdds(m.under_odds)}); no-vig over {pct(devig(m.over_odds, m.under_odds))}. Model (final score):
+                Line {m.total_line.toFixed(1)} (over {fmtOdds(m.over_odds)} / under {fmtOdds(m.under_odds)}); no-vig over <ProbOdds p={devig(m.over_odds, m.under_odds)} />. Model (final score):
                 over{" "}
                 <span className="font-mono text-foreground">
-                  {pct(overUnder(prediction.total_dist, m.total_line).over / (1 - overUnder(prediction.total_dist, m.total_line).push))}
+                  <ProbOdds p={overUnder(prediction.total_dist, m.total_line).over / (1 - overUnder(prediction.total_dist, m.total_line).push)} />
                 </span>{" "}
                 excluding pushes.
               </div>
