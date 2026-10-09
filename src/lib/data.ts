@@ -11,8 +11,10 @@ import type {
   LineSnapshot,
   ModelBacktest,
   ModelBacktestGame,
+  NhlEdgeLogRow,
   NhlGameXg,
   NhlGoalieStatsRow,
+  NhlOddsSnapshot,
   NhlTeamStatsRow,
   NhlPrediction,
   OddsApiLine,
@@ -815,6 +817,37 @@ export async function getNhlUpcomingEdgeInputs(): Promise<{ game: Game; pred: Ed
     const pred = byGame.get(game.id);
     return pred ? [{ game, pred }] : [];
   });
+}
+
+/** Every saved DraftKings price set for one game, oldest first (empty before the snapshot tables exist or the timer runs). */
+export async function getNhlOddsSnapshots(gameId: number): Promise<NhlOddsSnapshot[]> {
+  const { data, error } = await supabase.from("nhl_odds_snapshots").select("*").eq("game_id", gameId).order("captured_at", { ascending: true });
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw new Error(error.message);
+  }
+  return (data ?? []) as NhlOddsSnapshot[];
+}
+
+/** Every GRADED edge-log row (the data behind the Edge log page), read in pages since PostgREST caps a request at 1000
+ * rows. Also returns how many logged rows are still waiting on a result. */
+export async function getNhlEdgeLog(): Promise<{ graded: NhlEdgeLogRow[]; pending: number; games: number }> {
+  const graded: NhlEdgeLogRow[] = [];
+  const cols = "game_id, kind, market, side_key, side, line, book_odds, book_implied, model_prob, ev, clv_pts, result, profit";
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from("nhl_edge_log").select(cols).not("result", "is", null).order("id", { ascending: true }).range(from, from + 999);
+    if (error) {
+      if (isMissingTable(error)) return { graded: [], pending: 0, games: 0 };
+      throw new Error(error.message);
+    }
+    graded.push(...((data ?? []) as unknown as NhlEdgeLogRow[]));
+    if (!data || data.length < 1000) break;
+  }
+  const [{ count: pending }, { count: gameCount }] = await Promise.all([
+    supabase.from("nhl_edge_log").select("id", { count: "exact", head: true }).is("result", null).eq("kind", "close"),
+    supabase.from("nhl_edge_log").select("id", { count: "exact", head: true }).eq("kind", "close"),
+  ]);
+  return { graded, pending: Math.round((pending ?? 0) / 6), games: Math.round((gameCount ?? 0) / 6) };
 }
 
 /** One NHL game plus its model output, for the game page. */

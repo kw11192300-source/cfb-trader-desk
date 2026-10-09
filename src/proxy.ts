@@ -11,6 +11,10 @@ export async function proxy(request: NextRequest) {
   if (request.nextUrl.pathname.startsWith("/login")) {
     return NextResponse.next();
   }
+  // timers can't log in - the cron routes check their own CRON_SECRET instead
+  if (request.nextUrl.pathname.startsWith("/api/cron/")) {
+    return NextResponse.next();
+  }
 
   const cookie = request.cookies.get(COOKIE_NAME)?.value;
   if (cookie === expected) {

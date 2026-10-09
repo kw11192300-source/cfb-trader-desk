@@ -279,6 +279,8 @@ export type NhlMarket = {
   under_odds: number | null;
   /** When these lines were read from ESPN (set by publish.py and by the odds-only refresh). */
   fetched_at?: string | null;
+  /** When this exact set of prices was saved to nhl_odds_snapshots (set by the odds update). */
+  snap_at?: string | null;
 };
 
 /** python/nhl_model/publish.py output for one upcoming game - see nhl_predictions in schema.sql.
@@ -317,6 +319,38 @@ export type NhlSimParams = {
   pool: { home: NhlGoalie[]; away: NhlGoalie[] };
   /** What a refresh assumes with NO lock - restored when a lock is removed. */
   estimated: { home: { goalies: NhlGoalie[]; source: GoalieSource; confirmed: boolean }; away: { goalies: NhlGoalie[]; source: GoalieSource; confirmed: boolean } };
+};
+
+/** One saved set of DraftKings prices for a game (nhl_odds_snapshots) - written whenever any of them moved. */
+export type NhlOddsSnapshot = {
+  game_id: number;
+  captured_at: string;
+  provider: string | null;
+  ml_home: number | null;
+  ml_away: number | null;
+  spread_home_line: number | null;
+  spread_home_odds: number | null;
+  spread_away_odds: number | null;
+  total_line: number | null;
+  over_odds: number | null;
+  under_odds: number | null;
+};
+
+/** One logged side of one market (nhl_edge_log) - what the model priced against DraftKings, graded after the game. */
+export type NhlEdgeLogRow = {
+  game_id: number;
+  kind: "first" | "close";
+  market: "Moneyline" | "Puck line" | "Total";
+  side_key: "home" | "away" | "over" | "under";
+  side: string;
+  line: number | null;
+  book_odds: number;
+  book_implied: number;
+  model_prob: number;
+  ev: number;
+  clv_pts: number | null;
+  result: "win" | "loss" | "push" | null;
+  profit: number | null;
 };
 
 /** python/nhl_model/team_stats.py - one team's season (or last-10) line. Descriptive, not a forecast. */

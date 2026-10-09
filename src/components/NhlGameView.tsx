@@ -1,6 +1,7 @@
 import GoalieLock from "./GoalieLock";
 import LocalDateTime from "./LocalDateTime";
 import NhlMarketComparison from "./NhlMarketComparison";
+import NhlOddsChart from "./NhlOddsChart";
 import NhlTeamLogo from "./NhlTeamLogo";
 import NhlWinBar from "./NhlWinBar";
 import NhlYourLine from "./NhlYourLine";
@@ -9,7 +10,7 @@ import ScoreGrid from "./ScoreGrid";
 import { matchupColors } from "@/lib/nhlColors";
 import { marketEdges } from "@/lib/nhlEdges";
 import { fairOdds, mostLikelyScore, overUnder, pct, puckLineCover } from "@/lib/nhlModel";
-import type { Game, NhlGameXg, NhlPrediction } from "@/lib/types";
+import type { Game, NhlGameXg, NhlOddsSnapshot, NhlPrediction } from "@/lib/types";
 
 const TOTAL_LINES = Array.from({ length: 11 }, (_, i) => 4 + i * 0.5); // 4, 4.5 ... 9
 const PUCK_LINES = [-2.5, -1.5, 1.5, 2.5]; // the home team's handicap; the away team's is the opposite sign
@@ -31,7 +32,7 @@ function Cell({ children, strong }: { children: React.ReactNode; strong?: boolea
   return <td className={`px-3 py-1.5 text-right font-mono text-xs ${strong ? "font-semibold text-foreground" : "text-foreground"}`}>{children}</td>;
 }
 
-export default function NhlGameView({ game, prediction, xg }: { game: Game; prediction: NhlPrediction | null; xg: NhlGameXg | null }) {
+export default function NhlGameView({ game, prediction, xg, snapshots = [] }: { game: Game; prediction: NhlPrediction | null; xg: NhlGameXg | null; snapshots?: NhlOddsSnapshot[] }) {
   const home = game.home_team;
   const away = game.away_team;
   const done = game.completed && game.home_points !== null && game.away_points !== null;
@@ -118,6 +119,22 @@ export default function NhlGameView({ game, prediction, xg }: { game: Game; pred
               dists={{ p_home: prediction.p_home, margin_dist: prediction.margin_dist, total_dist: prediction.total_dist }}
               defaults={{ homeSpread: m?.spread_home_line ?? null, total: m?.total_line ?? null }}
             />
+          </Card>
+
+          <Card title="DraftKings price movement" note={snapshots.length > 0 ? `${snapshots.length} price change${snapshots.length === 1 ? "" : "s"} saved` : "saved whenever a price moves"}>
+            {snapshots.length === 0 ? (
+              <p className="text-xs text-muted">
+                No price history yet. Snapshots are saved each time DraftKings&apos; prices move (every ~10 minutes once the odds timer is on, or whenever you press
+                Update DK odds), so this fills in from now on.
+              </p>
+            ) : (
+              <NhlOddsChart
+                snapshots={snapshots}
+                home={home}
+                away={away}
+                model={{ p_home: prediction.p_home, margin_dist: prediction.margin_dist, total_dist: prediction.total_dist }}
+              />
+            )}
           </Card>
 
           <Card title="Score probabilities" note={`most likely: ${away} ${mostLikelyScore(prediction).away} – ${mostLikelyScore(prediction).home} ${home} (${pct(mostLikelyScore(prediction).p)}, ${fairOdds(mostLikelyScore(prediction).p)})`}>

@@ -4,6 +4,9 @@ import type { NhlPrediction } from "./types";
 export type EdgeRow = {
   market: "Moneyline" | "Puck line" | "Total";
   side: string;
+  /** Machine-readable side, and the line it is on (this side's own handicap / the total; null for a moneyline). */
+  sideKey: "home" | "away" | "over" | "under";
+  line: number | null;
   /** The price on offer (American). */
   bookOdds: number;
   /** The win probability that price needs to break even - it includes the book's vig. */
@@ -19,9 +22,9 @@ export type EdgeRow = {
 
 const decimal = (american: number): number => (american > 0 ? 1 + american / 100 : 1 + 100 / -american);
 
-function row(market: EdgeRow["market"], side: string, bookOdds: number, model: number): EdgeRow {
+function row(market: EdgeRow["market"], side: string, sideKey: EdgeRow["sideKey"], line: number | null, bookOdds: number, model: number): EdgeRow {
   const implied = americanToProb(bookOdds);
-  return { market, side, bookOdds, bookImplied: implied, model, modelOdds: probToAmerican(model), edgePts: (model - implied) * 100, ev: model * decimal(bookOdds) - 1 };
+  return { market, side, sideKey, line, bookOdds, bookImplied: implied, model, modelOdds: probToAmerican(model), edgePts: (model - implied) * 100, ev: model * decimal(bookOdds) - 1 };
 }
 
 const sign = (n: number) => (n > 0 ? `+${n}` : `${n}`);
@@ -55,7 +58,7 @@ export function customEdge(
   const team = bet.side === "home" ? home : away;
   const label =
     bet.market === "Moneyline" ? team : bet.market === "Puck line" ? `${team} ${sign(bet.line)}` : `${bet.side === "over" ? "Over" : "Under"} ${bet.line}`;
-  return row(bet.market, label, bet.odds, prob);
+  return row(bet.market, label, bet.side, bet.market === "Moneyline" ? null : bet.line, bet.odds, prob);
 }
 
 /** Every side of the moneyline, puck line and total that the book has posted, priced against our simulation. */

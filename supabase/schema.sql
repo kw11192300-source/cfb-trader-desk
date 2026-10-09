@@ -531,6 +531,44 @@ create table if not exists nhl_goalie_stats (
   primary key (season, scope, goalie_id)
 );
 
+-- DraftKings (via ESPN) prices for upcoming NHL games, one row each time any of them moved - the data behind the price
+-- movement chart on the game page. Written by the odds update (src/lib/nhlOdds.ts), every ~10 minutes when the timer is on.
+create table if not exists nhl_odds_snapshots (
+  id bigserial primary key,
+  game_id bigint not null references games(id) on delete cascade,
+  captured_at timestamptz not null default now(),
+  provider text,
+  ml_home int, ml_away int,
+  spread_home_line numeric, spread_home_odds int, spread_away_odds int,
+  total_line numeric, over_odds int, under_odds int
+);
+create index if not exists nhl_odds_snapshots_game_idx on nhl_odds_snapshots (game_id, captured_at);
+
+-- Every side of every market the model priced, whether or not it was a "bet": kind 'first' = the first time the game had
+-- both a prediction and DraftKings lines, 'close' = the last look before the game started (rewritten on every update
+-- until then). Graded automatically after the game, so the model's edges can be tested across a whole season.
+create table if not exists nhl_edge_log (
+  id bigserial primary key,
+  game_id bigint not null references games(id) on delete cascade,
+  kind text not null,                 -- 'first' | 'close'
+  market text not null,               -- 'Moneyline' | 'Puck line' | 'Total'
+  side_key text not null,             -- home | away | over | under
+  side text not null,                 -- label shown on the site
+  line numeric,                       -- that side's own handicap / the total (null for a moneyline)
+  logged_at timestamptz not null default now(),
+  book_odds int not null,
+  book_implied numeric not null,      -- break-even probability of that price
+  model_prob numeric not null,
+  ev numeric not null,
+  close_odds int,                     -- (kind 'first') the same side's price at the close, if the line didn't move
+  clv_pts numeric,                    -- (kind 'first') close implied minus first implied, in probability points
+  result text,                        -- win | loss | push
+  profit numeric,                     -- units won/lost on a 1-unit stake at book_odds
+  graded_at timestamptz,
+  unique (game_id, kind, market, side_key)
+);
+create index if not exists nhl_edge_log_game_idx on nhl_edge_log (game_id);
+
 create table if not exists nhl_game_xg (
   game_id bigint primary key references games(id) on delete cascade,
   model_version text,
@@ -723,6 +761,8 @@ alter table nhl_predictions enable row level security;
 alter table nhl_game_xg enable row level security;
 alter table nhl_goalie_locks enable row level security;
 alter table nhl_team_stats enable row level security;
+alter table nhl_odds_snapshots enable row level security;
+alter table nhl_edge_log enable row level security;
 alter table nhl_goalie_stats enable row level security;
 
 create policy "public read" on teams for select using (true);
@@ -750,6 +790,8 @@ create policy "public read" on nhl_predictions for select using (true);
 create policy "public read" on nhl_game_xg for select using (true);
 create policy "public read" on nhl_goalie_locks for select using (true);
 create policy "public read" on nhl_team_stats for select using (true);
+create policy "public read" on nhl_odds_snapshots for select using (true);
+create policy "public read" on nhl_edge_log for select using (true);
 create policy "public read" on nhl_goalie_stats for select using (true);
 -- NO policy on bets at all, not even public read - real stakes/P&L, the
 -- one genuinely sensitive table in this app. Only the secret key (service
