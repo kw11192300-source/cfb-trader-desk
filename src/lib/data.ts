@@ -710,13 +710,17 @@ function isMissingTable(error: { code?: string; message: string }): boolean {
  * nhl_predictions migration has been run or the publisher has produced anything. */
 export async function getNhlPredictions(gameIds: number[]): Promise<Map<number, NhlPrediction>> {
   if (gameIds.length === 0) return new Map();
-  const { data, error } = await supabase.from("nhl_predictions").select("*").in("game_id", gameIds);
+  const { data, error } = await supabase.from("nhl_predictions").select(NHL_PREDICTION_COLUMNS).in("game_id", gameIds);
   if (error) {
     if (isMissingTable(error)) return new Map();
     throw new Error(error.message);
   }
-  return new Map((data as NhlPrediction[]).map((p) => [p.game_id, p]));
+  return new Map((data as unknown as NhlPrediction[]).map((p) => [p.game_id, p]));
 }
+
+// Everything except sim_params (the heaviest column, only the game page needs it).
+const NHL_PREDICTION_COLUMNS =
+  "game_id, model_version, generated_at, p_home, p_home_reg, p_tie_reg, p_shootout, exp_home, exp_away, exp_total, total_dist, margin_dist, score_matrix, score_matrix_reg, extras, assumptions, market";
 
 /** Our xG for finished NHL games, keyed by game id (same optional-table treatment as above). */
 export async function getNhlGameXg(gameIds: number[]): Promise<Map<number, NhlGameXg>> {
@@ -744,6 +748,7 @@ export async function getNhlGame(id: number): Promise<{ game: Game; prediction: 
   const { data: game, error } = await supabase.from("games").select("*").eq("id", id).eq("sport", "nhl").maybeSingle();
   if (error) throw new Error(error.message);
   if (!game) return null;
-  const [pred, xg] = await Promise.all([getNhlPredictions([id]), getNhlGameXg([id])]);
-  return { game: game as Game, prediction: pred.get(id) ?? null, xg: xg.get(id) ?? null };
+  const [predRes, xg] = await Promise.all([supabase.from("nhl_predictions").select("*").eq("game_id", id).maybeSingle(), getNhlGameXg([id])]);
+  if (predRes.error && !isMissingTable(predRes.error)) throw new Error(predRes.error.message);
+  return { game: game as Game, prediction: (predRes.data as NhlPrediction | null) ?? null, xg: xg.get(id) ?? null };
 }

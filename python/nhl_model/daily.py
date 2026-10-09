@@ -23,9 +23,25 @@ import time
 
 from cfbd_ingest.sync_nhl_espn import _season_year
 
+import pandas as pd
+
 from . import ingest, parse, publish, sim_inputs, team_games, xg
 
 FIRST_SEASON = 2015  # 2015-16: the oldest season the model trains on
+
+
+def derived_data_current() -> bool:
+    """True when every finished game we have play-by-play for is already in the parsed tables - i.e. nothing new
+    finished since the last full run, so parse -> xG -> team games -> simulation inputs would reproduce the same
+    files. Lets a "refresh because a goalie got confirmed" run skip ~4 of its 5 minutes."""
+    needed = [parse.GAMES_OUT, xg.SHOTS_XG_OUT, team_games.TEAM_GAMES_OUT, sim_inputs.SIM_TEAM_GAMES_OUT, sim_inputs.SIM_TABLES_OUT]
+    if not all(p.exists() for p in needed):
+        return False
+    sched = pd.read_csv(ingest.SCHEDULE_CSV)
+    done = sched[sched["game_state"].isin(["FINAL", "OFF"])]
+    have_raw = {int(r.game_id) for r in done.itertuples() if (ingest.RAW_PBP / str(int(r.season)) / f"{int(r.game_id)}.json.gz").exists()}
+    parsed = set(pd.read_csv(parse.GAMES_OUT, usecols=["game_id"])["game_id"])
+    return have_raw <= parsed
 
 
 def main() -> None:
@@ -38,19 +54,24 @@ def main() -> None:
     # pull every season once, then it's incremental - only the current season's schedule is
     # refreshed and only play-by-play files that don't exist yet get fetched.
     first = season if ingest.SCHEDULE_CSV.exists() else FIRST_SEASON
-    steps = [
+    t0 = time.time()
+    for name, fn in (
         (f"schedule {first}-{season}", lambda: ingest.run_schedule(first, season)),
         (f"play-by-play {FIRST_SEASON}-{season}", lambda: ingest.run_pbp(FIRST_SEASON, season)),
-        ("parse", parse.run),
-        ("xG", (lambda: print("  skipped")) if a.skip_xg else xg.run),
-        ("team games", team_games.run),
-        ("simulation inputs", sim_inputs.run),
-        ("publish", lambda: publish.main(["--dry-run"] if a.dry_run else [])),
-    ]
-    t0 = time.time()
-    for name, fn in steps:
+    ):
         print(f"\n=== {name} ({time.time() - t0:.0f}s elapsed) ===")
         fn()
+
+    # the heavy rebuild only matters when a game finished since the last one
+    if a.skip_xg or derived_data_current():
+        print(f"\n=== parse / xG / team games / simulation inputs: nothing new finished - reusing the last build ({time.time() - t0:.0f}s elapsed) ===")
+    else:
+        for name, fn in (("parse", parse.run), ("xG", xg.run), ("team games", team_games.run), ("simulation inputs", sim_inputs.run)):
+            print(f"\n=== {name} ({time.time() - t0:.0f}s elapsed) ===")
+            fn()
+
+    print(f"\n=== publish ({time.time() - t0:.0f}s elapsed) ===")
+    publish.main(["--dry-run"] if a.dry_run else [])
     print(f"\ndone in {time.time() - t0:.0f}s")
 
 

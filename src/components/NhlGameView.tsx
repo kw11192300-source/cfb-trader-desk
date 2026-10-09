@@ -1,3 +1,4 @@
+import GoalieLock from "./GoalieLock";
 import LocalDateTime from "./LocalDateTime";
 import ScoreGrid from "./ScoreGrid";
 import { devig, fairMoneyline, fmtOdds, mostLikelyScore, overUnder, pct, puckLineCover } from "@/lib/nhlModel";
@@ -228,34 +229,18 @@ export default function NhlGameView({ game, prediction, xg }: { game: Game; pred
           )}
 
           {prediction.assumptions && (
-            <Card title="Goalie assumption" note={prediction.assumptions.goalie_confirmed ? "confirmed" : "starters not confirmed"}>
-              <div className="grid gap-4 text-xs sm:grid-cols-2">
-                {(
-                  [
-                    [away, prediction.assumptions.goalies.away],
-                    [home, prediction.assumptions.goalies.home],
-                  ] as const
-                ).map(([team, gs]) => (
-                  <div key={team}>
-                    <div className="mb-1 font-medium text-foreground">{team}</div>
-                    {gs.length === 0 && <div className="text-muted">No recent starter on file.</div>}
-                    {gs.map((g) => (
-                      <div key={g.id} className="flex items-center justify-between gap-3 py-0.5">
-                        <span className="text-foreground">
-                          {g.name} <span className="font-mono text-muted">{pct(g.weight, 0)}</span>
-                        </span>
-                        <span className="font-mono text-muted" title="Goals saved above expected per 100 shot attempts, shrunk toward average">
-                          {g.rating >= 0 ? "+" : ""}
-                          {g.rating.toFixed(2)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
+            <Card title="Goalies" note={prediction.assumptions.goalie_confirmed ? "both starters confirmed" : "starters not both confirmed"}>
+              <GoalieLock
+                gameId={game.id}
+                home={home}
+                away={away}
+                assumptions={prediction.assumptions}
+                canLock={Boolean(prediction.sim_params) && !game.completed && !game.live_status}
+              />
               <p className="mt-3 text-[11px] text-muted">
-                Likely starters come from who started each team&apos;s last 10 games (the previous starter is discounted on a back-to-back). The rating is
-                saves above expected per 100 attempts, heavily shrunk toward average. Once a starter is confirmed the numbers should be re-run.
+                Starters come from ESPN&apos;s probable-goalie call (it flips from expected to confirmed when a team announces), falling back to who started each
+                team&apos;s last 10 games. When ESPN is only &quot;expected&quot;, the model hedges 75/25 with our next-most-likely starter. Ratings are saves
+                above expected per 100 attempts, heavily shrunk toward average. Lock in a goalie to re-run this game instantly; locks survive refreshes.
               </p>
             </Card>
           )}

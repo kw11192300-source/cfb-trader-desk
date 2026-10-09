@@ -491,8 +491,19 @@ create table if not exists nhl_predictions (
   score_matrix jsonb not null,              -- [home goals 0-9][away goals 0-9], official final score
   score_matrix_reg jsonb not null,          -- same, regulation (60:00) - ties land on the diagonal
   extras jsonb,                             -- regulation / through-overtime total distributions, n_sims
-  assumptions jsonb,                        -- {goalies: {home: [...], away: [...]}, goalie_confirmed}
-  market jsonb                              -- DraftKings line via ESPN at generation time, if posted
+  assumptions jsonb,                        -- {goalies: {home: [...], away: [...]}, goalie_confirmed, sources, confirmed, pool}
+  market jsonb,                             -- DraftKings line via ESPN at generation time, if posted
+  sim_params jsonb                          -- the simulation's inputs, so the site can re-run ONE game instantly when a goalie is locked
+);
+alter table nhl_predictions add column if not exists sim_params jsonb;  -- for databases created before this column existed
+
+-- A goalie you've locked in on the game page (confirmed starter), which beats ESPN's call and our estimate on every
+-- later refresh. null = not locked on that side; 0 = "someone not listed" (simulated as a league-average goalie).
+create table if not exists nhl_goalie_locks (
+  game_id bigint primary key references games(id) on delete cascade,
+  home_goalie_id bigint,
+  away_goalie_id bigint,
+  locked_at timestamptz not null default now()
 );
 
 create table if not exists nhl_game_xg (
@@ -685,6 +696,7 @@ alter table inseason_edges enable row level security;
 alter table sharp_steam_alerts enable row level security;
 alter table nhl_predictions enable row level security;
 alter table nhl_game_xg enable row level security;
+alter table nhl_goalie_locks enable row level security;
 
 create policy "public read" on teams for select using (true);
 create policy "public read" on games for select using (true);
@@ -709,6 +721,7 @@ create policy "public read" on inseason_edges for select using (true);
 create policy "public read" on sharp_steam_alerts for select using (true);
 create policy "public read" on nhl_predictions for select using (true);
 create policy "public read" on nhl_game_xg for select using (true);
+create policy "public read" on nhl_goalie_locks for select using (true);
 -- NO policy on bets at all, not even public read - real stakes/P&L, the
 -- one genuinely sensitive table in this app. Only the secret key (service
 -- role, bypasses RLS) can read OR write it - reads go through

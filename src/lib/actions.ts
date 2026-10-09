@@ -1,7 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { simulateGame, type GoalieScenario } from "@/lib/nhlSim";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import type { GoalieSource, NhlGoalie, NhlPrediction } from "@/lib/types";
 
 /** Logs a real bet. Called from a <form action={logBet}> in a Client
  * Component - the action itself runs server-side only (that's what "use
@@ -155,4 +157,62 @@ export async function triggerNhlRefresh(): Promise<{ ok: boolean; message: strin
     return { ok: false, message: "GitHub refused the request - check the token has Actions read & write on the repo." };
   }
   return { ok: false, message: `GitHub returned ${res.status}.` };
+}
+
+/** Locks in the confirmed starting goalies for one NHL game and re-simulates it right away (about a second -
+ * the saved inputs in sim_params are replayed with the chosen goalies, see nhlSim.ts).
+ * For each side: a goalie id to lock, 0 = someone not in the list (simulated as a league-average goalie), or
+ * null = no lock (back to ESPN's call / our estimate). The lock is also saved to nhl_goalie_locks so every later
+ * refresh (which re-fits everything) keeps respecting it. */
+export async function setNhlGoalies(gameId: number, home: number | null, away: number | null): Promise<{ ok: boolean; message: string }> {
+  const { data: row, error } = await supabaseAdmin.from("nhl_predictions").select("*").eq("game_id", gameId).maybeSingle();
+  if (error) return { ok: false, message: error.message };
+  if (!row) return { ok: false, message: "There's no prediction for this game yet." };
+  const pred = row as NhlPrediction;
+  const sp = pred.sim_params;
+  if (!sp) return { ok: false, message: "This prediction predates goalie locking - run Refresh model once, then try again." };
+
+  const { data: game } = await supabaseAdmin.from("games").select("start_date, completed").eq("id", gameId).maybeSingle();
+  if (!game || game.completed || new Date(game.start_date).getTime() <= Date.now()) {
+    return { ok: false, message: "This game has already started, so its prediction is frozen." };
+  }
+
+  const resolve = (key: "home" | "away", lockId: number | null): { goalies: NhlGoalie[]; source: GoalieSource; confirmed: boolean } => {
+    if (lockId === null) return sp.estimated[key];
+    if (lockId === 0) return { goalies: [{ id: null, name: "Other (league-average goalie)", weight: 1, rating: 0 }], source: "locked", confirmed: true };
+    const g = sp.pool[key].find((p) => p.id === lockId);
+    return { goalies: [{ id: lockId, name: g?.name ?? `Goalie ${lockId}`, weight: 1, rating: g?.rating ?? 0 }], source: "locked", confirmed: true };
+  };
+  const h = resolve("home", home);
+  const a = resolve("away", away);
+
+  // the lock first - if its table isn't there yet, say so before touching the prediction
+  const lockWrite =
+    home === null && away === null
+      ? await supabaseAdmin.from("nhl_goalie_locks").delete().eq("game_id", gameId)
+      : await supabaseAdmin
+          .from("nhl_goalie_locks")
+          .upsert({ game_id: gameId, home_goalie_id: home, away_goalie_id: away, locked_at: new Date().toISOString() }, { onConflict: "game_id" });
+  if (lockWrite.error) {
+    const missing = /schema cache|does not exist/i.test(lockWrite.error.message);
+    return { ok: false, message: missing ? "The goalie-locks table doesn't exist yet - run the new SQL migration first." : lockWrite.error.message };
+  }
+
+  const toScenario = (g: NhlGoalie): GoalieScenario => ({ rating: g.rating, weight: g.weight });
+  const sim = simulateGame(sp.rates, sp.tables, h.goalies.map(toScenario), a.goalies.map(toScenario), 40000, Math.abs(gameId) % 1000003);
+  const assumptions = {
+    ...pred.assumptions,
+    goalies: { home: h.goalies, away: a.goalies },
+    goalie_confirmed: h.confirmed && a.confirmed,
+    sources: { home: h.source, away: a.source },
+    confirmed: { home: h.confirmed, away: a.confirmed },
+    pool: sp.pool,
+  };
+  const { error: updateError } = await supabaseAdmin.from("nhl_predictions").update({ ...sim, assumptions }).eq("game_id", gameId);
+  if (updateError) return { ok: false, message: updateError.message };
+
+  revalidatePath(`/nhl/games/${gameId}`);
+  revalidatePath("/nhl");
+  const locked = [home, away].filter((x) => x !== null).length;
+  return { ok: true, message: locked === 0 ? "Back to the estimate - re-simulated." : `Locked ${locked} goalie${locked === 1 ? "" : "s"} - re-simulated.` };
 }

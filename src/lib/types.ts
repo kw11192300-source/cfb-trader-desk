@@ -261,7 +261,10 @@ export type WatchlistPick = {
 };
 
 /** One goalie the NHL model assumed might start, with how likely and how good. */
-export type NhlGoalie = { id: number; name: string; weight: number; rating: number };
+export type NhlGoalie = { id: number | null; name: string; weight: number; rating: number };
+
+/** Where a side's goalie assumption came from, most to least authoritative. */
+export type GoalieSource = "locked" | "espn_confirmed" | "espn_expected" | "usage";
 
 /** DraftKings' line via ESPN at the time the prediction was generated. Prices are American odds. */
 export type NhlMarket = {
@@ -294,8 +297,24 @@ export type NhlPrediction = {
   score_matrix: number[][]; // [home goals][away goals], official final score
   score_matrix_reg: number[][]; // same, after 60:00 (ties on the diagonal)
   extras: { reg_total_dist: Record<string, number>; ot_total_dist: Record<string, number>; exp_total_reg: number; n_sims: number } | null;
-  assumptions: { goalies: { home: NhlGoalie[]; away: NhlGoalie[] }; goalie_confirmed: boolean } | null;
+  assumptions: {
+    goalies: { home: NhlGoalie[]; away: NhlGoalie[] };
+    goalie_confirmed: boolean;
+    sources?: { home: GoalieSource; away: GoalieSource };
+    confirmed?: { home: boolean; away: boolean };
+    pool?: { home: NhlGoalie[]; away: NhlGoalie[] }; // goalies you can lock in for each team
+  } | null;
   market: NhlMarket | null;
+  /** The simulation's inputs (see nhlSim.ts). Only fetched on the game page - it's the heaviest column. */
+  sim_params?: NhlSimParams | null;
+};
+
+export type NhlSimParams = {
+  rates: import("./nhlSim").SimRates;
+  tables: import("./nhlSim").SimTables;
+  pool: { home: NhlGoalie[]; away: NhlGoalie[] };
+  /** What a refresh assumes with NO lock - restored when a lock is removed. */
+  estimated: { home: { goalies: NhlGoalie[]; source: GoalieSource; confirmed: boolean }; away: { goalies: NhlGoalie[]; source: GoalieSource; confirmed: boolean } };
 };
 
 /** Our own xG for a finished NHL game (python/nhl_model/team_games.py) - see nhl_game_xg in schema.sql. */
