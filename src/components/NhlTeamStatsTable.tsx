@@ -3,12 +3,7 @@
 import StatTable, { fmtD, fmtPct, type StatCol, type StatRow } from "./StatTable";
 
 const COLS: StatCol[] = [
-  { key: "power", label: "Power", title: "Power rating: expected goal differential per game over the rest of the season vs an average team. Built from the five pieces to the right (they add up to it)", fmt: fmtD("power", 2), signed: true },
-  { key: "power_ev", label: "Even str.", title: "Power rating piece: even-strength xG differential (score-adjusted)", fmt: fmtD("power_ev", 2), signed: true },
-  { key: "power_st", label: "Spec. teams", title: "Power rating piece: power play + penalty kill xG differential (score-adjusted)", fmt: fmtD("power_st", 2), signed: true },
-  { key: "power_goalie", label: "Goaltending", title: "Power rating piece: goals prevented vs xG (shrunk - it is only partly skill)", fmt: fmtD("power_goalie", 2), signed: true },
-  { key: "power_finish", label: "Finishing", title: "Power rating piece: goals scored vs xG (shrunk - it is only partly skill)", fmt: fmtD("power_finish", 2), signed: true },
-  { key: "power_prior", label: "Last season", title: "Power rating piece: carried in from last season's xG differential - fades as this season's games pile up", fmt: fmtD("power_prior", 2), signed: true },
+  { key: "power", label: "Power", title: "Power rating: expected goal differential per game over the rest of the season vs an average team. It is the sum of the five pieces at the far right of the table", fmt: fmtD("power", 2), signed: true },
   { key: "gp", label: "GP", fmt: fmtD("gp", 0) },
   { key: "w", label: "W-L-OTL", title: "Wins - regulation losses - overtime/shootout losses", fmt: (r) => `${r.stats.w}-${r.stats.l}-${r.stats.otl}` },
   { key: "pts", label: "Pts", title: "Real standings points (2 for a win, 1 for an overtime/shootout loss)", fmt: fmtD("pts", 0) },
@@ -29,6 +24,11 @@ const COLS: StatCol[] = [
   { key: "pk_xga60", label: "PK xGA/60", title: "Expected goals allowed per 60 minutes shorthanded (lower is better)", fmt: fmtD("pk_xga60", 2) },
   { key: "finishing_pg", label: "Finishing/g", title: "Goals scored minus xG, per game. Positive = scoring more than the chances suggest", fmt: fmtD("finishing_pg", 2), signed: true },
   { key: "goaltending_pg", label: "Goaltending/g", title: "xG against minus goals against, per game. Positive = the goalies stopped more than expected", fmt: fmtD("goaltending_pg", 2), signed: true },
+  { key: "power_ev", label: "Pwr · Even str.", title: "Power rating piece: even-strength xG differential (score-adjusted)", fmt: fmtD("power_ev", 2), signed: true },
+  { key: "power_st", label: "Pwr · Spec. teams", title: "Power rating piece: power play + penalty kill xG differential (score-adjusted)", fmt: fmtD("power_st", 2), signed: true },
+  { key: "power_goalie", label: "Pwr · Goaltending", title: "Power rating piece: goals prevented vs xG (shrunk - it is only partly skill)", fmt: fmtD("power_goalie", 2), signed: true },
+  { key: "power_finish", label: "Pwr · Finishing", title: "Power rating piece: goals scored vs xG (shrunk - it is only partly skill)", fmt: fmtD("power_finish", 2), signed: true },
+  { key: "power_prior", label: "Pwr · Last season", title: "Power rating piece: carried in from last season's xG differential - fades as this season's games pile up", fmt: fmtD("power_prior", 2), signed: true },
 ];
 
 export default function NhlTeamStatsTable({ rows, defaultSort }: { rows: StatRow[]; defaultSort: string }) {
