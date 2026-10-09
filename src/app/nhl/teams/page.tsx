@@ -27,15 +27,21 @@ export default async function NhlTeamsPage({ searchParams }: { searchParams: Pro
             attempt. Click any column heading to sort.
           </p>
           <p className="mt-2">
-            <span className="text-foreground">xPts</span> replays each game from its chances: every shot scores with probability equal to its xG, which gives
+            <span className="text-foreground">xPts</span> replays each game from its chances: every shot scores with probability equal to its xG (adjusted for the
+            score when it was taken, below), which gives
             each team a chance to win in regulation, tie after 60:00 or lose in regulation. A tie goes to overtime/shootout (winner 2 points, loser 1, treated as
             a coin flip), so <span className="font-mono text-foreground">xPts = 2 × P(win in reg) + 1.5 × P(tied after 60)</span>. Pts − xPts is the gap between
             real points and what the chances earned: finishing, goaltending, empty nets and overtime luck.
           </p>
+          <p className="mt-2">
+            <span className="text-foreground">Score adjustment:</span> a team protecting a lead gets out-chanced and a trailing team pushes, so raw xG makes winners look
+            worse than they were. Each shot&apos;s xG is reweighted by how much the average team creates in that score state (trailing by two ≈ 3.1 xG per 60,
+            tied ≈ 2.7, leading by two or more ≈ 2.5) relative to a tied game. The unadjusted xPts is kept alongside for comparison.
+          </p>
           <p className="mt-2 text-warn/90">
-            Descriptive, not a forecast. Two honest caveats from testing on 2015–2025: a team that wins tends to sit on the lead and get outshot, so single-game
-            chance quality overstates how often the better-chances team actually wins; and in a first-half to second-half test, xPts did <em>not</em> predict later
-            points better than real points did. Treat it as how a team&apos;s results compare to its process, not as a betting signal.
+            Descriptive, not a forecast. Tested on 2015–2025: the adjustment moved the top-chances games from &quot;modelled 69% to win, actually 47%&quot; to 70% vs
+            61%, and lifted a first-half → second-half points test from 0.50 to 0.53 (real points: 0.57), so xPts still did not predict later points better than
+            real points did. Treat it as how a team&apos;s results compare to its process, not as a betting signal.
           </p>
         </div>
 

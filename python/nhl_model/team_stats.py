@@ -4,8 +4,13 @@ Team and goalie tables for the site's NHL "Teams" and "Goalies" tabs.
 Everything here is DESCRIPTIVE - what already happened, measured with our own xG - not a forecast.
 
 Expected points: for every finished game, each team's regulation shots become a Poisson-binomial
-distribution of goals (every unblocked attempt scores with probability = its xG, independently), so we
-get P(team wins in regulation), P(tied after 60:00), P(loses in regulation) from the CHANCES alone.
+distribution of goals (every unblocked attempt scores with probability = its SCORE-ADJUSTED xG, independently),
+so we get P(team wins in regulation), P(tied after 60:00), P(loses in regulation) from the CHANCES alone.
+Score adjustment (score_state_frame): a team protecting a lead is out-chanced and a trailing team pushes, which
+makes raw single-game xG look worse for winners than it is. Each shot's xG is reweighted by the league-wide xG
+rate in that score state, relative to a tied game. In testing (2015-2025) this took the "top-chances team wins"
+calibration from 69% modelled / 47% actual to 70% / 61% and lifted a first-half -> second-half points test from
+0.50 to 0.53 (real points: 0.57). The unadjusted version is kept as xpts_raw.
 Standings points are 2 for a win, 1 for an overtime/shootout loss, 0 for a regulation loss, and a game
 that is tied after 60:00 is an overtime/shootout coin flip (the winner gets 2, the loser 1), so
     xPts = 2 * P(win in reg) + 1.5 * P(tied after reg)
@@ -70,6 +75,51 @@ def _div(a, b):
     return float(a) / float(b) if b else None
 
 
+LEAD_CAP = 3  # score states are "own lead before the shot", capped at +-3
+
+
+def score_state_frame() -> pd.DataFrame:
+    """Every unblocked regulation attempt with the shooter's lead BEFORE the shot (own goals - opponent goals,
+    capped at +-3) and its score-adjusted xG.
+
+    Score effects: a team that is ahead plays safer and gets out-chanced, a team that is behind pushes. Over 13k
+    games the average team creates about 3.1 xG per 60 minutes when trailing by two, 2.7 when tied and 2.5 when
+    leading by two or more. Each shot's xG is weighted by (tied-game rate / rate in that score state), so a
+    leader's chances count a little more and a trailer's a little less - roughly what the chances would have
+    been if the score hadn't changed how anyone played."""
+    s = pd.read_csv(SHOTS_XG_OUT, usecols=["game_id", "period", "t", "event", "shooter_team_id", "xg"], low_memory=False)
+    s = s[s["period"] <= 3].copy()
+    s["order"] = np.arange(len(s))
+    s = s.sort_values(["game_id", "t", "order"]).reset_index(drop=True)  # t is seconds from the start of the game
+    goal = (s["event"] == "goal").astype(int)
+    s["goal"] = goal
+    own_before = s.groupby(["game_id", "shooter_team_id"])["goal"].cumsum() - s["goal"]
+    all_before = s.groupby("game_id")["goal"].cumsum() - s["goal"]
+    s["lead"] = (2 * own_before - all_before).clip(-LEAD_CAP, LEAD_CAP)
+
+    # time spent in each state, from the goal times
+    tg = pd.read_csv(TEAM_GAMES_OUT, usecols=["game_id", "team_id", "opp_id"]).drop_duplicates("game_id")
+    goals = s[s["goal"] == 1].groupby("game_id")[["t", "shooter_team_id"]].apply(lambda d: list(zip(d["t"], d["shooter_team_id"])))
+    seconds: dict[int, float] = {k: 0.0 for k in range(-LEAD_CAP, LEAD_CAP + 1)}
+    for r in tg.itertuples():
+        cur, last = 0, 0.0
+        for c, team in goals.get(r.game_id, []):
+            d = int(np.clip(cur, -LEAD_CAP, LEAD_CAP))
+            seconds[d] += c - last  # team_id's seconds at lead d ...
+            seconds[-d] += c - last  # ... and the opponent's at -d
+            cur += 1 if team == r.team_id else -1
+            last = c
+        d = int(np.clip(cur, -LEAD_CAP, LEAD_CAP))
+        seconds[d] += 3600.0 - last
+        seconds[-d] += 3600.0 - last
+    x = s[s["xg"].notna()]
+    per_state = x.groupby("lead")["xg"].sum()
+    rate = {k: per_state.get(k, 0.0) / seconds[k] for k in seconds if seconds[k] > 0}
+    weight = {k: rate[0] / v for k, v in rate.items()}
+    s["xg_adj"] = s["xg"] * s["lead"].map(weight)
+    return s
+
+
 # ---------------------------------------------------------------- expected points
 
 def goals_pmf(xgs: np.ndarray) -> np.ndarray:
@@ -91,42 +141,47 @@ def result_probs(a: np.ndarray, b: np.ndarray) -> tuple[float, float, float]:
     return win, tie, max(0.0, 1.0 - win - tie)
 
 
+def _points(win: np.ndarray, tie: np.ndarray, loss: np.ndarray, real_tie_rate: float) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Rescale P(tied after 60) so the model's league-wide tie rate equals the real one (independent shots are less
+    over-dispersed than real games), give wins and losses what's left in their original proportion, then convert to
+    expected points and expected wins."""
+    k = real_tie_rate / float(tie.mean())
+    t = np.minimum(tie * k, 0.6)
+    wl = np.where(win + loss > 0, win + loss, np.nan)
+    w2, l2 = (1 - t) * win / wl, (1 - t) * loss / wl
+    return w2, t, l2, 2.0 * w2 + 1.5 * t, w2 + 0.5 * t
+
+
 def game_expectations() -> pd.DataFrame:
-    """One row per (game, team): P(reg win), P(tied after 60), xPts, xW from regulation xG alone."""
-    s = pd.read_csv(SHOTS_XG_OUT, usecols=["game_id", "period", "shooter_team_id", "xg"], low_memory=False)
-    s = s[s["xg"].notna() & (s["period"] <= 3)]
-    per_team = {k: g["xg"].to_numpy() for k, g in s.groupby(["game_id", "shooter_team_id"])}
-    tg = pd.read_csv(TEAM_GAMES_OUT, usecols=["game_id", "team_id", "opp_id"])
-    pm: dict[tuple, np.ndarray] = {}
+    """One row per (game, team): expected points two ways - from raw xG and from score-adjusted xG (the headline) -
+    plus that team's score-adjusted regulation xG for and against."""
+    s = score_state_frame()
+    x = s[s["xg"].notna()]
+    raw = {k: g["xg"].to_numpy() for k, g in x.groupby(["game_id", "shooter_team_id"])}
+    adj = {k: np.clip(g["xg_adj"].to_numpy(), 0.0, 0.97) for k, g in x.groupby(["game_id", "shooter_team_id"])}
+    tg = pd.read_csv(TEAM_GAMES_OUT, usecols=["game_id", "team_id", "opp_id", "goals_for_reg_official", "goals_against_reg_official"])
+    cache: dict[tuple, np.ndarray] = {}
+
+    def pm(src: dict, tag: str, key: tuple) -> np.ndarray:
+        if (tag, key) not in cache:
+            cache[(tag, key)] = goals_pmf(src.get(key, np.zeros(0)))
+        return cache[(tag, key)]
+
     rows = []
     for r in tg.itertuples():
         ka, kb = (r.game_id, r.team_id), (r.game_id, r.opp_id)
-        if ka not in per_team and kb not in per_team:
+        if ka not in raw and kb not in raw:
             continue
-        for k in (ka, kb):
-            if k not in pm:
-                pm[k] = goals_pmf(per_team.get(k, np.zeros(0)))
-        w, t, l = result_probs(pm[ka], pm[kb])
-        rows.append((r.game_id, r.team_id, w, t, l, 2.0 * w + 1.5 * t, w + 0.5 * t))
-    out = pd.DataFrame(rows, columns=["game_id", "team_id", "p_win_reg", "p_tie_reg", "p_loss_reg", "xpts", "xw"])
-    return calibrate_ties(out, tg)
-
-
-def calibrate_ties(ex: pd.DataFrame, tg_all: pd.DataFrame) -> pd.DataFrame:
-    """One league-wide factor on P(tied after 60:00) so the modelled tie rate equals the real one."""
-    real = pd.read_csv(TEAM_GAMES_OUT, usecols=["game_id", "team_id", "goals_for_reg_official", "goals_against_reg_official"])
-    m = ex.merge(real, on=["game_id", "team_id"])
-    actual = float((m["goals_for_reg_official"] == m["goals_against_reg_official"]).mean())
-    k = actual / float(ex["p_tie_reg"].mean())
-    ex = ex.copy()
-    tie = (ex["p_tie_reg"] * k).clip(upper=0.6)
-    wl = (ex["p_win_reg"] + ex["p_loss_reg"]).replace(0, np.nan)
-    ex["p_win_reg"] = (1 - tie) * ex["p_win_reg"] / wl
-    ex["p_loss_reg"] = (1 - tie) * ex["p_loss_reg"] / wl
-    ex["p_tie_reg"] = tie
-    ex["xpts"] = 2.0 * ex["p_win_reg"] + 1.5 * ex["p_tie_reg"]
-    ex["xw"] = ex["p_win_reg"] + 0.5 * ex["p_tie_reg"]
-    return ex
+        rw, rt, rl = result_probs(pm(raw, "raw", ka), pm(raw, "raw", kb))
+        aw, at, al = result_probs(pm(adj, "adj", ka), pm(adj, "adj", kb))
+        rows.append((r.game_id, r.team_id, rw, rt, rl, aw, at, al, float(adj.get(ka, np.zeros(0)).sum()), float(adj.get(kb, np.zeros(0)).sum())))
+    ex = pd.DataFrame(rows, columns=["game_id", "team_id", "rw", "rt", "rl", "aw", "at", "al", "xgf_adj", "xga_adj"])
+    real = tg.set_index(["game_id", "team_id"])
+    tie_rate = float((real["goals_for_reg_official"] == real["goals_against_reg_official"]).mean())
+    pw, pt, pl, xpts, xw = _points(ex["aw"].to_numpy(), ex["at"].to_numpy(), ex["al"].to_numpy(), tie_rate)
+    _, _, _, xpts_raw, _ = _points(ex["rw"].to_numpy(), ex["rt"].to_numpy(), ex["rl"].to_numpy(), tie_rate)
+    ex["p_win_reg"], ex["p_tie_reg"], ex["p_loss_reg"], ex["xpts"], ex["xw"], ex["xpts_raw"] = pw, pt, pl, xpts, xw, xpts_raw
+    return ex.drop(columns=["rw", "rt", "rl", "aw", "at", "al"])
 
 
 # ---------------------------------------------------------------- teams
@@ -156,6 +211,7 @@ def team_stats(g: pd.DataFrame) -> dict:
     pts_x = float(g.loc[have_x, "pts"].sum())  # real points over the same games, so the gap is apples to apples
     n_x = int(have_x.sum())
     xgf, xga = c("xgf"), c("xga")
+    sa_f, sa_a = float(g.loc[have_x, "xgf_adj"].sum()), float(g.loc[have_x, "xga_adj"].sum())
     ev_f, ev_a = c("xg_reg_ev"), c("xg_reg_ev_against")
     return {
         "gp": gp, "w": int(c("w")), "l": int(c("l")), "otl": int(c("otl")), "pts": int(c("pts")),
@@ -163,6 +219,9 @@ def team_stats(g: pd.DataFrame) -> dict:
         "xpts": _r(xpts, 2), "pts_diff": _r(pts_x - xpts, 2), "xpts_gp": n_x,
         "xpts_pace": _r(_div(xpts, n_x) * 82, 1) if n_x else None,
         "xw": _r(float(g.loc[have_x, "xw"].sum()), 2),
+        "xpts_raw": _r(float(g.loc[have_x, "xpts_raw"].sum()), 2),
+        "sa_xgf_pct": _r(_div(sa_f, sa_f + sa_a), 4),  # regulation, score-adjusted
+        "sa_xgd_pg": _r(_div(sa_f - sa_a, n_x)) if n_x else None,
         "gf_pg": _r(_div(c("gf"), gp)), "ga_pg": _r(_div(c("ga"), gp)),
         "xgf_pg": _r(_div(xgf, gp)), "xga_pg": _r(_div(xga, gp)), "xgd_pg": _r(_div(xgf - xga, gp)),
         "xgf_pct": _r(_div(xgf, xgf + xga), 4),
