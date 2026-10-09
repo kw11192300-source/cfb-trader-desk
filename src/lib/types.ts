@@ -277,6 +277,8 @@ export type NhlMarket = {
   total_line: number | null;
   over_odds: number | null;
   under_odds: number | null;
+  /** When these lines were read from ESPN (set by publish.py and by the odds-only refresh). */
+  fetched_at?: string | null;
 };
 
 /** python/nhl_model/publish.py output for one upcoming game - see nhl_predictions in schema.sql.

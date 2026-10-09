@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { simulateGame, type GoalieScenario } from "@/lib/nhlSim";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import type { GoalieSource, NhlGoalie, NhlPrediction } from "@/lib/types";
+import type { GoalieSource, NhlGoalie, NhlMarket, NhlPrediction } from "@/lib/types";
 
 /** Logs a real bet. Called from a <form action={logBet}> in a Client
  * Component - the action itself runs server-side only (that's what "use
@@ -157,6 +157,102 @@ export async function triggerNhlRefresh(): Promise<{ ok: boolean; message: strin
     return { ok: false, message: "GitHub refused the request - check the token has Actions read & write on the repo." };
   }
   return { ok: false, message: `GitHub returned ${res.status}.` };
+}
+
+const ESPN_NHL_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard";
+const NHL_GAME_ID_OFFSET = 5_000_000_000; // games.id = -(ESPN event id + this) - see sync_nhl_espn.py
+
+const espnLine = (s: unknown): number | null => {
+  if (s == null) return null;
+  const n = Number(String(s).replace(/^[ou]/, ""));
+  return Number.isFinite(n) ? n : null;
+};
+const espnOdds = (s: unknown): number | null => {
+  if (s == null) return null;
+  const n = Number(String(s).replace("+", ""));
+  return Number.isFinite(n) ? Math.round(n) : null;
+};
+
+type EspnPrice = { close?: { odds?: string; line?: string } };
+type EspnOdds = {
+  provider?: { name?: string };
+  moneyline?: { home?: EspnPrice; away?: EspnPrice };
+  pointSpread?: { home?: EspnPrice; away?: EspnPrice };
+  total?: { over?: EspnPrice; under?: EspnPrice };
+};
+type EspnBoard = { events?: { id: string; status?: { type?: { state?: string } }; competitions?: { odds?: EspnOdds[] }[] }[] };
+
+/** Same fields, same "close" side, as parse_market in python/nhl_model/publish.py. */
+function parseEspnMarket(o: EspnOdds, fetchedAt: string): NhlMarket {
+  const ml = o.moneyline ?? {};
+  const ps = o.pointSpread ?? {};
+  const tot = o.total ?? {};
+  return {
+    provider: o.provider?.name ?? null,
+    ml_home: espnOdds(ml.home?.close?.odds),
+    ml_away: espnOdds(ml.away?.close?.odds),
+    spread_home_line: espnLine(ps.home?.close?.line),
+    spread_home_odds: espnOdds(ps.home?.close?.odds),
+    spread_away_odds: espnOdds(ps.away?.close?.odds),
+    total_line: espnLine(tot.over?.close?.line),
+    over_odds: espnOdds(tot.over?.close?.odds),
+    under_odds: espnOdds(tot.under?.close?.odds),
+    fetched_at: fetchedAt,
+  };
+}
+
+/** Odds-only refresh: re-reads ESPN's DraftKings lines for upcoming games and overwrites just the `market` of each
+ * published prediction - takes a few seconds, no model refit (the model's own numbers are untouched, so compare
+ * against it only until the next full refresh changes lineups or ratings). Games that already started are skipped. */
+export async function refreshNhlOdds(): Promise<{ ok: boolean; message: string }> {
+  const fetchedAt = new Date().toISOString();
+  const now = Date.now();
+  // ESPN's date parameter is a US calendar day, so cover a day either side of UTC today.
+  const days = [-1, 0, 1, 2, 3].map((d) => new Date(now + d * 86400000).toISOString().slice(0, 10).replaceAll("-", ""));
+  let boards: EspnBoard[];
+  try {
+    boards = await Promise.all(
+      days.map(async (d) => {
+        const res = await fetch(`${ESPN_NHL_SCOREBOARD}?dates=${d}`, { cache: "no-store" });
+        if (!res.ok) throw new Error(`ESPN returned ${res.status}`);
+        return res.json();
+      }),
+    );
+  } catch (e) {
+    return { ok: false, message: `Couldn't reach ESPN: ${e instanceof Error ? e.message : "unknown error"}.` };
+  }
+
+  const incoming = new Map<number, NhlMarket>();
+  for (const board of boards) {
+    for (const ev of board?.events ?? []) {
+      if (ev?.status?.type?.state !== "pre") continue;
+      const o = ev?.competitions?.[0]?.odds?.[0];
+      if (!o) continue;
+      incoming.set(-(Number(ev.id) + NHL_GAME_ID_OFFSET), parseEspnMarket(o, fetchedAt));
+    }
+  }
+
+  const { data: rows, error } = await supabaseAdmin.from("nhl_predictions").select("game_id, market").in("game_id", [...incoming.keys()]);
+  if (error) return { ok: false, message: error.message };
+
+  let changed = 0;
+  const failures: string[] = [];
+  await Promise.all(
+    (rows ?? []).map(async (r) => {
+      const next = incoming.get(r.game_id as number)!;
+      const prev = (r.market ?? null) as NhlMarket | null;
+      const same = prev && (Object.keys(next) as (keyof NhlMarket)[]).every((k) => k === "fetched_at" || prev[k] === next[k]);
+      if (!same) changed++;
+      const { error: upErr } = await supabaseAdmin.from("nhl_predictions").update({ market: { ...(prev ?? {}), ...next } }).eq("game_id", r.game_id);
+      if (upErr) failures.push(upErr.message);
+    }),
+  );
+  if (failures.length > 0) return { ok: false, message: `Some updates failed: ${failures[0]}` };
+
+  revalidatePath("/nhl");
+  const n = rows?.length ?? 0;
+  if (n === 0) return { ok: true, message: "No upcoming published games have DraftKings lines on ESPN yet." };
+  return { ok: true, message: `DraftKings odds updated for ${n} games (${changed} had moved).` };
 }
 
 /** Locks in the confirmed starting goalies for one NHL game and re-simulates it right away (about a second -

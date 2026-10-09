@@ -256,7 +256,7 @@ def prediction_row(our_id: int, s: dict, assumptions: dict, sim_params: dict, ma
             "exp_total_reg": round(s["exp_total_reg"], 3),
             "n_sims": N_SIMS,
         },
-        "assumptions": assumptions, "sim_params": sim_params, "market": market,
+        "assumptions": assumptions, "sim_params": sim_params, "market": {**market, "fetched_at": now.isoformat()} if market else None,
     }
 
 

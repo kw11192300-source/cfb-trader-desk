@@ -28,6 +28,13 @@ export default async function NhlPage({ searchParams }: { searchParams: Promise<
     getNhlRefreshStatus(),
   ]);
 
+  // newest time any upcoming game's DraftKings line was read (full refresh or the odds-only button)
+  let oddsUpdated: string | null = null;
+  for (const p of predictions.values()) {
+    const t = p.market?.fetched_at;
+    if (t && (!oddsUpdated || t > oddsUpdated)) oddsUpdated = t;
+  }
+
   const betsByGame = new Map<number, GradedBet[]>();
   for (const gb of allBets) {
     if (gb.bet.sport !== "nhl" || gb.bet.game_id === null) continue;
@@ -46,7 +53,7 @@ export default async function NhlPage({ searchParams }: { searchParams: Promise<
           &quot;Week&quot; here is a rolling ~7-day bucket, not a real NHL schedule concept - just enough structure to reuse the same Board/tabs as CFB/NFL.
         </p>
 
-        <NhlRefreshButton lastPublished={lastPublished} initial={refreshStatus} />
+        <NhlRefreshButton lastPublished={lastPublished} oddsUpdated={oddsUpdated} initial={refreshStatus} />
 
         <div className="mb-4">
           <LogParlayForm sport="nhl" />
