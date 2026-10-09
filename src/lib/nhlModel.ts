@@ -14,6 +14,20 @@ export function overUnder(dist: Record<string, number>, line: number): { over: n
   return { over, under, push };
 }
 
+/** The total (half or whole numbers, 4.5-7.5) whose over/under is closest to 50/50 on the final-score distribution.
+ * Over and under are given excluding a push (a whole-number line refunds on it, so that's the fair price). */
+export function balancedTotal(dist: Record<string, number>): { line: number; over: number; under: number; push: number } {
+  let best: { line: number; over: number; under: number; push: number } | null = null;
+  for (let line = 4.5; line <= 7.5; line += 0.5) {
+    const { over, under, push } = overUnder(dist, line);
+    const live = 1 - push;
+    if (live <= 0) continue;
+    const cand = { line, over: over / live, under: under / live, push };
+    if (!best || Math.abs(cand.over - 0.5) < Math.abs(best.over - 0.5)) best = cand;
+  }
+  return best ?? { line: 5.5, over: 0.5, under: 0.5, push: 0 };
+}
+
 /** P(a team covers a puck line) from the FINAL home-margin distribution. `line` is that team's own
  * handicap (-1.5 = must win by 2+, +1.5 = can lose by one). A game decided in overtime or a
  * shootout is always a one-goal margin on the official score, so -1.5 needs a regulation win by 2+. */

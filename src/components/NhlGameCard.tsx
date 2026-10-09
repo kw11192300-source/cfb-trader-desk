@@ -3,7 +3,7 @@ import LocalDateTime from "./LocalDateTime";
 import LogBetForm from "./LogBetForm";
 import LogPropBetForm from "./LogPropBetForm";
 import type { GradedBet } from "@/lib/data";
-import { fairMoneyline, fairOdds, pct, puckLineCover } from "@/lib/nhlModel";
+import { balancedTotal, fairMoneyline, fairOdds, pct, puckLineCover } from "@/lib/nhlModel";
 import type { Bet, Game, NhlGameXg, NhlPrediction } from "@/lib/types";
 
 /** Spreads only: "+" means this side is getting points (underdog) - same
@@ -125,6 +125,16 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
           <span>
             {game.home_team.split(" ").slice(-1)[0]} -1.5 {pct(puckLineCover(prediction.margin_dist, "home", -1.5), 0)} ({fairOdds(puckLineCover(prediction.margin_dist, "home", -1.5))})
             {fair ? ` · DK ${pct(fair.home, 0)}` : ""}
+          </span>
+          <span className="w-full">
+            {(() => {
+              const t = balancedTotal(prediction.total_dist);
+              return (
+                <>
+                  total {t.line % 1 === 0 ? t.line.toFixed(0) : t.line.toFixed(1)}: o {pct(t.over, 0)} ({fairOdds(t.over)}) / u {pct(t.under, 0)} ({fairOdds(t.under)})
+                </>
+              );
+            })()}
           </span>
         </div>
       )}
