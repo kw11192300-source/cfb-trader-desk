@@ -188,15 +188,20 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
             {fair ? ` · DK ${pct(fair.home, 0)}` : ""}
           </span>
           {edges.length > 0 && (
-            <span className="flex w-full flex-wrap gap-x-3 gap-y-0.5 text-accent">
-              <span className="font-semibold">edge vs DK</span>
+            <div className="mt-1 flex w-full flex-col gap-0.5 rounded-md border border-border bg-surface-raised px-2.5 py-1.5 text-foreground">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Edge vs DK</span>
               {edges.map((e) => (
-                <span key={`${e.market}-${e.side}`} title={`Model ${pct(e.model)} vs ${pct(e.bookImplied)} break-even at ${fmtOdds(e.bookOdds)}`}>
-                  {e.market === "Moneyline" ? `${e.short} ML` : e.short} {fmtOdds(e.bookOdds)} · {e.ev >= 0 ? "+" : ""}
-                  {(e.ev * 100).toFixed(1)}% EV
+                <span key={`${e.market}-${e.side}`} title={`Model ${pct(e.model)} vs ${pct(e.bookImplied)} break-even at ${fmtOdds(e.bookOdds)}`} className="flex justify-between gap-3">
+                  <span>
+                    {e.market === "Moneyline" ? `${e.short} ML` : e.short} <span className="text-muted">{fmtOdds(e.bookOdds)}</span>
+                  </span>
+                  <span className="font-semibold">
+                    {e.ev >= 0 ? "+" : ""}
+                    {(e.ev * 100).toFixed(1)}% EV
+                  </span>
                 </span>
               ))}
-            </span>
+            </div>
           )}
         </div>
       )}
