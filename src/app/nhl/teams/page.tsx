@@ -29,6 +29,19 @@ export default async function NhlTeamsPage({ searchParams }: { searchParams: Pro
             attempt. Click any column heading to sort.
           </p>
           <p className="mt-2">
+            <span className="text-foreground">Power</span> folds the stats into one number: the goal differential per game we expect the team to post over the rest of the
+            season, vs an average team. It is a sum of five pieces - even-strength xG differential, special teams, goaltending, finishing, and last season&apos;s
+            xG differential (which fades as the new season fills in) - and the weights are learned from 2015–2025, not chosen by hand. Goaltending and finishing are
+            heavily shrunk because they are only partly skill. Early in the season most of a team&apos;s rating is last year&apos;s; it hands over to this
+            year&apos;s games as they pile up (and a hot or cold start is scaled down about 15% in the first dozen games, because out-of-sample it overshoots). Season view only (no Last 10).
+          </p>
+          <p className="mt-2">
+            Out-of-sample check (each season predicted from a model trained on earlier ones; correlation with goal differential over the games still to come):
+            after 10 games power rating 0.67 vs 0.58 for last season alone and 0.54 for score-adjusted xG differential; after 20 games 0.67 vs 0.60; after 40 games 0.65 vs
+            0.63 for goal differential; after 60 games 0.61 vs 0.61 for points %. So it helps most early, and late in the year it is no better than just
+            looking at the standings.
+          </p>
+          <p className="mt-2">
             <span className="text-foreground">xPts</span> replays each game from its chances: every shot scores with probability equal to its xG (adjusted for the
             score when it was taken, below), which gives
             each team a chance to win in regulation, tie after 60:00 or lose in regulation. A tie goes to overtime/shootout (winner 2 points, loser 1, treated as
@@ -50,7 +63,7 @@ export default async function NhlTeamsPage({ searchParams }: { searchParams: Pro
         <NhlRefreshButton lastPublished={updated} initial={refreshStatus} variant="tables" />
 
         {seasons.length > 0 && <NhlStatControls basePath="/nhl/teams" seasons={seasons} season={season} scope={scope} hasL10={Boolean(hasL10[season])} />}
-        <NhlTeamStatsTable key={`${season}-${scope}`} rows={rows} />
+        <NhlTeamStatsTable key={`${season}-${scope}`} rows={rows} defaultSort={scope === "all" ? "power" : "xgf_pct"} />
       </main>
 
       <SiteFooter />

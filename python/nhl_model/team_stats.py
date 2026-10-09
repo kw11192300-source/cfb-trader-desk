@@ -43,6 +43,7 @@ import pandas as pd
 
 from .goalie_model import build_tracker
 from .ingest import DATA_DIR, RAW_PBP, read_gz
+from . import power_rating
 from .parse import GAMES_OUT
 from .sim_backtest import GOALIE_PRIOR_ATTEMPTS
 from .team_games import TEAM_GAMES_OUT
@@ -87,7 +88,7 @@ def score_state_frame() -> pd.DataFrame:
     leading by two or more. Each shot's xG is weighted by (tied-game rate / rate in that score state), so a
     leader's chances count a little more and a trailer's a little less - roughly what the chances would have
     been if the score hadn't changed how anyone played."""
-    s = pd.read_csv(SHOTS_XG_OUT, usecols=["game_id", "period", "t", "event", "shooter_team_id", "xg"], low_memory=False)
+    s = pd.read_csv(SHOTS_XG_OUT, usecols=["game_id", "period", "t", "event", "shooter_team_id", "xg", "sk_for", "sk_against"], low_memory=False)
     s = s[s["period"] <= 3].copy()
     s["order"] = np.arange(len(s))
     s = s.sort_values(["game_id", "t", "order"]).reset_index(drop=True)  # t is seconds from the start of the game
@@ -181,7 +182,19 @@ def game_expectations() -> pd.DataFrame:
     pw, pt, pl, xpts, xw = _points(ex["aw"].to_numpy(), ex["at"].to_numpy(), ex["al"].to_numpy(), tie_rate)
     _, _, _, xpts_raw, _ = _points(ex["rw"].to_numpy(), ex["rt"].to_numpy(), ex["rl"].to_numpy(), tie_rate)
     ex["p_win_reg"], ex["p_tie_reg"], ex["p_loss_reg"], ex["xpts"], ex["xw"], ex["xpts_raw"] = pw, pt, pl, xpts, xw, xpts_raw
-    return ex.drop(columns=["rw", "rt", "rl", "aw", "at", "al"])
+
+    # score-adjusted xG split into even strength vs power play / penalty kill, for the power rating
+    even = x.assign(even=x["sk_for"] == x["sk_against"])
+    split = even.groupby(["game_id", "shooter_team_id", "even"])["xg_adj"].sum().unstack(fill_value=0.0).reindex(columns=[False, True], fill_value=0.0)
+    split.columns = ["st", "ev"]
+    split = split.reset_index()
+    own = split.rename(columns={"shooter_team_id": "team_id", "ev": "xgf_adj_ev", "st": "xgf_adj_st"})
+    opp = split.rename(columns={"shooter_team_id": "opp_id", "ev": "xga_adj_ev", "st": "xga_adj_st"})
+    ex = ex.merge(tg[["game_id", "team_id", "opp_id"]], on=["game_id", "team_id"], how="left")
+    ex = ex.merge(own, on=["game_id", "team_id"], how="left").merge(opp, on=["game_id", "opp_id"], how="left")
+    for c in ("xgf_adj_ev", "xgf_adj_st", "xga_adj_ev", "xga_adj_st"):
+        ex[c] = ex[c].fillna(0.0)
+    return ex.drop(columns=["rw", "rt", "rl", "aw", "at", "al", "opp_id"])
 
 
 # ---------------------------------------------------------------- teams
@@ -239,10 +252,19 @@ def build_team_rows() -> list[dict]:
     games = pd.read_csv(GAMES_OUT, usecols=["start_utc", "home_team_id", "home_abbrev", "away_team_id", "away_abbrev"]).sort_values("start_utc")
     abbrev = {**dict(zip(games["away_team_id"], games["away_abbrev"])), **dict(zip(games["home_team_id"], games["home_abbrev"]))}
     latest = int(tg["season"].max())
+    pr, _ = power_rating.rate(tg)
+    power = {(int(r.season), int(r.team_id)): r for r in pr.itertuples()}
     rows = []
     for (season, team_id), g in tg.groupby(["season", "team_id"]):
         ab = abbrev.get(team_id, str(team_id))
-        rows.append({"season": int(season), "scope": "all", "team": ab, "team_id": int(team_id), "name": TEAM_NAMES.get(ab, ab), "stats": team_stats(g)})
+        st = team_stats(g)
+        pw = power.get((int(season), int(team_id)))
+        if pw is not None:
+            st["power"] = _r(pw.power)
+            for f in power_rating.FEATURES:
+                st[f"power_{f}"] = _r(getattr(pw, f"comp_{f}"))
+            st["power_rel"] = _r(pw.rel, 2)
+        rows.append({"season": int(season), "scope": "all", "team": ab, "team_id": int(team_id), "name": TEAM_NAMES.get(ab, ab), "stats": st})
         if season == latest:
             last = g.sort_values("t").tail(L10)
             rows.append({"season": int(season), "scope": "l10", "team": ab, "team_id": int(team_id), "name": TEAM_NAMES.get(ab, ab), "stats": team_stats(last)})
