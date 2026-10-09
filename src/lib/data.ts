@@ -729,6 +729,16 @@ export async function getNhlGameXg(gameIds: number[]): Promise<Map<number, NhlGa
   return new Map((data as NhlGameXg[]).map((x) => [x.game_id, x]));
 }
 
+/** When the NHL model last published predictions, across all games (null before the first run). */
+export async function getNhlLastPublished(): Promise<string | null> {
+  const { data, error } = await supabase.from("nhl_predictions").select("generated_at").order("generated_at", { ascending: false }).limit(1);
+  if (error) {
+    if (isMissingTable(error)) return null;
+    throw new Error(error.message);
+  }
+  return data?.[0]?.generated_at ?? null;
+}
+
 /** One NHL game plus its model output, for the game page. */
 export async function getNhlGame(id: number): Promise<{ game: Game; prediction: NhlPrediction | null; xg: NhlGameXg | null } | null> {
   const { data: game, error } = await supabase.from("games").select("*").eq("id", id).eq("sport", "nhl").maybeSingle();

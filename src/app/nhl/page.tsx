@@ -1,9 +1,11 @@
 import LogParlayForm from "@/components/LogParlayForm";
 import NhlGameCard from "@/components/NhlGameCard";
+import NhlRefreshButton from "@/components/NhlRefreshButton";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import WeekTabs from "@/components/WeekTabs";
-import { getAvailableWeeks, getBets, getBoard, getCurrentWeek, getNhlGameXg, getNhlPredictions, type GradedBet } from "@/lib/data";
+import { getNhlRefreshStatus } from "@/lib/actions";
+import { getAvailableWeeks, getBets, getBoard, getCurrentWeek, getNhlGameXg, getNhlLastPublished, getNhlPredictions, type GradedBet } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +21,12 @@ export default async function NhlPage({ searchParams }: { searchParams: Promise<
 
   const weeks = current ? await getAvailableWeeks(current.season, "nhl") : [];
   const games = (board?.rows ?? []).map((r) => r.game);
-  const [predictions, xgByGame] = await Promise.all([getNhlPredictions(games.map((g) => g.id)), getNhlGameXg(games.map((g) => g.id))]);
+  const [predictions, xgByGame, lastPublished, refreshStatus] = await Promise.all([
+    getNhlPredictions(games.map((g) => g.id)),
+    getNhlGameXg(games.map((g) => g.id)),
+    getNhlLastPublished(),
+    getNhlRefreshStatus(),
+  ]);
 
   const betsByGame = new Map<number, GradedBet[]>();
   for (const gb of allBets) {
@@ -38,6 +45,8 @@ export default async function NhlPage({ searchParams }: { searchParams: Promise<
           against, not a betting signal). Pick a market below each game to log what you actually bet, or log a parlay across multiple games below.
           &quot;Week&quot; here is a rolling ~7-day bucket, not a real NHL schedule concept - just enough structure to reuse the same Board/tabs as CFB/NFL.
         </p>
+
+        <NhlRefreshButton lastPublished={lastPublished} initial={refreshStatus} />
 
         <div className="mb-4">
           <LogParlayForm sport="nhl" />

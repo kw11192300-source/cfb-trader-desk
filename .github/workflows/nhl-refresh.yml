@@ -1,0 +1,46 @@
+name: NHL model refresh
+
+# Manual only (the "Refresh model" button on /nhl dispatches this, or use the
+# "Run workflow" button in the Actions tab). Runs nhl_model.daily: refreshes
+# NHL results, refits the xG + simulation model, and publishes predictions for
+# the next few days plus xG for finished games to Supabase.
+#
+# The model learns from ~13.5k games of play-by-play (~150 MB) that isn't in
+# git and isn't in the database - it's kept in the Actions cache between runs.
+# The very first run has an empty cache and downloads all history (~30 min);
+# after that a run is incremental (~8 min). Each run saves a fresh cache entry
+# and restores the newest one, so the history keeps growing as games finish.
+on:
+  workflow_dispatch: {}
+
+# one refresh at a time - a second click while one is running just queues behind it
+concurrency:
+  group: nhl-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r python/requirements.txt
+      - name: Restore NHL history cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            python/data/nhl/raw/pbp
+            python/data/nhl/schedule.csv
+            python/data/nhl/odds_forward.csv
+          key: nhl-data-${{ github.run_id }}
+          restore-keys: nhl-data-
+      - name: Refresh and publish
+        working-directory: python
+        env:
+          PYTHONUNBUFFERED: "1"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: python -m nhl_model.daily

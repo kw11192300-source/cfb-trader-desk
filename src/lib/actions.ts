@@ -89,3 +89,70 @@ export async function deleteBet(id: number): Promise<void> {
   revalidatePath("/bets");
   revalidatePath("/nfl/bets");
 }
+
+// --- NHL model refresh -------------------------------------------------------
+// The refresh itself (nhl_model.daily) can't run on Vercel - it needs ~13.5k games
+// of play-by-play history, Python, and minutes of compute - so the button asks
+// GitHub Actions to run it (.github/workflows/nhl-refresh.yml). The token only
+// needs "Actions: read & write" on this one repo; it's a server-only env var, so
+// it never reaches the browser, and these actions sit behind the site password.
+const GITHUB_REPO = "kw11192300-source/cfb-trader-desk";
+const NHL_WORKFLOW = "nhl-refresh.yml";
+
+export type NhlRefreshStatus = {
+  state: "none" | "queued" | "running" | "success" | "failed";
+  createdAt: string | null;
+  updatedAt: string | null;
+  url: string | null;
+};
+
+async function github(path: string, init?: RequestInit): Promise<Response> {
+  const token = process.env.GITHUB_DISPATCH_TOKEN;
+  return fetch(`https://api.github.com/repos/${GITHUB_REPO}${path}`, {
+    ...init,
+    cache: "no-store",
+    headers: {
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {}),
+    },
+  });
+}
+
+/** State of the most recent refresh run. Never throws - the board shouldn't break because GitHub's API did. */
+export async function getNhlRefreshStatus(): Promise<NhlRefreshStatus> {
+  const none: NhlRefreshStatus = { state: "none", createdAt: null, updatedAt: null, url: null };
+  try {
+    const res = await github(`/actions/workflows/${NHL_WORKFLOW}/runs?per_page=1`);
+    if (!res.ok) return none;
+    const run = (await res.json()).workflow_runs?.[0];
+    if (!run) return none;
+    const state: NhlRefreshStatus["state"] =
+      run.status === "completed" ? (run.conclusion === "success" ? "success" : "failed") : run.status === "in_progress" ? "running" : "queued";
+    return { state, createdAt: run.created_at, updatedAt: run.updated_at, url: run.html_url };
+  } catch {
+    return none;
+  }
+}
+
+/** Starts a refresh run. Refuses if one is already queued or running. */
+export async function triggerNhlRefresh(): Promise<{ ok: boolean; message: string }> {
+  if (!process.env.GITHUB_DISPATCH_TOKEN) {
+    return { ok: false, message: "Refresh isn't set up yet: GITHUB_DISPATCH_TOKEN is missing (see .env.local.example)." };
+  }
+  const current = await getNhlRefreshStatus();
+  if (current.state === "queued" || current.state === "running") {
+    return { ok: false, message: "A refresh is already running." };
+  }
+  const res = await github(`/actions/workflows/${NHL_WORKFLOW}/dispatches`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ref: "main" }),
+  });
+  if (res.status === 204) return { ok: true, message: "Refresh started - about 8 minutes (the very first run takes ~30 while it downloads history)." };
+  if (res.status === 404 || res.status === 403 || res.status === 401) {
+    return { ok: false, message: "GitHub refused the request - check the token has Actions read & write on the repo." };
+  }
+  return { ok: false, message: `GitHub returned ${res.status}.` };
+}
