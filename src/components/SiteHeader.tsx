@@ -25,6 +25,7 @@ const NAV_ITEMS: Record<Sport, { href: string; label: string; prefetch?: boolean
   ],
   nhl: [
     { href: "/nhl", label: "Board" },
+    { href: "/nhl/edges", label: "Edges" },
     { href: "/nhl/teams", label: "Teams" },
     { href: "/nhl/goalies", label: "Goalies" },
     { href: "/nhl/bets", label: "Bets" },

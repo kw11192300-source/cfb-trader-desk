@@ -2,6 +2,7 @@ import { supabase } from "./supabase";
 import { supabaseAdmin } from "./supabase-admin";
 import { type DisplayLine, mergeLines, pickHeadlineLine } from "./mergedLines";
 import { devigTwoWay } from "./oddsMath";
+import type { EdgeInputs } from "./nhlEdges";
 import type {
   Bet,
   BettingLine,
@@ -787,6 +788,33 @@ export async function getNhlGoalieStats(season: number, scope: NhlStatsScope): P
     throw new Error(error.message);
   }
   return (data ?? []) as NhlGoalieStatsRow[];
+}
+
+/** Upcoming NHL games (not started) that have a published prediction, with just the fields needed to price their DraftKings
+ * lines - for the all-edges list. Kept slim on purpose: no score grids, no simulation inputs. */
+export async function getNhlUpcomingEdgeInputs(): Promise<{ game: Game; pred: EdgeInputs & { generated_at: string } }[]> {
+  const { data: games, error } = await supabase
+    .from("games")
+    .select("*")
+    .eq("sport", "nhl")
+    .eq("completed", false)
+    .gt("start_date", new Date().toISOString())
+    .order("start_date", { ascending: true });
+  if (error) throw new Error(error.message);
+  if (!games || games.length === 0) return [];
+  const { data: preds, error: predError } = await supabase
+    .from("nhl_predictions")
+    .select("game_id, generated_at, p_home, margin_dist, total_dist, market")
+    .in("game_id", games.map((g) => g.id));
+  if (predError) {
+    if (isMissingTable(predError)) return [];
+    throw new Error(predError.message);
+  }
+  const byGame = new Map((preds ?? []).map((p) => [p.game_id as number, p as unknown as EdgeInputs & { generated_at: string }]));
+  return (games as Game[]).flatMap((game) => {
+    const pred = byGame.get(game.id);
+    return pred ? [{ game, pred }] : [];
+  });
 }
 
 /** One NHL game plus its model output, for the game page. */

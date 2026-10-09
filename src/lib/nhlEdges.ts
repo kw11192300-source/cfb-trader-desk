@@ -27,6 +27,8 @@ function row(market: EdgeRow["market"], side: string, bookOdds: number, model: n
 const sign = (n: number) => (n > 0 ? `+${n}` : `${n}`);
 
 type Dists = Pick<NhlPrediction, "p_home" | "margin_dist" | "total_dist">;
+/** What marketEdges needs from a prediction - a slim subset, so a list of games doesn't have to load the score grids. */
+export type EdgeInputs = Dists & Pick<NhlPrediction, "market">;
 
 /** Our probability for one side of one bet, with pushes refunded (so a whole-number line is priced without them). */
 function modelProb(p: Dists, bet: { market: EdgeRow["market"]; side: "home" | "away" | "over" | "under"; line: number }): number {
@@ -57,7 +59,7 @@ export function customEdge(
 }
 
 /** Every side of the moneyline, puck line and total that the book has posted, priced against our simulation. */
-export function marketEdges(pred: NhlPrediction, home: string, away: string): EdgeRow[] {
+export function marketEdges(pred: EdgeInputs, home: string, away: string): EdgeRow[] {
   const m = pred.market;
   if (!m) return [];
   const out: EdgeRow[] = [];
