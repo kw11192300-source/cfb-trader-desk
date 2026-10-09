@@ -4,6 +4,7 @@ import LogBetForm from "./LogBetForm";
 import LogPropBetForm from "./LogPropBetForm";
 import NhlTeamLogo from "./NhlTeamLogo";
 import type { GradedBet } from "@/lib/data";
+import { marketEdges } from "@/lib/nhlEdges";
 import { balancedTotal, fairMoneyline, fairOdds, pct, puckLineCover } from "@/lib/nhlModel";
 import type { Bet, Game, NhlGameXg, NhlMarket, NhlPrediction } from "@/lib/types";
 
@@ -94,6 +95,15 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
   // Totals here are the official final score, so a shootout winner's extra goal is always counted.
   const total = showModel ? balancedTotal(prediction.total_dist) : null;
   const mkt = showModel ? prediction.market : null;
+  // every DraftKings price our simulation beats, best first (see the Model vs DraftKings section on the game page)
+  const nick = (team: string) => team.split(" ").slice(-1)[0];
+  const edges = showModel
+    ? marketEdges(prediction, game.home_team, game.away_team)
+        .filter((e) => e.ev > 0.001)
+        .sort((a, b) => b.ev - a.ev)
+        .slice(0, 3)
+        .map((e) => ({ ...e, short: e.side.replace(game.away_team, nick(game.away_team)).replace(game.home_team, nick(game.home_team)) }))
+    : [];
 
   return (
     <div className="flex flex-col rounded-lg border border-border bg-surface">
@@ -177,6 +187,17 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
             {game.home_team.split(" ").slice(-1)[0]} -1.5 {pct(puckLineCover(prediction.margin_dist, "home", -1.5), 0)} ({fairOdds(puckLineCover(prediction.margin_dist, "home", -1.5))})
             {fair ? ` · DK ${pct(fair.home, 0)}` : ""}
           </span>
+          {edges.length > 0 && (
+            <span className="flex w-full flex-wrap gap-x-3 gap-y-0.5 text-accent">
+              <span className="font-semibold">edge vs DK</span>
+              {edges.map((e) => (
+                <span key={`${e.market}-${e.side}`} title={`Model ${pct(e.model)} vs ${pct(e.bookImplied)} break-even at ${fmtOdds(e.bookOdds)}`}>
+                  {e.market === "Moneyline" ? `${e.short} ML` : e.short} {fmtOdds(e.bookOdds)} · {e.ev >= 0 ? "+" : ""}
+                  {(e.ev * 100).toFixed(1)}% EV
+                </span>
+              ))}
+            </span>
+          )}
         </div>
       )}
     </Link>
