@@ -45,3 +45,7 @@ next-env.d.ts
 
 # claude code - machine-local settings/permissions, not shared config
 .claude/settings.local.json
+
+# NHL model: raw play-by-play/odds history (millions of rows) lives on local disk,
+# never in git or Supabase - only small model outputs go to the DB
+/python/data/
