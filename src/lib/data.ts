@@ -10,6 +10,8 @@ import type {
   LineSnapshot,
   ModelBacktest,
   ModelBacktestGame,
+  NhlGameXg,
+  NhlPrediction,
   OddsApiLine,
   Prediction,
   PredictionMarketLine,
@@ -696,4 +698,42 @@ export async function getSharpMoneyEdges(): Promise<SharpMoneyRow[]> {
     });
   }
   return rows.sort((a, b) => b.edge - a.edge);
+}
+
+/** PostgREST says a table is missing ("could not find the table ... in the schema cache") until its
+ * migration has been run - the NHL model tables are optional, so that's "no predictions yet", not an error. */
+function isMissingTable(error: { code?: string; message: string }): boolean {
+  return error.code === "PGRST205" || error.code === "42P01" || /schema cache|does not exist/i.test(error.message);
+}
+
+/** Model predictions for NHL games (python/nhl_model/publish.py), keyed by game id. Empty before the
+ * nhl_predictions migration has been run or the publisher has produced anything. */
+export async function getNhlPredictions(gameIds: number[]): Promise<Map<number, NhlPrediction>> {
+  if (gameIds.length === 0) return new Map();
+  const { data, error } = await supabase.from("nhl_predictions").select("*").in("game_id", gameIds);
+  if (error) {
+    if (isMissingTable(error)) return new Map();
+    throw new Error(error.message);
+  }
+  return new Map((data as NhlPrediction[]).map((p) => [p.game_id, p]));
+}
+
+/** Our xG for finished NHL games, keyed by game id (same optional-table treatment as above). */
+export async function getNhlGameXg(gameIds: number[]): Promise<Map<number, NhlGameXg>> {
+  if (gameIds.length === 0) return new Map();
+  const { data, error } = await supabase.from("nhl_game_xg").select("*").in("game_id", gameIds);
+  if (error) {
+    if (isMissingTable(error)) return new Map();
+    throw new Error(error.message);
+  }
+  return new Map((data as NhlGameXg[]).map((x) => [x.game_id, x]));
+}
+
+/** One NHL game plus its model output, for the game page. */
+export async function getNhlGame(id: number): Promise<{ game: Game; prediction: NhlPrediction | null; xg: NhlGameXg | null } | null> {
+  const { data: game, error } = await supabase.from("games").select("*").eq("id", id).eq("sport", "nhl").maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!game) return null;
+  const [pred, xg] = await Promise.all([getNhlPredictions([id]), getNhlGameXg([id])]);
+  return { game: game as Game, prediction: pred.get(id) ?? null, xg: xg.get(id) ?? null };
 }

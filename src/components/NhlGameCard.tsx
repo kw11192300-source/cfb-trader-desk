@@ -1,8 +1,10 @@
+import Link from "next/link";
 import LocalDateTime from "./LocalDateTime";
 import LogBetForm from "./LogBetForm";
 import LogPropBetForm from "./LogPropBetForm";
 import type { GradedBet } from "@/lib/data";
-import type { Bet, Game } from "@/lib/types";
+import { fairMoneyline, pct, puckLineCover } from "@/lib/nhlModel";
+import type { Bet, Game, NhlGameXg, NhlPrediction } from "@/lib/types";
 
 /** Spreads only: "+" means this side is getting points (underdog) - same
  * convention as NflGameCard, "spread" here just means the puck line. */
@@ -50,15 +52,19 @@ function fmtStakeOrResult({ status, profit, bet }: GradedBet): string {
   return `${bet.stake.toFixed(2)}u`;
 }
 
-export default function NhlGameCard({ game, bets = [] }: { game: Game; bets?: GradedBet[] }) {
+export default function NhlGameCard({ game, bets = [], prediction = null, xg = null }: { game: Game; bets?: GradedBet[]; prediction?: NhlPrediction | null; xg?: NhlGameXg | null }) {
   const teamOptions = [
     { value: game.away_team, label: game.away_team },
     { value: game.home_team, label: game.home_team },
   ];
   const summary = game.completed ? gameSummary(bets) : null;
+  // Model win probability only makes sense before the game starts.
+  const showModel = prediction !== null && !game.completed && !game.live_status;
+  const fair = showModel ? fairMoneyline(prediction.market) : null;
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
+    <div className="flex flex-col rounded-lg border border-border bg-surface">
+    <Link href={`/nhl/games/${game.id}`} className="flex flex-col gap-3 rounded-t-lg p-4 transition-colors hover:bg-surface-raised">
       <div className="flex items-center justify-between text-[11px] text-muted">
         {game.completed ? (
           <span className="flex items-center gap-1.5 font-medium text-muted">
@@ -89,24 +95,42 @@ export default function NhlGameCard({ game, bets = [] }: { game: Game; bets?: Gr
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between text-sm">
           <span className="text-foreground">{game.away_team}</span>
+          {showModel && <span className="font-mono text-xs text-accent">{pct(1 - prediction.p_home, 0)}</span>}
           {game.completed && game.away_points !== null && (
             <span className={`font-mono ${(game.away_points ?? 0) > (game.home_points ?? 0) ? "font-semibold text-foreground" : "text-muted"}`}>
               {game.away_points}
+              {xg?.away_xg != null && <span className="ml-2 text-[10px] font-normal text-muted">xG {xg.away_xg.toFixed(2)}</span>}
             </span>
           )}
           {!game.completed && game.live_status && <span className="font-mono text-foreground">{game.live_status.away_points}</span>}
         </div>
         <div className="flex items-center justify-between text-sm">
           <span className="text-foreground">{game.home_team}</span>
+          {showModel && <span className="font-mono text-xs text-accent">{pct(prediction.p_home, 0)}</span>}
           {game.completed && game.home_points !== null && (
             <span className={`font-mono ${(game.home_points ?? 0) > (game.away_points ?? 0) ? "font-semibold text-foreground" : "text-muted"}`}>
               {game.home_points}
+              {xg?.home_xg != null && <span className="ml-2 text-[10px] font-normal text-muted">xG {xg.home_xg.toFixed(2)}</span>}
             </span>
           )}
           {!game.completed && game.live_status && <span className="font-mono text-foreground">{game.live_status.home_points}</span>}
         </div>
       </div>
 
+      {showModel && (
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-t border-border pt-2 font-mono text-[11px] text-muted">
+          <span>
+            exp {prediction.exp_away.toFixed(1)}–{prediction.exp_home.toFixed(1)} · tot {prediction.exp_total.toFixed(1)}
+          </span>
+          <span>
+            {game.home_team.split(" ").slice(-1)[0]} -1.5 {pct(puckLineCover(prediction.margin_dist, "home", -1.5), 0)}
+            {fair ? ` · DK ${pct(fair.home, 0)}` : ""}
+          </span>
+        </div>
+      )}
+    </Link>
+
+    <div className="flex flex-col gap-3 px-4 pb-4">
       {bets.length > 0 && (
         <div className="flex flex-col gap-1 border-t border-border pt-3">
           {bets.map((gb) => (
@@ -139,6 +163,7 @@ export default function NhlGameCard({ game, bets = [] }: { game: Game; bets?: Gr
         />
         <LogPropBetForm gameId={game.id} sport="nhl" />
       </div>
+    </div>
     </div>
   );
 }

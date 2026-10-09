@@ -212,7 +212,7 @@ def simulate(p: GameParams, tb: Tables, n: int = 20000, seed: int = 0) -> dict[s
             "pp_len_h": len_h, "pp_len_a": len_a}
 
 
-def summarize_sim(s: dict[str, np.ndarray]) -> dict:
+def summarize_sim(s: dict[str, np.ndarray], with_grids: bool = False) -> dict:
     """All the market probabilities from one set of sims."""
     fin_total = s["fin_h"] + s["fin_a"]
     reg_total = s["reg_h"] + s["reg_a"]
@@ -238,10 +238,11 @@ def summarize_sim(s: dict[str, np.ndarray]) -> dict:
         out[f"po_{k}"] = float((ot_total == k).mean())        # through overtime, no shootout credit
     for k in range(-8, 9):
         out[f"pm_{k}"] = float((margin == k).mean())          # final home margin
-    # joint final score, home 0..9 x away 0..9
-    h = np.clip(s["fin_h"], 0, 9)
-    a = np.clip(s["fin_a"], 0, 9)
-    joint = np.bincount(h * 10 + a, minlength=100) / n
-    for i in range(100):
-        out[f"sc_{i // 10}_{i % 10}"] = float(joint[i])
+    if with_grids:
+        # joint score grids, home 0..9 x away 0..9: `sc_` = official FINAL score (a shootout
+        # win is credited one goal, so a tie never appears), `rc_` = regulation (60:00)
+        for prefix, hh, aa in (("sc", s["fin_h"], s["fin_a"]), ("rc", s["reg_h"], s["reg_a"])):
+            joint = np.bincount(np.clip(hh, 0, 9) * 10 + np.clip(aa, 0, 9), minlength=100) / n
+            for i in range(100):
+                out[f"{prefix}_{i // 10}_{i % 10}"] = float(joint[i])
     return out

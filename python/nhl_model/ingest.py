@@ -133,7 +133,12 @@ def run_schedule(first: int, last: int) -> None:
             games = f.result()
             print(f"season {futs[f]}: {len(games)} regular-season games listed")
             rows.extend(games)
-    df = pd.DataFrame(rows).sort_values(["start_utc", "game_id"]).reset_index(drop=True)
+    df = pd.DataFrame(rows)
+    if SCHEDULE_CSV.exists():
+        # refresh only the requested seasons - never drop the rest of the history
+        old = pd.read_csv(SCHEDULE_CSV)
+        df = pd.concat([old[~old["season"].between(first, last)], df], ignore_index=True)
+    df = df.sort_values(["start_utc", "game_id"]).reset_index(drop=True)
     df.to_csv(SCHEDULE_CSV, index=False)
     print(f"wrote {len(df)} games -> {SCHEDULE_CSV}")
 

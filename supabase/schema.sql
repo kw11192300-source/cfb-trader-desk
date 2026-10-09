@@ -467,6 +467,45 @@ create table if not exists sharp_steam_alerts (
 );
 create index if not exists sharp_steam_alerts_active_idx on sharp_steam_alerts(game_id) where alert_sent_at is null;
 
+-- NHL model output (python/nhl_model/publish.py) - only the SMALL results ever
+-- reach the database; the history the model learns from (millions of
+-- play-by-play rows) stays on local disk. game_id is OUR games.id for the NHL
+-- row (see sync_nhl_espn.py's id offset). EXPLORATORY: a calibrated baseline to
+-- compare against the market, NOT a validated betting signal - held-out 2021-25
+-- it does not beat the closing line on moneyline, puck line, or totals.
+create table if not exists nhl_predictions (
+  game_id bigint primary key references games(id) on delete cascade,
+  model_version text not null,
+  generated_at timestamptz not null default now(),
+
+  p_home numeric not null,                  -- P(home wins the game, incl. overtime/shootout)
+  p_home_reg numeric not null,              -- P(home leads after 60:00)
+  p_tie_reg numeric not null,               -- P(tied after 60:00 -> overtime/shootout)
+  p_shootout numeric,
+  exp_home numeric not null,                -- expected OFFICIAL final score (a shootout win is credited one goal)
+  exp_away numeric not null,
+  exp_total numeric not null,
+
+  total_dist jsonb not null,                -- {"0": p, ..., "16": p} final-score total goals
+  margin_dist jsonb not null,               -- {"-8": p, ..., "8": p} final home margin
+  score_matrix jsonb not null,              -- [home goals 0-9][away goals 0-9], official final score
+  score_matrix_reg jsonb not null,          -- same, regulation (60:00) - ties land on the diagonal
+  extras jsonb,                             -- regulation / through-overtime total distributions, n_sims
+  assumptions jsonb,                        -- {goalies: {home: [...], away: [...]}, goalie_confirmed}
+  market jsonb                              -- DraftKings line via ESPN at generation time, if posted
+);
+
+create table if not exists nhl_game_xg (
+  game_id bigint primary key references games(id) on delete cascade,
+  model_version text,
+  home_xg numeric, away_xg numeric,         -- all situations, live-net chances (empty-net excluded)
+  home_xg_ev numeric, away_xg_ev numeric,   -- even strength
+  home_xg_pp numeric, away_xg_pp numeric,   -- that team's own power-play chances
+  home_sog integer, away_sog integer,       -- regulation
+  home_corsi integer, away_corsi integer,  -- regulation shot attempts incl. blocks
+  generated_at timestamptz not null default now()
+);
+
 -- Prediction-market prices (python/cfbd_ingest/sync_prediction_markets.py)
 -- - Kalshi and Polymarket, both fully public APIs (no key/account needed
 -- for reads). Exploratory: not blended into the model or the validated
@@ -644,6 +683,8 @@ alter table watchlist_picks enable row level security;
 alter table prediction_market_lines enable row level security;
 alter table inseason_edges enable row level security;
 alter table sharp_steam_alerts enable row level security;
+alter table nhl_predictions enable row level security;
+alter table nhl_game_xg enable row level security;
 
 create policy "public read" on teams for select using (true);
 create policy "public read" on games for select using (true);
@@ -666,6 +707,8 @@ create policy "public read" on watchlist_picks for select using (true);
 create policy "public read" on prediction_market_lines for select using (true);
 create policy "public read" on inseason_edges for select using (true);
 create policy "public read" on sharp_steam_alerts for select using (true);
+create policy "public read" on nhl_predictions for select using (true);
+create policy "public read" on nhl_game_xg for select using (true);
 -- NO policy on bets at all, not even public read - real stakes/P&L, the
 -- one genuinely sensitive table in this app. Only the secret key (service
 -- role, bypasses RLS) can read OR write it - reads go through

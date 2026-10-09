@@ -259,3 +259,56 @@ export type WatchlistPick = {
   alert_sent_at: string | null;
   created_at: string;
 };
+
+/** One goalie the NHL model assumed might start, with how likely and how good. */
+export type NhlGoalie = { id: number; name: string; weight: number; rating: number };
+
+/** DraftKings' line via ESPN at the time the prediction was generated. Prices are American odds. */
+export type NhlMarket = {
+  provider: string | null;
+  ml_home: number | null;
+  ml_away: number | null;
+  spread_home_line: number | null;
+  spread_home_odds: number | null;
+  spread_away_odds: number | null;
+  total_line: number | null;
+  over_odds: number | null;
+  under_odds: number | null;
+};
+
+/** python/nhl_model/publish.py output for one upcoming game - see nhl_predictions in schema.sql.
+ * EXPLORATORY: a calibrated baseline to compare against the market, not a validated betting signal. */
+export type NhlPrediction = {
+  game_id: number;
+  model_version: string;
+  generated_at: string;
+  p_home: number;
+  p_home_reg: number;
+  p_tie_reg: number;
+  p_shootout: number | null;
+  exp_home: number;
+  exp_away: number;
+  exp_total: number;
+  total_dist: Record<string, number>; // final-score total goals (shootout winner credited a goal)
+  margin_dist: Record<string, number>; // final home margin
+  score_matrix: number[][]; // [home goals][away goals], official final score
+  score_matrix_reg: number[][]; // same, after 60:00 (ties on the diagonal)
+  extras: { reg_total_dist: Record<string, number>; ot_total_dist: Record<string, number>; exp_total_reg: number; n_sims: number } | null;
+  assumptions: { goalies: { home: NhlGoalie[]; away: NhlGoalie[] }; goalie_confirmed: boolean } | null;
+  market: NhlMarket | null;
+};
+
+/** Our own xG for a finished NHL game (python/nhl_model/team_games.py) - see nhl_game_xg in schema.sql. */
+export type NhlGameXg = {
+  game_id: number;
+  home_xg: number | null;
+  away_xg: number | null;
+  home_xg_ev: number | null;
+  away_xg_ev: number | null;
+  home_xg_pp: number | null;
+  away_xg_pp: number | null;
+  home_sog: number | null;
+  away_sog: number | null;
+  home_corsi: number | null;
+  away_corsi: number | null;
+};

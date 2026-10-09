@@ -58,37 +58,50 @@ def goalie_game_performance() -> pd.DataFrame:
     return s.groupby(["game_id", "goalie_id"]).agg(att=("xg", "size"), xg=("xg", "sum"), goals=("is_goal", "sum")).reset_index()
 
 
-def pregame_goalie_ratings(prior_attempts: float, half_life: float = GOALIE_HALF_LIFE_DAYS) -> pd.DataFrame:
-    """One row per game: the pre-game rating (goals saved above expected per
-    100 attempts, shrunk) of each side's starting goalie, using only games
-    played BEFORE it."""
+class GoalieTracker:
+    """Decayed saves-above-expected per goalie, shrunk toward 0."""
+
+    def __init__(self, prior_attempts: float, half_life: float = GOALIE_HALF_LIFE_DAYS):
+        self.prior, self.half_life = prior_attempts, half_life
+        self.state: dict[float, list] = defaultdict(lambda: [None, 0.0, 0.0])  # goalie -> [last_time, decayed diff, decayed attempts]
+
+    def rating(self, gid, now: pd.Timestamp) -> float:
+        """Goals saved above expected per 100 attempts faced."""
+        if gid is None or pd.isna(gid) or self.state[gid][0] is None:
+            return 0.0
+        last, diff, att = self.state[gid]
+        f = 0.5 ** ((now - last).total_seconds() / 86400.0 / self.half_life)
+        return 100.0 * (diff * f) / (att * f + self.prior)
+
+    def update(self, gid, t: pd.Timestamp, att: float, xg: float, goals: float) -> None:
+        last, diff, a = self.state[gid]
+        if last is not None:
+            f = 0.5 ** ((t - last).total_seconds() / 86400.0 / self.half_life)
+            diff, a = diff * f, a * f
+        self.state[gid] = [t, diff + (xg - goals), a + att]
+
+
+def build_tracker(prior_attempts: float, half_life: float = GOALIE_HALF_LIFE_DAYS) -> tuple[GoalieTracker, pd.DataFrame]:
+    """Walks every game in time order. Returns the tracker (state AFTER the last game) and one
+    row per game with each starter's PRE-game rating - only games before it were used."""
     games = pd.read_csv(GAMES_OUT, usecols=["game_id", "start_utc", "home_goalie", "away_goalie"])
     games["t"] = pd.to_datetime(games["start_utc"], utc=True)
     games = games.sort_values(["t", "game_id"])
-    perf = goalie_game_performance()
-    by_game = {gid: g for gid, g in perf.groupby("game_id")}
-    state: dict[float, list[float]] = defaultdict(lambda: [None, 0.0, 0.0])  # goalie -> [last_time, decayed diff, decayed attempts]
-
-    def rating(gid: float | None, now: pd.Timestamp) -> float:
-        if gid is None or pd.isna(gid) or state[gid][0] is None:
-            return 0.0
-        last, diff, att = state[gid]
-        f = 0.5 ** ((now - last).total_seconds() / 86400.0 / half_life)
-        return 100.0 * (diff * f) / (att * f + prior_attempts)
-
+    by_game = {gid: g for gid, g in goalie_game_performance().groupby("game_id")}
+    tr = GoalieTracker(prior_attempts, half_life)
     rows = []
     for r in games.itertuples():
-        rows.append((r.game_id, rating(r.home_goalie, r.t), rating(r.away_goalie, r.t)))
+        rows.append((r.game_id, tr.rating(r.home_goalie, r.t), tr.rating(r.away_goalie, r.t)))
         g = by_game.get(r.game_id)
-        if g is None:
-            continue
-        for gid, att, xg, goals in zip(g["goalie_id"], g["att"], g["xg"], g["goals"]):
-            last, diff, a = state[gid]
-            if last is not None:
-                f = 0.5 ** ((r.t - last).total_seconds() / 86400.0 / half_life)
-                diff, a = diff * f, a * f
-            state[gid] = [r.t, diff + (xg - goals), a + att]
-    return pd.DataFrame(rows, columns=["game_id", "home_goalie_rating", "away_goalie_rating"])
+        if g is not None:
+            for gid, att, xg, goals in zip(g["goalie_id"], g["att"], g["xg"], g["goals"]):
+                tr.update(gid, r.t, att, xg, goals)
+    return tr, pd.DataFrame(rows, columns=["game_id", "home_goalie_rating", "away_goalie_rating"])
+
+
+def pregame_goalie_ratings(prior_attempts: float, half_life: float = GOALIE_HALF_LIFE_DAYS) -> pd.DataFrame:
+    """One row per game: the pre-game rating of each side's starting goalie, using only games before it."""
+    return build_tracker(prior_attempts, half_life)[1]
 
 
 def fit_poisson_offset(y: np.ndarray, offset: np.ndarray, x: np.ndarray, w: np.ndarray, iters: int = 25) -> tuple[float, float]:
