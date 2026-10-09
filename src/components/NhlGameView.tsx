@@ -1,5 +1,6 @@
 import GoalieLock from "./GoalieLock";
 import LocalDateTime from "./LocalDateTime";
+import NhlTeamLogo from "./NhlTeamLogo";
 import ProbOdds from "./ProbOdds";
 import ScoreGrid from "./ScoreGrid";
 import { devig, fairMoneyline, fairOdds, fmtOdds, mostLikelyScore, overUnder, pct, puckLineCover } from "@/lib/nhlModel";
@@ -58,11 +59,17 @@ export default function NhlGameView({ game, prediction, xg }: { game: Game; pred
           <span>{done ? "FINAL" : game.live_status ? "LIVE" : "Upcoming"}</span>
         </div>
         <div className="mt-3 flex items-center justify-between text-lg">
-          <span className="text-foreground">{away}</span>
+          <span className="flex items-center gap-3 text-foreground">
+            <NhlTeamLogo team={away} size={36} />
+            {away}
+          </span>
           {done && <span className="font-mono font-semibold text-foreground">{game.away_points}</span>}
         </div>
         <div className="flex items-center justify-between text-lg">
-          <span className="text-foreground">{home}</span>
+          <span className="flex items-center gap-3 text-foreground">
+            <NhlTeamLogo team={home} size={36} />
+            {home}
+          </span>
           {done && <span className="font-mono font-semibold text-foreground">{game.home_points}</span>}
         </div>
       </div>

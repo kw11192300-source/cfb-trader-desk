@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Image from "next/image";
 
-export type StatRow = { id: string | number; label: string; sub?: string; stats: Record<string, number | null> };
+export type StatRow = { id: string | number; label: string; sub?: string; logo?: string | null; stats: Record<string, number | null> };
 
 export type StatCol = {
   key: string;
@@ -128,8 +129,16 @@ export default function StatTable({
                 <tr key={r.id} className="border-b border-border last:border-0 odd:bg-surface/50 hover:bg-surface-raised">
                   <td className="sticky left-0 z-10 bg-background px-2 py-2 text-right font-mono text-xs text-muted">{i + 1}</td>
                   <td className="sticky left-8 z-10 whitespace-nowrap bg-background px-3 py-2 text-foreground">
-                    {r.label}
-                    {r.sub && <span className="ml-2 text-[11px] text-muted">{r.sub}</span>}
+                    <span className="flex items-center gap-2">
+                      {r.logo !== undefined &&
+                        (r.logo ? (
+                          <Image src={r.logo} alt="" width={22} height={22} className="h-[22px] w-[22px] shrink-0 object-contain" unoptimized />
+                        ) : (
+                          <span className="inline-block h-[22px] w-[22px] shrink-0 rounded-full bg-surface-raised" />
+                        ))}
+                      {r.label}
+                      {r.sub && <span className="text-[11px] text-muted">{r.sub}</span>}
+                    </span>
                   </td>
                   {cols.map((c) => {
                     const v = r.stats[c.key];

@@ -5,6 +5,7 @@ import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import type { StatRow } from "@/components/StatTable";
 import { getNhlRefreshStatus } from "@/lib/actions";
+import { nhlLogoUrl } from "@/lib/nhlTeams";
 import { getNhlStatSeasons, getNhlStatsUpdated, getNhlTeamStats } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ export default async function NhlTeamsPage({ searchParams }: { searchParams: Pro
   const season = seasons.includes(requested) ? requested : (seasons[0] ?? 0);
   const scope = params.scope === "l10" && hasL10[season] ? "l10" : "all";
   const data = seasons.length > 0 ? await getNhlTeamStats(season, scope) : [];
-  const rows: StatRow[] = data.map((r) => ({ id: r.team, label: r.name ?? r.team, sub: r.team, stats: r.stats }));
+  const rows: StatRow[] = data.map((r) => ({ id: r.team, label: r.name ?? r.team, sub: r.team, logo: nhlLogoUrl(r.team), stats: r.stats }));
 
   return (
     <div className="flex min-h-screen flex-col">

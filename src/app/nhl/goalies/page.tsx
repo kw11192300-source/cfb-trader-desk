@@ -5,6 +5,7 @@ import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import type { StatRow } from "@/components/StatTable";
 import { getNhlRefreshStatus } from "@/lib/actions";
+import { nhlLogoUrl } from "@/lib/nhlTeams";
 import { getNhlGoalieStats, getNhlStatSeasons, getNhlStatsUpdated } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ export default async function NhlGoaliesPage({ searchParams }: { searchParams: P
   const season = seasons.includes(requested) ? requested : (seasons[0] ?? 0);
   const scope = params.scope === "l10" && hasL10[season] ? "l10" : "all";
   const data = seasons.length > 0 ? await getNhlGoalieStats(season, scope) : [];
-  const rows: StatRow[] = data.map((r) => ({ id: r.goalie_id, label: r.name ?? String(r.goalie_id), sub: r.team ?? undefined, stats: r.stats }));
+  const rows: StatRow[] = data.map((r) => ({ id: r.goalie_id, label: r.name ?? String(r.goalie_id), sub: r.team ?? undefined, logo: nhlLogoUrl(r.team), stats: r.stats }));
   const maxGp = Math.max(0, ...rows.map((r) => r.stats.gp ?? 0));
   const minDefault = scope === "l10" ? 3 : Math.min(10, Math.ceil(maxGp * 0.25));
 

@@ -2,6 +2,7 @@ import Link from "next/link";
 import LocalDateTime from "./LocalDateTime";
 import LogBetForm from "./LogBetForm";
 import LogPropBetForm from "./LogPropBetForm";
+import NhlTeamLogo from "./NhlTeamLogo";
 import type { GradedBet } from "@/lib/data";
 import { balancedTotal, fairMoneyline, fairOdds, pct, puckLineCover } from "@/lib/nhlModel";
 import type { Bet, Game, NhlGameXg, NhlMarket, NhlPrediction } from "@/lib/types";
@@ -126,7 +127,10 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
 
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between text-sm">
-          <span className="min-w-0 text-foreground">{game.away_team}</span>
+          <span className="flex min-w-0 items-center gap-2 text-foreground">
+            <NhlTeamLogo team={game.away_team} />
+            {game.away_team}
+          </span>
           {showModel && <ProbCols p={1 - prediction.p_home} book={mkt?.ml_away != null ? { odds: fmtOdds(mkt.ml_away) } : null} />}
           {game.completed && game.away_points !== null && (
             <span className={`font-mono ${(game.away_points ?? 0) > (game.home_points ?? 0) ? "font-semibold text-foreground" : "text-muted"}`}>
@@ -137,7 +141,10 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
           {!game.completed && game.live_status && <span className="font-mono text-foreground">{game.live_status.away_points}</span>}
         </div>
         <div className="flex items-center justify-between text-sm">
-          <span className="min-w-0 text-foreground">{game.home_team}</span>
+          <span className="flex min-w-0 items-center gap-2 text-foreground">
+            <NhlTeamLogo team={game.home_team} />
+            {game.home_team}
+          </span>
           {showModel && <ProbCols p={prediction.p_home} book={mkt?.ml_home != null ? { odds: fmtOdds(mkt.ml_home) } : null} />}
           {game.completed && game.home_points !== null && (
             <span className={`font-mono ${(game.home_points ?? 0) > (game.away_points ?? 0) ? "font-semibold text-foreground" : "text-muted"}`}>
