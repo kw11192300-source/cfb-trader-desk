@@ -506,6 +506,31 @@ create table if not exists nhl_goalie_locks (
   locked_at timestamptz not null default now()
 );
 
+-- Team and goalie tables for the NHL Teams / Goalies tabs (python/nhl_model/team_stats.py). One row per
+-- season + scope ("all" = whole season, "l10" = last 10 games, current season only); the numbers live in a
+-- jsonb blob so adding a column on the site never needs a migration.
+create table if not exists nhl_team_stats (
+  season int not null,
+  scope text not null,
+  team text not null,                       -- NHL abbreviation
+  team_id int,
+  name text,
+  stats jsonb not null,
+  updated_at timestamptz not null default now(),
+  primary key (season, scope, team)
+);
+
+create table if not exists nhl_goalie_stats (
+  season int not null,
+  scope text not null,
+  goalie_id bigint not null,
+  name text,
+  team text,
+  stats jsonb not null,
+  updated_at timestamptz not null default now(),
+  primary key (season, scope, goalie_id)
+);
+
 create table if not exists nhl_game_xg (
   game_id bigint primary key references games(id) on delete cascade,
   model_version text,
@@ -697,6 +722,8 @@ alter table sharp_steam_alerts enable row level security;
 alter table nhl_predictions enable row level security;
 alter table nhl_game_xg enable row level security;
 alter table nhl_goalie_locks enable row level security;
+alter table nhl_team_stats enable row level security;
+alter table nhl_goalie_stats enable row level security;
 
 create policy "public read" on teams for select using (true);
 create policy "public read" on games for select using (true);
@@ -722,6 +749,8 @@ create policy "public read" on sharp_steam_alerts for select using (true);
 create policy "public read" on nhl_predictions for select using (true);
 create policy "public read" on nhl_game_xg for select using (true);
 create policy "public read" on nhl_goalie_locks for select using (true);
+create policy "public read" on nhl_team_stats for select using (true);
+create policy "public read" on nhl_goalie_stats for select using (true);
 -- NO policy on bets at all, not even public read - real stakes/P&L, the
 -- one genuinely sensitive table in this app. Only the secret key (service
 -- role, bypasses RLS) can read OR write it - reads go through

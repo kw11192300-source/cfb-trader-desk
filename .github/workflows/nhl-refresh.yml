@@ -41,6 +41,7 @@ jobs:
             python/data/nhl/team_games.csv.gz
             python/data/nhl/sim_team_games.csv.gz
             python/data/nhl/sim_tables.json
+            python/data/nhl/goalie_names.json
           key: nhl-data-${{ github.run_id }}
           restore-keys: nhl-data-
       - name: Refresh and publish

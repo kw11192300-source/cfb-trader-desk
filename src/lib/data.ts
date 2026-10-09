@@ -11,6 +11,8 @@ import type {
   ModelBacktest,
   ModelBacktestGame,
   NhlGameXg,
+  NhlGoalieStatsRow,
+  NhlTeamStatsRow,
   NhlPrediction,
   OddsApiLine,
   Prediction,
@@ -741,6 +743,40 @@ export async function getNhlLastPublished(): Promise<string | null> {
     throw new Error(error.message);
   }
   return data?.[0]?.generated_at ?? null;
+}
+
+export type NhlStatsScope = "all" | "l10";
+
+/** Seasons that have team/goalie tables published (newest first), and whether the current one has a last-10 view. */
+export async function getNhlStatSeasons(): Promise<{ seasons: number[]; hasL10: Record<number, boolean> }> {
+  // BOS has played every season, so its rows are a cheap stand-in for "which seasons exist"
+  const { data, error } = await supabase.from("nhl_team_stats").select("season, scope").eq("team", "BOS");
+  if (error) {
+    if (isMissingTable(error)) return { seasons: [], hasL10: {} };
+    throw new Error(error.message);
+  }
+  const seasons = [...new Set((data ?? []).map((r) => r.season as number))].sort((a, b) => b - a);
+  const hasL10: Record<number, boolean> = {};
+  for (const r of data ?? []) if (r.scope === "l10") hasL10[r.season as number] = true;
+  return { seasons, hasL10 };
+}
+
+export async function getNhlTeamStats(season: number, scope: NhlStatsScope): Promise<NhlTeamStatsRow[]> {
+  const { data, error } = await supabase.from("nhl_team_stats").select("season, scope, team, name, stats").eq("season", season).eq("scope", scope);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw new Error(error.message);
+  }
+  return (data ?? []) as NhlTeamStatsRow[];
+}
+
+export async function getNhlGoalieStats(season: number, scope: NhlStatsScope): Promise<NhlGoalieStatsRow[]> {
+  const { data, error } = await supabase.from("nhl_goalie_stats").select("season, scope, goalie_id, name, team, stats").eq("season", season).eq("scope", scope);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw new Error(error.message);
+  }
+  return (data ?? []) as NhlGoalieStatsRow[];
 }
 
 /** One NHL game plus its model output, for the game page. */

@@ -11,6 +11,7 @@ Steps (each reuses the module of the same name):
   3. parse -> xG -> team-game table -> simulation inputs (the xG model is refit
      cross-fitted by season each time, ~5 minutes - fine for a once-a-day job)
   4. publish: predictions for the next few days + xG for recently finished games
+  5. team + goalie tables for the site's Teams / Goalies tabs (team_stats.py)
 
 Runs on this machine. GitHub's scheduler only fires the repo's cron jobs a few
 times a day right now, so this isn't wired into Actions; it belongs on the
@@ -25,7 +26,7 @@ from cfbd_ingest.sync_nhl_espn import _season_year
 
 import pandas as pd
 
-from . import ingest, parse, publish, sim_inputs, team_games, xg
+from . import ingest, parse, publish, sim_inputs, team_games, team_stats, xg
 
 FIRST_SEASON = 2015  # 2015-16: the oldest season the model trains on
 
@@ -72,6 +73,8 @@ def main() -> None:
 
     print(f"\n=== publish ({time.time() - t0:.0f}s elapsed) ===")
     publish.main(["--dry-run"] if a.dry_run else [])
+    print(f"\n=== team + goalie tables ({time.time() - t0:.0f}s elapsed) ===")
+    team_stats.main(["--dry-run"] if a.dry_run else [])
     print(f"\ndone in {time.time() - t0:.0f}s")
 
 

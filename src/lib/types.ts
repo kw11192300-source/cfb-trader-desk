@@ -319,6 +319,24 @@ export type NhlSimParams = {
   estimated: { home: { goalies: NhlGoalie[]; source: GoalieSource; confirmed: boolean }; away: { goalies: NhlGoalie[]; source: GoalieSource; confirmed: boolean } };
 };
 
+/** python/nhl_model/team_stats.py - one team's season (or last-10) line. Descriptive, not a forecast. */
+export type NhlTeamStatsRow = {
+  season: number;
+  scope: "all" | "l10";
+  team: string;
+  name: string | null;
+  stats: Record<string, number | null>;
+};
+
+export type NhlGoalieStatsRow = {
+  season: number;
+  scope: "all" | "l10";
+  goalie_id: number;
+  name: string | null;
+  team: string | null;
+  stats: Record<string, number | null>;
+};
+
 /** Our own xG for a finished NHL game (python/nhl_model/team_games.py) - see nhl_game_xg in schema.sql. */
 export type NhlGameXg = {
   game_id: number;
