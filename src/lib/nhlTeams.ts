@@ -16,7 +16,8 @@ const ESPN_CODE_BY_NICKNAME: [string, string][] = [
   ["sharks", "sj"], ["stars", "dal"], ["ducks", "ana"], ["kings", "la"], ["blues", "stl"], ["wild", "min"], ["jets", "wpg"],
 ];
 
-function espnCode(team: string): string | null {
+/** ESPN's lower-case team code ("sea", "tb", "la"...) from a full name or NHL abbreviation; null if unknown. */
+export function espnCode(team: string): string | null {
   const upper = team.trim().toUpperCase();
   if (ESPN_CODE_BY_ABBREV[upper]) return ESPN_CODE_BY_ABBREV[upper];
   const name = team.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();

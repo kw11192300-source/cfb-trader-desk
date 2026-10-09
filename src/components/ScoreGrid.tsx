@@ -13,9 +13,23 @@ function cellText(p: number, show: "pct" | "odds"): string {
 /** Probability of every score as a heatmap: columns are the home team's goals, rows the away team's.
  * "Final" is the official score, where a shootout/overtime winner is credited a goal (so a tie never
  * appears and 4-3 can come from a 3-3 game); "Regulation" is the score at 60:00, where ties sit on the
- * diagonal. Home-win cells are tinted with the accent color, away-win cells with the warning color,
+ * diagonal. Cells are tinted with the winning team's color,
  * regulation ties muted - never green/red, which this app reserves for profit and loss. */
-export default function ScoreGrid({ home, away, finalGrid, regGrid }: { home: string; away: string; finalGrid: number[][]; regGrid: number[][] }) {
+export default function ScoreGrid({
+  home,
+  away,
+  finalGrid,
+  regGrid,
+  homeColor = "var(--accent)",
+  awayColor = "var(--warn)",
+}: {
+  home: string;
+  away: string;
+  finalGrid: number[][];
+  regGrid: number[][];
+  homeColor?: string;
+  awayColor?: string;
+}) {
   const [mode, setMode] = useState<"final" | "reg">("final");
   const [show, setShow] = useState<"pct" | "odds">("pct");
   const grid = mode === "final" ? finalGrid : regGrid;
@@ -60,11 +74,11 @@ export default function ScoreGrid({ home, away, finalGrid, regGrid }: { home: st
         </div>
         <div className="flex w-full items-center gap-3 text-[11px] text-muted">
           <span className="flex items-center gap-1">
-            <span className="h-2.5 w-2.5 rounded-sm" style={{ background: "var(--accent)" }} />
+            <span className="h-2.5 w-2.5 rounded-sm" style={{ background: homeColor }} />
             {home} wins
           </span>
           <span className="flex items-center gap-1">
-            <span className="h-2.5 w-2.5 rounded-sm" style={{ background: "var(--warn)" }} />
+            <span className="h-2.5 w-2.5 rounded-sm" style={{ background: awayColor }} />
             {away} wins
           </span>
           {mode === "reg" && (
@@ -97,7 +111,7 @@ export default function ScoreGrid({ home, away, finalGrid, regGrid }: { home: st
                 <th className="pr-2 text-right text-xs font-semibold text-foreground">{a}</th>
                 {Array.from({ length: SHOW }, (_, h) => {
                   const p = grid[h]?.[a] ?? 0;
-                  const tone = h > a ? "var(--accent)" : h < a ? "var(--warn)" : "var(--muted)";
+                  const tone = h > a ? homeColor : h < a ? awayColor : "var(--muted)";
                   const strength = Math.round((p / max) * 80);
                   return (
                     <td

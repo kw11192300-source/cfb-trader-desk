@@ -1,12 +1,18 @@
 import GoalieLock from "./GoalieLock";
 import LocalDateTime from "./LocalDateTime";
+import NhlMarketComparison from "./NhlMarketComparison";
 import NhlTeamLogo from "./NhlTeamLogo";
+import NhlWinBar from "./NhlWinBar";
 import ProbOdds from "./ProbOdds";
 import ScoreGrid from "./ScoreGrid";
-import { devig, fairMoneyline, fairOdds, fmtOdds, mostLikelyScore, overUnder, pct, puckLineCover } from "@/lib/nhlModel";
+import { matchupColors } from "@/lib/nhlColors";
+import { marketEdges } from "@/lib/nhlEdges";
+import { fairOdds, mostLikelyScore, overUnder, pct, puckLineCover } from "@/lib/nhlModel";
 import type { Game, NhlGameXg, NhlPrediction } from "@/lib/types";
 
-const LADDER = [4.5, 5.5, 6.5, 7.5, 8.5];
+const TOTAL_LINES = Array.from({ length: 11 }, (_, i) => 4 + i * 0.5); // 4, 4.5 ... 9
+const PUCK_LINES = [-2.5, -1.5, 1.5, 2.5]; // the home team's handicap; the away team's is the opposite sign
+const signed = (n: number) => (n > 0 ? `+${n.toFixed(1)}` : n.toFixed(1));
 
 function Card({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
   return (
@@ -24,32 +30,12 @@ function Cell({ children, strong }: { children: React.ReactNode; strong?: boolea
   return <td className={`px-3 py-1.5 text-right font-mono text-xs ${strong ? "font-semibold text-foreground" : "text-foreground"}`}>{children}</td>;
 }
 
-function WinBar({ home, away, pHome }: { home: string; away: string; pHome: number }) {
-  return (
-    <div>
-      <div className="mb-1.5 flex items-baseline justify-between text-sm">
-        <span className="text-foreground">
-          {away} <span className="font-mono font-semibold"><ProbOdds p={1 - pHome} /></span>
-        </span>
-        <span className="text-foreground">
-          <span className="font-mono font-semibold"><ProbOdds p={pHome} /></span> {home}
-        </span>
-      </div>
-      <div className="flex h-2.5 overflow-hidden rounded-full bg-surface-raised">
-        <div className="h-full" style={{ width: `${(1 - pHome) * 100}%`, background: "var(--warn)" }} />
-        <div className="h-full" style={{ width: `${pHome * 100}%`, background: "var(--accent)" }} />
-      </div>
-    </div>
-  );
-}
-
 export default function NhlGameView({ game, prediction, xg }: { game: Game; prediction: NhlPrediction | null; xg: NhlGameXg | null }) {
   const home = game.home_team;
   const away = game.away_team;
   const done = game.completed && game.home_points !== null && game.away_points !== null;
   const m = prediction?.market ?? null;
-  const fair = fairMoneyline(m);
-  const lines = m?.total_line !== null && m?.total_line !== undefined && !LADDER.includes(m.total_line) ? [...LADDER, m.total_line].sort((a, b) => a - b) : LADDER;
+  const colors = matchupColors(home, away);
 
   return (
     <div className="flex flex-col gap-4">
@@ -90,7 +76,15 @@ export default function NhlGameView({ game, prediction, xg }: { game: Game; pred
           </div>
 
           <Card title="Win probability" note={`${(prediction.extras?.n_sims ?? 0).toLocaleString()} simulations · ${prediction.model_version}`}>
-            <WinBar home={home} away={away} pHome={prediction.p_home} />
+            <NhlWinBar
+              home={home}
+              away={away}
+              homeColor={colors.home}
+              awayColor={colors.away}
+              pHome={prediction.p_home}
+              pHomeReg={prediction.p_home_reg}
+              pTieReg={prediction.p_tie_reg}
+            />
             <div className="mt-4 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
               <div>
                 <div className="text-muted">Win in regulation</div>
@@ -113,59 +107,48 @@ export default function NhlGameView({ game, prediction, xg }: { game: Game; pred
                 </div>
               </div>
             </div>
-            {fair && (
-              <div className="mt-4 rounded-md bg-surface-raised px-3 py-2 text-xs text-muted">
-                Market ({m?.provider ?? "book"}): posted {away} {fmtOdds(m?.ml_away ?? null)} / {home} {fmtOdds(m?.ml_home ?? null)}; no-vig {away}{" "}
-                <ProbOdds p={fair.away} /> · {home} <ProbOdds p={fair.home} /> — model is{" "}
-                <span className="font-mono text-foreground">
-                  {prediction.p_home - fair.home >= 0 ? "+" : ""}
-                  {((prediction.p_home - fair.home) * 100).toFixed(1)} pts
-                </span>{" "}
-                on {home}.
-              </div>
-            )}
+          </Card>
+
+          <Card title={`Model vs ${m?.provider ?? "the book"}`} note="moneyline · puck line · total">
+            <NhlMarketComparison rows={marketEdges(prediction, home, away)} provider={m?.provider ?? null} />
           </Card>
 
           <Card title="Score probabilities" note={`most likely: ${away} ${mostLikelyScore(prediction).away} – ${mostLikelyScore(prediction).home} ${home} (${pct(mostLikelyScore(prediction).p)}, ${fairOdds(mostLikelyScore(prediction).p)})`}>
-            <ScoreGrid home={home} away={away} finalGrid={prediction.score_matrix} regGrid={prediction.score_matrix_reg} />
+            <ScoreGrid home={home} away={away} finalGrid={prediction.score_matrix} regGrid={prediction.score_matrix_reg} homeColor={colors.home} awayColor={colors.away} />
           </Card>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <Card title="Total goals" note={`expected ${prediction.exp_total.toFixed(2)} (final score)`}>
+            <Card title="Total goals" note={`expected ${prediction.exp_total.toFixed(2)} (final score, shootout goal counted)`}>
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-xs">
                   <thead>
                     <tr className="border-b border-border text-muted">
                       <th className="px-3 py-1.5 text-left font-medium">Line</th>
-                      <th className="px-3 py-1.5 text-right font-medium" title="Official final score - the shootout winner is credited one goal. How most US books settle full-game totals.">
-                        Over / Under (final)
-                      </th>
-                      <th className="px-3 py-1.5 text-right font-medium" title="Through overtime but WITHOUT the shootout goal">
-                        Over (thru OT)
-                      </th>
-                      <th className="px-3 py-1.5 text-right font-medium" title="60-minute market">
-                        Over (60:00)
+                      <th className="px-3 py-1.5 text-right font-medium">Over</th>
+                      <th className="px-3 py-1.5 text-right font-medium">Under</th>
+                      <th className="px-3 py-1.5 text-right font-medium" title="Whole-number lines refund on exactly that many goals">
+                        Push
                       </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {lines.map((line) => {
+                    {TOTAL_LINES.map((line) => {
                       const f = overUnder(prediction.total_dist, line);
-                      const o = prediction.extras ? overUnder(prediction.extras.ot_total_dist, line) : null;
-                      const r = prediction.extras ? overUnder(prediction.extras.reg_total_dist, line) : null;
+                      const live = 1 - f.push;
                       const isMarket = m?.total_line === line;
                       return (
                         <tr key={line} className={`border-b border-border last:border-0 ${isMarket ? "bg-accent/5" : ""}`}>
                           <td className="px-3 py-1.5 font-mono text-foreground">
-                            {line.toFixed(1)}
+                            {line % 1 === 0 ? line.toFixed(0) : line.toFixed(1)}
                             {isMarket && <span className="ml-1.5 text-[10px] text-accent">book</span>}
                           </td>
                           <Cell strong>
-                            <ProbOdds p={f.over} /> / <ProbOdds p={f.under} />
-                            {f.push > 0.001 && <span className="text-muted"> · push {pct(f.push)}</span>}
+                            <ProbOdds p={f.over / live} />
                           </Cell>
-                          <Cell>{o ? <ProbOdds p={o.over} stacked /> : "—"}</Cell>
-                          <Cell>{r ? <ProbOdds p={r.over} stacked /> : "—"}</Cell>
+                          <Cell strong>
+                            <ProbOdds p={f.under / live} />
+                          </Cell>
+                          <Cell>{f.push > 0.001 ? pct(f.push) : "—"}</Cell>
                         </tr>
                       );
                     })}
@@ -173,71 +156,57 @@ export default function NhlGameView({ game, prediction, xg }: { game: Game; pred
                 </table>
               </div>
               <p className="mt-2 text-[11px] text-muted">
-                Settlement differs by market: full-game totals at most US books count the shootout goal (a 3–3 game decided 4–3 is 7 goals); some
-                markets are 60-minute or exclude the shootout. Check which one you&apos;re betting.
+                Final score, so a shootout winner&apos;s extra goal counts (a 3–3 game decided 4–3 is 7 goals). On whole-number lines the over/under are priced
+                without the push, since a push is refunded.
               </p>
             </Card>
 
-            <Card title="Puck line" note="probability each side covers">
+            <Card title="Puck line" note="each row: the two sides of one line add to 100%">
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-xs">
                   <thead>
                     <tr className="border-b border-border text-muted">
-                      <th className="px-3 py-1.5 text-left font-medium">Side</th>
-                      <th className="px-3 py-1.5 text-right font-medium">-2.5</th>
-                      <th className="px-3 py-1.5 text-right font-medium">-1.5</th>
-                      <th className="px-3 py-1.5 text-right font-medium">+1.5</th>
-                      <th className="px-3 py-1.5 text-right font-medium">+2.5</th>
+                      <th className="px-3 py-1.5 text-left font-medium">
+                        <span className="flex items-center gap-2">
+                          <NhlTeamLogo team={home} size={18} />
+                          {home}
+                        </span>
+                      </th>
+                      <th className="px-3 py-1.5 text-right font-medium">
+                        <span className="flex items-center justify-end gap-2">
+                          {away}
+                          <NhlTeamLogo team={away} size={18} />
+                        </span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(
-                      [
-                        [home, "home"],
-                        [away, "away"],
-                      ] as const
-                    ).map(([name, side]) => (
-                      <tr key={side} className="border-b border-border last:border-0">
-                        <td className="px-3 py-1.5 text-foreground">{name}</td>
-                        {[-2.5, -1.5, 1.5, 2.5].map((line) => (
-                          <Cell key={line} strong={Math.abs(line) === 1.5}>
-                            <ProbOdds p={puckLineCover(prediction.margin_dist, side, line)} stacked />
-                          </Cell>
-                        ))}
-                      </tr>
-                    ))}
+                    {PUCK_LINES.map((line) => {
+                      const isBook = m?.spread_home_line === line;
+                      const homeP = puckLineCover(prediction.margin_dist, "home", line);
+                      const awayP = puckLineCover(prediction.margin_dist, "away", -line);
+                      return (
+                        <tr key={line} className={`border-b border-border last:border-0 ${isBook ? "bg-accent/5" : ""}`}>
+                          <td className="px-3 py-1.5 font-mono text-foreground">
+                            <span className={`inline-block w-10 font-semibold ${Math.abs(line) === 1.5 ? "text-foreground" : "text-muted"}`}>{signed(line)}</span>
+                            <ProbOdds p={homeP} />
+                          </td>
+                          <td className="px-3 py-1.5 text-right font-mono text-foreground">
+                            <ProbOdds p={awayP} />
+                            <span className={`ml-2 inline-block w-10 text-right font-semibold ${Math.abs(line) === 1.5 ? "text-foreground" : "text-muted"}`}>{signed(-line)}</span>
+                            {isBook && <span className="ml-1.5 text-[10px] text-accent">book</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
               <p className="mt-2 text-[11px] text-muted">
-                A shootout or overtime win is a one-goal margin on the official score, so -1.5 needs a regulation win by two or more (an empty-net goal
-                counts).
+                A shootout or overtime win is a one-goal margin on the official score, so -1.5 needs a regulation win by two or more (an empty-net goal counts).
               </p>
-              {m && m.spread_home_line !== null && m.spread_home_odds !== null && m.spread_away_odds !== null && (
-                <div className="mt-3 rounded-md bg-surface-raised px-3 py-2 text-xs text-muted">
-                  {m.provider ?? "Book"}: {home} {m.spread_home_line > 0 ? "+" : ""}
-                  {m.spread_home_line} ({fmtOdds(m.spread_home_odds)}) / {away} {m.spread_home_line > 0 ? "" : "+"}
-                  {-m.spread_home_line} ({fmtOdds(m.spread_away_odds)}) — no-vig {home} cover <ProbOdds p={devig(m.spread_home_odds, m.spread_away_odds)} />, model{" "}
-                  <span className="font-mono text-foreground">
-                    <ProbOdds p={puckLineCover(prediction.margin_dist, "home", m.spread_home_line)} />
-                  </span>
-                </div>
-              )}
             </Card>
           </div>
-
-          {m && m.total_line !== null && m.over_odds !== null && m.under_odds !== null && (
-            <Card title={`Totals vs ${m.provider ?? "the book"}`}>
-              <div className="text-xs text-muted">
-                Line {m.total_line.toFixed(1)} (over {fmtOdds(m.over_odds)} / under {fmtOdds(m.under_odds)}); no-vig over <ProbOdds p={devig(m.over_odds, m.under_odds)} />. Model (final score):
-                over{" "}
-                <span className="font-mono text-foreground">
-                  <ProbOdds p={overUnder(prediction.total_dist, m.total_line).over / (1 - overUnder(prediction.total_dist, m.total_line).push)} />
-                </span>{" "}
-                excluding pushes.
-              </div>
-            </Card>
-          )}
 
           {prediction.assumptions && (
             <Card title="Goalies" note={prediction.assumptions.goalie_confirmed ? "both starters confirmed" : "starters not both confirmed"}>
