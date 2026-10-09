@@ -4,7 +4,7 @@ import LogBetForm from "./LogBetForm";
 import LogPropBetForm from "./LogPropBetForm";
 import type { GradedBet } from "@/lib/data";
 import { balancedTotal, fairMoneyline, fairOdds, pct, puckLineCover } from "@/lib/nhlModel";
-import type { Bet, Game, NhlGameXg, NhlPrediction } from "@/lib/types";
+import type { Bet, Game, NhlGameXg, NhlMarket, NhlPrediction } from "@/lib/types";
 
 /** Spreads only: "+" means this side is getting points (underdog) - same
  * convention as NflGameCard, "spread" here just means the puck line. */
@@ -29,14 +29,29 @@ function fmtTotalLine(line: number): string {
   return line % 1 === 0 ? line.toFixed(0) : line.toFixed(1);
 }
 
-/** A model probability and its fair American price in fixed-width columns, so teams, over and under line up. */
-function ProbCols({ p }: { p: number }) {
+/** Model probability, the model's fair ("true") American price, then the book's posted price, in fixed-width
+ * columns so teams, over and under line up. `book` is null when the book has no price for that row. */
+type BookPrice = { odds: string; line?: string };
+
+function ProbCols({ p, book }: { p: number; book: BookPrice | null }) {
   return (
-    <span className="flex items-baseline gap-2 font-mono text-xs">
-      <span className="w-9 text-right text-accent">{pct(p, 0)}</span>
-      <span className="w-12 text-right text-muted">{fairOdds(p)}</span>
+    <span className="flex shrink-0 items-baseline gap-1.5 font-mono text-[11px]">
+      <span className="w-8 text-right text-accent">{pct(p, 0)}</span>
+      <span className="w-10 text-right font-semibold text-foreground">{fairOdds(p)}</span>
+      <span className="w-[3.75rem] text-right text-up">
+        {book?.line && <span className="mr-1 text-[10px] text-muted">{book.line}</span>}
+        {book?.odds ?? "—"}
+      </span>
     </span>
   );
+}
+
+/** The book's posted over/under price. When the book's total isn't the line we're showing, its own line is
+ * prefixed ("6.5 +110") so the two are never mistaken for the same bet. */
+function bookTotal(m: NhlMarket | null, line: number, side: "over" | "under"): BookPrice | null {
+  const odds = side === "over" ? m?.over_odds : m?.under_odds;
+  if (!m || odds == null || m.total_line == null) return null;
+  return m.total_line === line ? { odds: fmtOdds(odds) } : { odds: fmtOdds(odds), line: fmtTotalLine(m.total_line) };
 }
 
 function fmtOdds(odds: number): string {
@@ -77,6 +92,7 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
   const fair = showModel ? fairMoneyline(prediction.market) : null;
   // Totals here are the official final score, so a shootout winner's extra goal is always counted.
   const total = showModel ? balancedTotal(prediction.total_dist) : null;
+  const mkt = showModel ? prediction.market : null;
 
   return (
     <div className="flex flex-col rounded-lg border border-border bg-surface">
@@ -110,8 +126,8 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
 
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between text-sm">
-          <span className="text-foreground">{game.away_team}</span>
-          {showModel && <ProbCols p={1 - prediction.p_home} />}
+          <span className="min-w-0 text-foreground">{game.away_team}</span>
+          {showModel && <ProbCols p={1 - prediction.p_home} book={mkt?.ml_away != null ? { odds: fmtOdds(mkt.ml_away) } : null} />}
           {game.completed && game.away_points !== null && (
             <span className={`font-mono ${(game.away_points ?? 0) > (game.home_points ?? 0) ? "font-semibold text-foreground" : "text-muted"}`}>
               {game.away_points}
@@ -121,8 +137,8 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
           {!game.completed && game.live_status && <span className="font-mono text-foreground">{game.live_status.away_points}</span>}
         </div>
         <div className="flex items-center justify-between text-sm">
-          <span className="text-foreground">{game.home_team}</span>
-          {showModel && <ProbCols p={prediction.p_home} />}
+          <span className="min-w-0 text-foreground">{game.home_team}</span>
+          {showModel && <ProbCols p={prediction.p_home} book={mkt?.ml_home != null ? { odds: fmtOdds(mkt.ml_home) } : null} />}
           {game.completed && game.home_points !== null && (
             <span className={`font-mono ${(game.home_points ?? 0) > (game.away_points ?? 0) ? "font-semibold text-foreground" : "text-muted"}`}>
               {game.home_points}
@@ -135,11 +151,11 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
           <div className="mt-0.5 flex flex-col gap-1.5 border-t border-border pt-1.5">
             <div className="flex items-center justify-between text-sm">
               <span className="text-foreground">o{fmtTotalLine(total.line)}</span>
-              <ProbCols p={total.over} />
+              <ProbCols p={total.over} book={bookTotal(mkt, total.line, "over")} />
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-foreground">u{fmtTotalLine(total.line)}</span>
-              <ProbCols p={total.under} />
+              <ProbCols p={total.under} book={bookTotal(mkt, total.line, "under")} />
             </div>
           </div>
         )}
