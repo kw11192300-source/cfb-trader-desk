@@ -761,6 +761,16 @@ export async function getNhlStatSeasons(): Promise<{ seasons: number[]; hasL10: 
   return { seasons, hasL10 };
 }
 
+/** When the team/goalie tables were last rebuilt (null before the first publish). */
+export async function getNhlStatsUpdated(): Promise<string | null> {
+  const { data, error } = await supabase.from("nhl_team_stats").select("updated_at").order("updated_at", { ascending: false }).limit(1);
+  if (error) {
+    if (isMissingTable(error)) return null;
+    throw new Error(error.message);
+  }
+  return data?.[0]?.updated_at ?? null;
+}
+
 export async function getNhlTeamStats(season: number, scope: NhlStatsScope): Promise<NhlTeamStatsRow[]> {
   const { data, error } = await supabase.from("nhl_team_stats").select("season, scope, team, name, stats").eq("season", season).eq("scope", scope);
   if (error) {

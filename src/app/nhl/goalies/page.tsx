@@ -1,15 +1,17 @@
 import NhlGoalieStatsTable from "@/components/NhlGoalieStatsTable";
 import NhlStatControls from "@/components/NhlStatControls";
+import NhlRefreshButton from "@/components/NhlRefreshButton";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import type { StatRow } from "@/components/StatTable";
-import { getNhlGoalieStats, getNhlStatSeasons } from "@/lib/data";
+import { getNhlRefreshStatus } from "@/lib/actions";
+import { getNhlGoalieStats, getNhlStatSeasons, getNhlStatsUpdated } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export default async function NhlGoaliesPage({ searchParams }: { searchParams: Promise<{ season?: string; scope?: string }> }) {
   const params = await searchParams;
-  const { seasons, hasL10 } = await getNhlStatSeasons();
+  const [{ seasons, hasL10 }, updated, refreshStatus] = await Promise.all([getNhlStatSeasons(), getNhlStatsUpdated(), getNhlRefreshStatus()]);
   const requested = Number(params.season);
   const season = seasons.includes(requested) ? requested : (seasons[0] ?? 0);
   const scope = params.scope === "l10" && hasL10[season] ? "l10" : "all";
@@ -34,6 +36,8 @@ export default async function NhlGoaliesPage({ searchParams }: { searchParams: P
             same idea after time-decay and heavy shrinkage toward average, and is what the game simulator uses.
           </p>
         </div>
+
+        <NhlRefreshButton lastPublished={updated} initial={refreshStatus} variant="tables" />
 
         {seasons.length > 0 && <NhlStatControls basePath="/nhl/goalies" seasons={seasons} season={season} scope={scope} hasL10={Boolean(hasL10[season])} />}
         <NhlGoalieStatsTable key={`${season}-${scope}`} rows={rows} minDefault={minDefault} />

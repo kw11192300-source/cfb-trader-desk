@@ -1,15 +1,17 @@
 import NhlStatControls from "@/components/NhlStatControls";
 import NhlTeamStatsTable from "@/components/NhlTeamStatsTable";
+import NhlRefreshButton from "@/components/NhlRefreshButton";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import type { StatRow } from "@/components/StatTable";
-import { getNhlStatSeasons, getNhlTeamStats } from "@/lib/data";
+import { getNhlRefreshStatus } from "@/lib/actions";
+import { getNhlStatSeasons, getNhlStatsUpdated, getNhlTeamStats } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export default async function NhlTeamsPage({ searchParams }: { searchParams: Promise<{ season?: string; scope?: string }> }) {
   const params = await searchParams;
-  const { seasons, hasL10 } = await getNhlStatSeasons();
+  const [{ seasons, hasL10 }, updated, refreshStatus] = await Promise.all([getNhlStatSeasons(), getNhlStatsUpdated(), getNhlRefreshStatus()]);
   const requested = Number(params.season);
   const season = seasons.includes(requested) ? requested : (seasons[0] ?? 0);
   const scope = params.scope === "l10" && hasL10[season] ? "l10" : "all";
@@ -44,6 +46,8 @@ export default async function NhlTeamsPage({ searchParams }: { searchParams: Pro
             real points did. Treat it as how a team&apos;s results compare to its process, not as a betting signal.
           </p>
         </div>
+
+        <NhlRefreshButton lastPublished={updated} initial={refreshStatus} variant="tables" />
 
         {seasons.length > 0 && <NhlStatControls basePath="/nhl/teams" seasons={seasons} season={season} scope={scope} hasL10={Boolean(hasL10[season])} />}
         <NhlTeamStatsTable key={`${season}-${scope}`} rows={rows} />
