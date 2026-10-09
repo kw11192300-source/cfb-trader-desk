@@ -25,6 +25,20 @@ function fmtBet(bet: Bet): string {
   return `${bet.side} ${fmtSpreadLine(bet.line)}`;
 }
 
+function fmtTotalLine(line: number): string {
+  return line % 1 === 0 ? line.toFixed(0) : line.toFixed(1);
+}
+
+/** A model probability and its fair American price in fixed-width columns, so teams, over and under line up. */
+function ProbCols({ p }: { p: number }) {
+  return (
+    <span className="flex items-baseline gap-2 font-mono text-xs">
+      <span className="w-9 text-right text-accent">{pct(p, 0)}</span>
+      <span className="w-12 text-right text-muted">{fairOdds(p)}</span>
+    </span>
+  );
+}
+
 function fmtOdds(odds: number): string {
   return odds > 0 ? `+${odds}` : `${odds}`;
 }
@@ -61,6 +75,8 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
   // Model win probability only makes sense before the game starts.
   const showModel = prediction !== null && !game.completed && !game.live_status;
   const fair = showModel ? fairMoneyline(prediction.market) : null;
+  // Totals here are the official final score, so a shootout winner's extra goal is always counted.
+  const total = showModel ? balancedTotal(prediction.total_dist) : null;
 
   return (
     <div className="flex flex-col rounded-lg border border-border bg-surface">
@@ -95,7 +111,7 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between text-sm">
           <span className="text-foreground">{game.away_team}</span>
-          {showModel && <span className="font-mono text-xs text-accent">{pct(1 - prediction.p_home, 0)} <span className="text-muted">{fairOdds(1 - prediction.p_home)}</span></span>}
+          {showModel && <ProbCols p={1 - prediction.p_home} />}
           {game.completed && game.away_points !== null && (
             <span className={`font-mono ${(game.away_points ?? 0) > (game.home_points ?? 0) ? "font-semibold text-foreground" : "text-muted"}`}>
               {game.away_points}
@@ -106,7 +122,7 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
         </div>
         <div className="flex items-center justify-between text-sm">
           <span className="text-foreground">{game.home_team}</span>
-          {showModel && <span className="font-mono text-xs text-accent">{pct(prediction.p_home, 0)} <span className="text-muted">{fairOdds(prediction.p_home)}</span></span>}
+          {showModel && <ProbCols p={prediction.p_home} />}
           {game.completed && game.home_points !== null && (
             <span className={`font-mono ${(game.home_points ?? 0) > (game.away_points ?? 0) ? "font-semibold text-foreground" : "text-muted"}`}>
               {game.home_points}
@@ -115,6 +131,18 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
           )}
           {!game.completed && game.live_status && <span className="font-mono text-foreground">{game.live_status.home_points}</span>}
         </div>
+        {showModel && total && (
+          <div className="mt-0.5 flex flex-col gap-1.5 border-t border-border pt-1.5">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-foreground">o{fmtTotalLine(total.line)}</span>
+              <ProbCols p={total.over} />
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-foreground">u{fmtTotalLine(total.line)}</span>
+              <ProbCols p={total.under} />
+            </div>
+          </div>
+        )}
       </div>
 
       {showModel && (
@@ -125,16 +153,6 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
           <span>
             {game.home_team.split(" ").slice(-1)[0]} -1.5 {pct(puckLineCover(prediction.margin_dist, "home", -1.5), 0)} ({fairOdds(puckLineCover(prediction.margin_dist, "home", -1.5))})
             {fair ? ` · DK ${pct(fair.home, 0)}` : ""}
-          </span>
-          <span className="w-full">
-            {(() => {
-              const t = balancedTotal(prediction.total_dist);
-              return (
-                <>
-                  total {t.line % 1 === 0 ? t.line.toFixed(0) : t.line.toFixed(1)}: o {pct(t.over, 0)} ({fairOdds(t.over)}) / u {pct(t.under, 0)} ({fairOdds(t.under)})
-                </>
-              );
-            })()}
           </span>
         </div>
       )}
