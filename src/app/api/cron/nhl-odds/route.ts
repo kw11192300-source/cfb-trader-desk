@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { updateNhlOdds } from "@/lib/nhlOdds";
+import { updateNhlOdds, updateNhlScores } from "@/lib/nhlOdds";
 
 // Called on a timer (every ~10 minutes) by an outside scheduler - cron-job.org, or Vercel Cron on a plan that allows
 // that frequency. It is exempt from the site password (src/proxy.ts) because a timer can't log in, so it checks its own
@@ -23,10 +23,14 @@ export async function GET(request: Request) {
   }
   if (!authorized(request)) return Response.json({ ok: false, message: "Unauthorized." }, { status: 401 });
 
+  // scores first, so the grading at the end of the odds update already sees anything that just went final
+  const scores = await updateNhlScores();
   const result = await updateNhlOdds();
   if (result.ok) {
     revalidatePath("/nhl");
     revalidatePath("/nhl/edges");
+    revalidatePath("/nhl/bets");
+    revalidatePath("/nhl/performance");
   }
-  return Response.json(result, { status: result.ok ? 200 : 502 });
+  return Response.json({ ...result, scores }, { status: result.ok ? 200 : 502 });
 }

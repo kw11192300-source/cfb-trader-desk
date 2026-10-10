@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { simulateGame, type GoalieScenario } from "@/lib/nhlSim";
-import { updateNhlOdds } from "@/lib/nhlOdds";
+import { updateNhlOdds, updateNhlScores } from "@/lib/nhlOdds";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { GoalieSource, NhlGoalie, NhlPrediction } from "@/lib/types";
 
@@ -170,6 +170,18 @@ export async function refreshNhlOdds(): Promise<{ ok: boolean; message: string }
     revalidatePath("/nhl/edges");
   }
   return { ok: r.ok, message: r.ok && r.games > 0 ? `DraftKings odds updated for ${r.games} games (${r.moved} had moved).` : r.message };
+}
+
+/** Score refresh behind the "Update scores" button: pulls today's scores, live status and finals from ESPN right now (the
+ * scheduled GitHub sync does the same, but only fires a few times a day), then grades any logged edges that just finished. */
+export async function refreshNhlScores(): Promise<{ ok: boolean; message: string }> {
+  const r = await updateNhlScores({ grade: true });
+  if (r.ok) {
+    revalidatePath("/nhl");
+    revalidatePath("/nhl/bets");
+    revalidatePath("/nhl/performance");
+  }
+  return { ok: r.ok, message: r.message };
 }
 
 /** Locks in the confirmed starting goalies for one NHL game and re-simulates it right away (about a second -

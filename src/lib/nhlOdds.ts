@@ -172,13 +172,113 @@ export async function updateNhlOdds(): Promise<OddsUpdateResult> {
   // 3. grade anything that finished
   let graded = 0;
   try {
-    graded = await gradeNhlEdgeLog(3);
+    graded = await gradeNhlEdgeLog(7);
   } catch (e) {
     return { ok: false, message: `Odds updated, but grading failed: ${e instanceof Error ? e.message : "unknown error"}.`, games, moved, snapshots, logged, graded: 0 };
   }
 
   const message = games === 0 ? "No upcoming published games have DraftKings lines on ESPN yet." : `DraftKings odds updated for ${games} games (${moved} had moved).`;
   return { ok: true, message, games, moved, snapshots, logged, graded };
+}
+
+type EspnScoreboard = {
+  events?: {
+    id: string;
+    season?: { type?: number };
+    status?: { period?: number; displayClock?: string; type?: { state?: string; completed?: boolean; shortDetail?: string } };
+    competitions?: { competitors?: { homeAway: string; score?: string }[] }[];
+  }[];
+};
+
+export type ScoreUpdateResult = { ok: boolean; message: string; games: number; updated: number; live: number; final: number; graded: number };
+
+const noScores = (ok: boolean, message: string): ScoreUpdateResult => ({ ok, message, games: 0, updated: 0, live: 0, final: 0, graded: 0 });
+
+/** Re-reads ESPN's scoreboard for the last two days plus today and tomorrow, and brings the scores, final status and live
+ * status of games we already have in line with it - the same fields the scheduled sync_nhl_espn job writes, but on demand
+ * (and on the odds timer). Only existing rows are touched; the schedule itself still comes from that job. Optionally grades
+ * the edge log for anything that just went final. */
+export async function updateNhlScores(opts: { grade?: boolean } = {}): Promise<ScoreUpdateResult> {
+  const nowIso = new Date().toISOString();
+  const now = Date.now();
+  const days = [-2, -1, 0, 1].map((d) => new Date(now + d * 86400000).toISOString().slice(0, 10).replaceAll("-", ""));
+  let boards: EspnScoreboard[];
+  try {
+    boards = await Promise.all(
+      days.map(async (d) => {
+        const res = await fetch(`${ESPN_NHL_SCOREBOARD}?dates=${d}`, { cache: "no-store" });
+        if (!res.ok) throw new Error(`ESPN returned ${res.status}`);
+        return res.json();
+      }),
+    );
+  } catch (e) {
+    return noScores(false, `Couldn't reach ESPN: ${e instanceof Error ? e.message : "unknown error"}.`);
+  }
+
+  type Live = { home_points: number; away_points: number; period: number | null; clock: string | null; detail: string | null; updated_at: string };
+  type Next = { completed: boolean; home_points: number | null; away_points: number | null; live_status: Live | null };
+  const next = new Map<number, Next>();
+  for (const board of boards) {
+    for (const e of board.events ?? []) {
+      if (e.season?.type !== 2) continue; // regular season only, like the scheduled sync
+      const comps = e.competitions?.[0]?.competitors ?? [];
+      const home = comps.find((c) => c.homeAway === "home");
+      const away = comps.find((c) => c.homeAway === "away");
+      if (!home || !away) continue;
+      const hp = home.score !== undefined && home.score !== "" ? Number(home.score) : null;
+      const ap = away.score !== undefined && away.score !== "" ? Number(away.score) : null;
+      next.set(-(Number(e.id) + NHL_GAME_ID_OFFSET), {
+        completed: Boolean(e.status?.type?.completed),
+        home_points: hp,
+        away_points: ap,
+        live_status:
+          e.status?.type?.state === "in" && hp !== null && ap !== null
+            ? { home_points: hp, away_points: ap, period: e.status?.period ?? null, clock: e.status?.displayClock ?? null, detail: e.status?.type?.shortDetail ?? null, updated_at: nowIso }
+            : null,
+      });
+    }
+  }
+  if (next.size === 0) return noScores(true, "No NHL games in ESPN's scoreboard for the last two days.");
+
+  const { data: rows, error } = await supabaseAdmin.from("games").select("id, completed, home_points, away_points, live_status").in("id", [...next.keys()]);
+  if (error) return noScores(false, error.message);
+
+  let updated = 0;
+  const failures: string[] = [];
+  await Promise.all(
+    (rows ?? []).map(async (r) => {
+      const n = next.get(r.id as number)!;
+      // a ticking clock alone is worth a write (it is what the live board shows); anything identical is skipped
+      const old = r.live_status as Live | null;
+      const liveSame = (old === null && n.live_status === null) || (old !== null && n.live_status !== null && old.home_points === n.live_status.home_points && old.away_points === n.live_status.away_points && old.period === n.live_status.period && old.clock === n.live_status.clock);
+      if (r.completed === n.completed && r.home_points === n.home_points && r.away_points === n.away_points && liveSame) return;
+      const { error: upErr } = await supabaseAdmin.from("games").update(n).eq("id", r.id);
+      if (upErr) failures.push(upErr.message);
+      else updated++;
+    }),
+  );
+  if (failures.length > 0) return { ...noScores(false, `Some score updates failed: ${failures[0]}`), games: rows?.length ?? 0, updated };
+
+  let graded = 0;
+  if (opts.grade) {
+    try {
+      graded = await gradeNhlEdgeLog(7);
+    } catch {
+      /* best effort here - the odds update retries grading */
+    }
+  }
+  const all = [...next.values()];
+  const live = all.filter((n) => n.live_status !== null).length;
+  const final = all.filter((n) => n.completed).length;
+  return {
+    ok: true,
+    message: `Scores checked for ${rows?.length ?? 0} games - ${updated} changed (${live} live, ${final} final)${graded > 0 ? `, ${graded} logged edges graded` : ""}.`,
+    games: rows?.length ?? 0,
+    updated,
+    live,
+    final,
+    graded,
+  };
 }
 
 function isMissingTable(error: { code?: string; message: string }): boolean {

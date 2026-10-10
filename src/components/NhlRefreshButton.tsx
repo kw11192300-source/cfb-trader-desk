@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import LocalDateTime from "./LocalDateTime";
-import { getNhlRefreshStatus, refreshNhlOdds, triggerNhlRefresh, type NhlRefreshStatus } from "@/lib/actions";
+import { getNhlRefreshStatus, refreshNhlOdds, refreshNhlScores, triggerNhlRefresh, type NhlRefreshStatus } from "@/lib/actions";
 
 const TIME = { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" } as const;
 
@@ -26,6 +26,7 @@ export default function NhlRefreshButton({
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [oddsPending, startOddsTransition] = useTransition();
+  const [scoresPending, startScoresTransition] = useTransition();
   const active = status.state === "queued" || status.state === "running";
   const wasActive = useRef(active);
 
@@ -79,6 +80,22 @@ export default function NhlRefreshButton({
       >
         {oddsPending ? "Updating odds…" : "Update DK odds"}
       </button>
+      )}
+      {variant === "model" && (
+        <button
+          disabled={scoresPending}
+          title="Pulls today's scores, live status and finals from ESPN - a few seconds - and grades any logged edges that just finished"
+          onClick={() =>
+            startScoresTransition(async () => {
+              const r = await refreshNhlScores();
+              setMessage(r.message);
+              if (r.ok) router.refresh();
+            })
+          }
+          className="rounded-md border border-border px-3 py-1.5 font-medium text-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {scoresPending ? "Updating scores…" : "Update scores"}
+        </button>
       )}
       <div className="text-muted">
         {status.state === "queued" && "Queued - waiting for a GitHub runner…"}
