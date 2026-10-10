@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { simulateGame, type GoalieScenario } from "@/lib/nhlSim";
-import { updateNhlOdds, updateNhlScores } from "@/lib/nhlOdds";
+import { recordModelSnapshot, updateNhlOdds, updateNhlScores } from "@/lib/nhlOdds";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { GoalieSource, NhlGoalie, NhlPrediction } from "@/lib/types";
 
@@ -236,6 +236,7 @@ export async function setNhlGoalies(gameId: number, home: number | null, away: n
   const { error: updateError } = await supabaseAdmin.from("nhl_predictions").update({ ...sim, assumptions }).eq("game_id", gameId);
   if (updateError) return { ok: false, message: updateError.message };
 
+  await recordModelSnapshot(gameId).catch(() => undefined); // marks the goalie change on the game's price chart
   revalidatePath(`/nhl/games/${gameId}`);
   revalidatePath("/nhl");
   const locked = [home, away].filter((x) => x !== null).length;

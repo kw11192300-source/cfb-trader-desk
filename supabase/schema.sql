@@ -543,6 +543,9 @@ create table if not exists nhl_odds_snapshots (
   total_line numeric, over_odds int, under_odds int
 );
 create index if not exists nhl_odds_snapshots_game_idx on nhl_odds_snapshots (game_id, captured_at);
+-- the model's state, saved only on snapshots where it CHANGED (goalie set, re-run...), plus what changed in words
+alter table nhl_odds_snapshots add column if not exists model jsonb;
+alter table nhl_odds_snapshots add column if not exists model_note text;
 
 -- Every side of every market the model priced, whether or not it was a "bet": kind 'first' = the first time the game had
 -- both a prediction and DraftKings lines, 'close' = the last look before the game started (rewritten on every update

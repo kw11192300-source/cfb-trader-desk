@@ -281,6 +281,28 @@ export type NhlMarket = {
   fetched_at?: string | null;
   /** When this exact set of prices was saved to nhl_odds_snapshots (set by the odds update). */
   snap_at?: string | null;
+  /** Fingerprint of the model state last saved with a snapshot (goalies + win probability), so an unchanged model is free. */
+  model_key?: string | null;
+  /** DraftKings' opening prices, as ESPN reports them. */
+  ml_home_open?: number | null;
+  ml_away_open?: number | null;
+  spread_home_line_open?: number | null;
+  spread_home_odds_open?: number | null;
+  spread_away_odds_open?: number | null;
+  total_line_open?: number | null;
+  over_odds_open?: number | null;
+  under_odds_open?: number | null;
+};
+
+/** The model's state at the moment a snapshot was saved - only written when it CHANGED, and carried forward by the chart. */
+export type NhlModelDigest = {
+  generated_at: string;
+  p_home: number;
+  margin_dist: Record<string, number>;
+  total_dist: Record<string, number>;
+  goalies: { home: { id: number | null; name: string; weight: number }[]; away: { id: number | null; name: string; weight: number }[] };
+  confirmed: { home: boolean; away: boolean };
+  sources: { home: string; away: string };
 };
 
 /** python/nhl_model/publish.py output for one upcoming game - see nhl_predictions in schema.sql.
@@ -334,6 +356,9 @@ export type NhlOddsSnapshot = {
   total_line: number | null;
   over_odds: number | null;
   under_odds: number | null;
+  /** Set only on snapshots where the model changed (goalie set, re-run...). */
+  model: NhlModelDigest | null;
+  model_note: string | null;
 };
 
 /** One logged side of one market (nhl_edge_log) - what the model priced against DraftKings, graded after the game. */

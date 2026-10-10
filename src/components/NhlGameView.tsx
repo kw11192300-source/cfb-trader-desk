@@ -121,8 +121,11 @@ export default function NhlGameView({ game, prediction, xg, snapshots = [] }: { 
             />
           </Card>
 
-          <Card title="DraftKings price movement" note={snapshots.length > 0 ? `${snapshots.length} price change${snapshots.length === 1 ? "" : "s"} saved` : "saved whenever a price moves"}>
-            {snapshots.length === 0 ? (
+          <Card
+            title="DraftKings price movement"
+            note={snapshots.length > 0 ? `${snapshots.length} change${snapshots.length === 1 ? "" : "s"} saved` : "saved whenever a price or the model moves"}
+          >
+            {snapshots.length === 0 && m?.ml_home_open == null ? (
               <p className="text-xs text-muted">
                 No price history yet. Snapshots are saved each time DraftKings&apos; prices move (every ~10 minutes once the odds timer is on, or whenever you press
                 Update DK odds), so this fills in from now on.
@@ -130,8 +133,11 @@ export default function NhlGameView({ game, prediction, xg, snapshots = [] }: { 
             ) : (
               <NhlOddsChart
                 snapshots={snapshots}
+                open={m}
                 home={home}
                 away={away}
+                homeColor={colors.home}
+                awayColor={colors.away}
                 model={{ p_home: prediction.p_home, margin_dist: prediction.margin_dist, total_dist: prediction.total_dist }}
               />
             )}

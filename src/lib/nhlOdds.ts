@@ -1,7 +1,7 @@
 import { supabaseAdmin } from "./supabase-admin";
 import { marketEdges } from "./nhlEdges";
 import { americanToProb } from "./nhlModel";
-import type { NhlMarket, NhlPrediction } from "./types";
+import type { NhlMarket, NhlModelDigest, NhlPrediction } from "./types";
 
 // Server-only. The DraftKings odds update behind the "Update DK odds" button and the ~10-minute timer
 // (src/app/api/cron/nhl-odds/route.ts): re-read ESPN's lines for upcoming games, save a snapshot whenever a price moved,
@@ -21,7 +21,7 @@ const espnOdds = (s: unknown): number | null => {
   return Number.isFinite(n) ? Math.round(n) : null;
 };
 
-type EspnPrice = { close?: { odds?: string; line?: string } };
+type EspnPrice = { close?: { odds?: string; line?: string }; open?: { odds?: string; line?: string } };
 type EspnOdds = {
   provider?: { name?: string };
   moneyline?: { home?: EspnPrice; away?: EspnPrice };
@@ -45,6 +45,14 @@ function parseEspnMarket(o: EspnOdds, fetchedAt: string): NhlMarket {
     total_line: espnLine(tot.over?.close?.line),
     over_odds: espnOdds(tot.over?.close?.odds),
     under_odds: espnOdds(tot.under?.close?.odds),
+    ml_home_open: espnOdds(ml.home?.open?.odds),
+    ml_away_open: espnOdds(ml.away?.open?.odds),
+    spread_home_line_open: espnLine(ps.home?.open?.line),
+    spread_home_odds_open: espnOdds(ps.home?.open?.odds),
+    spread_away_odds_open: espnOdds(ps.away?.open?.odds),
+    total_line_open: espnLine(tot.over?.open?.line),
+    over_odds_open: espnOdds(tot.over?.open?.odds),
+    under_odds_open: espnOdds(tot.under?.open?.odds),
     fetched_at: fetchedAt,
   };
 }
@@ -81,6 +89,111 @@ export async function fetchEspnMarkets(fetchedAt: string): Promise<Map<number, N
   return incoming;
 }
 
+// ---------------------------------------------------------------- model state saved with snapshots
+
+type PredForDigest = { generated_at?: unknown; p_home?: unknown; margin_dist?: unknown; total_dist?: unknown; assumptions?: unknown };
+
+function digestOf(pred: PredForDigest): NhlModelDigest {
+  const a = (pred.assumptions ?? {}) as {
+    goalies?: { home?: { id: number | null; name: string; weight: number }[]; away?: { id: number | null; name: string; weight: number }[] };
+    confirmed?: { home?: boolean; away?: boolean };
+    sources?: { home?: string; away?: string };
+  };
+  return {
+    generated_at: String(pred.generated_at ?? ""),
+    p_home: Number(pred.p_home),
+    margin_dist: (pred.margin_dist ?? {}) as Record<string, number>,
+    total_dist: (pred.total_dist ?? {}) as Record<string, number>,
+    goalies: {
+      home: (a.goalies?.home ?? []).map((g) => ({ id: g.id, name: g.name, weight: Math.round(g.weight * 100) / 100 })),
+      away: (a.goalies?.away ?? []).map((g) => ({ id: g.id, name: g.name, weight: Math.round(g.weight * 100) / 100 })),
+    },
+    confirmed: { home: Boolean(a.confirmed?.home), away: Boolean(a.confirmed?.away) },
+    sources: { home: a.sources?.home ?? "", away: a.sources?.away ?? "" },
+  };
+}
+
+/** What identifies a model state for change detection: who is in goal (and how sure), plus the win probability to a point. */
+function modelKey(d: NhlModelDigest): string {
+  const g = (side: "home" | "away") => d.goalies[side].map((x) => `${x.id ?? x.name}:${x.weight}`).join(",");
+  return `${g("home")}|${g("away")}|${d.confirmed.home ? 1 : 0}${d.confirmed.away ? 1 : 0}|${d.sources.home}/${d.sources.away}|${d.p_home.toFixed(2)}`;
+}
+
+const nick = (team: string) => team.split(" ").slice(-1)[0];
+const topGoalie = (g: { id: number | null; name: string; weight: number }[]) => [...g].sort((a, b) => b.weight - a.weight)[0];
+
+/** A short description of what changed in the model between two states - shown on the chart's top label. */
+function modelNote(prev: NhlModelDigest, cur: NhlModelDigest, home: string, away: string): string {
+  const notes: string[] = [];
+  for (const side of ["away", "home"] as const) {
+    const team = nick(side === "home" ? home : away);
+    const p = topGoalie(prev.goalies[side]);
+    const c = topGoalie(cur.goalies[side]);
+    if (!c) continue;
+    if (cur.sources[side] === "locked" && prev.sources[side] !== "locked") notes.push(`${team} goalie locked: ${c.name}`);
+    else if (p && (p.id !== c.id || p.name !== c.name)) notes.push(`${team} starter: ${p.name} → ${c.name}`);
+    else if (!prev.confirmed[side] && cur.confirmed[side]) notes.push(`${team} goalie confirmed: ${c.name}`);
+    else if (cur.sources[side] !== prev.sources[side] && cur.sources[side] === "espn_expected") notes.push(`${team} goalie expected: ${c.name}`);
+  }
+  if (notes.length === 0) notes.push(`Model re-run: ${nick(home)} win ${(prev.p_home * 100).toFixed(1)}% → ${(cur.p_home * 100).toFixed(1)}%`);
+  return notes.join(" · ");
+}
+
+/** Inserts snapshot rows; if the model columns haven't been added yet, saves the prices without them. */
+async function insertSnapshots(rows: Record<string, unknown>[]): Promise<{ message: string; missing: boolean } | null> {
+  let { error } = await supabaseAdmin.from("nhl_odds_snapshots").insert(rows);
+  if (error && /column/i.test(error.message) && /model/i.test(error.message)) {
+    const slim = rows.map((r) => {
+      const copy = { ...r };
+      delete copy.model;
+      delete copy.model_note;
+      return copy;
+    });
+    ({ error } = await supabaseAdmin.from("nhl_odds_snapshots").insert(slim));
+  }
+  return error ? { message: error.message, missing: isMissingTable(error) } : null;
+}
+
+/** The most recently SAVED model state for a game (null if none, or the model columns don't exist yet). */
+async function lastSavedModel(gameId: number): Promise<NhlModelDigest | null> {
+  const { data, error } = await supabaseAdmin.from("nhl_odds_snapshots").select("model").eq("game_id", gameId).not("model", "is", null).order("captured_at", { ascending: false }).limit(1);
+  if (error || !data?.[0]) return null;
+  return data[0].model as NhlModelDigest;
+}
+
+/** Called right after the model for one game changes outside a full refresh (a goalie lock): saves a snapshot on the spot
+ * so the chart marks it at the right time. A no-op when nothing about the model actually changed. */
+export async function recordModelSnapshot(gameId: number): Promise<void> {
+  if ((await supabaseAdmin.from("nhl_odds_snapshots").select("model").limit(1)).error) return; // model columns not migrated yet
+  const { data: p } = await supabaseAdmin.from("nhl_predictions").select("game_id, generated_at, p_home, margin_dist, total_dist, assumptions, market").eq("game_id", gameId).maybeSingle();
+  const market = (p?.market ?? null) as NhlMarket | null;
+  if (!p || !market) return;
+  const { data: g } = await supabaseAdmin.from("games").select("home_team, away_team").eq("id", gameId).maybeSingle();
+  const cur = digestOf(p);
+  const key = modelKey(cur);
+  if (market.model_key === key) return;
+  const last = await lastSavedModel(gameId);
+  if (last && modelKey(last) === key) return;
+  const capturedAt = new Date().toISOString();
+  const row = {
+    game_id: gameId,
+    captured_at: capturedAt,
+    provider: market.provider ?? null,
+    ml_home: market.ml_home ?? null,
+    ml_away: market.ml_away ?? null,
+    spread_home_line: market.spread_home_line ?? null,
+    spread_home_odds: market.spread_home_odds ?? null,
+    spread_away_odds: market.spread_away_odds ?? null,
+    total_line: market.total_line ?? null,
+    over_odds: market.over_odds ?? null,
+    under_odds: market.under_odds ?? null,
+    model: cur,
+    model_note: last ? modelNote(last, cur, g?.home_team ?? "Home", g?.away_team ?? "Away") : null,
+  };
+  const err = await insertSnapshots([row]);
+  if (!err) await supabaseAdmin.from("nhl_predictions").update({ market: { ...market, model_key: key, snap_at: capturedAt } }).eq("game_id", gameId);
+}
+
 export type OddsUpdateResult = { ok: boolean; message: string; games: number; moved: number; snapshots: number; logged: number; graded: number };
 
 const fail = (message: string): OddsUpdateResult => ({ ok: false, message, games: 0, moved: 0, snapshots: 0, logged: 0, graded: 0 });
@@ -103,7 +216,7 @@ export async function updateNhlOdds(): Promise<OddsUpdateResult> {
   if (incoming.size > 0) {
     const { data: preds, error } = await supabaseAdmin
       .from("nhl_predictions")
-      .select("game_id, p_home, margin_dist, total_dist, market")
+      .select("game_id, generated_at, p_home, margin_dist, total_dist, assumptions, market")
       .in("game_id", [...incoming.keys()]);
     if (error) return fail(error.message);
     games = preds?.length ?? 0;
@@ -125,6 +238,22 @@ export async function updateNhlOdds(): Promise<OddsUpdateResult> {
         }),
     );
 
+    // The model columns come from a separate migration. Until they exist the model isn't tracked at all (and no snapshot is
+    // saved just for a model change), so nothing is written that couldn't be read back.
+    const hasModelCols = !(await supabaseAdmin.from("nhl_odds_snapshots").select("model").limit(1)).error;
+
+    // model state: only look the last saved one up when the stored fingerprint doesn't already match
+    const { data: gameNames } = await supabaseAdmin.from("games").select("id, home_team, away_team").in("id", (preds ?? []).map((p) => p.game_id as number));
+    const nameById = new Map((gameNames ?? []).map((g) => [g.id as number, g]));
+    const lastModel = new Map<number, NhlModelDigest | null>();
+    await Promise.all(
+      (preds ?? [])
+        .filter((p) => hasModelCols && (p.market as NhlMarket | null)?.model_key !== modelKey(digestOf(p)))
+        .map(async (p) => {
+          lastModel.set(p.game_id as number, await lastSavedModel(p.game_id as number));
+        }),
+    );
+
     const snapRows: Record<string, unknown>[] = [];
     const updates = (preds ?? []).map((p) => {
       const next = incoming.get(p.game_id as number)!;
@@ -133,10 +262,38 @@ export async function updateNhlOdds(): Promise<OddsUpdateResult> {
       if (changed) moved++;
       // what was last saved: the stored market if it carries our marker, else the newest snapshot row (if any)
       const saved = prev?.snap_at ? prev : (lastSnap.get(p.game_id as number) ?? null);
-      const needSnap = !samePrices(saved, next);
-      const market: NhlMarket = { ...(prev ?? {}), ...next, snap_at: needSnap ? fetchedAt : (saved?.snap_at ?? fetchedAt) };
+      const priceSnap = !samePrices(saved, next);
+
+      const cur = digestOf(p);
+      const key = modelKey(cur);
+      let modelChanged = false;
+      let note: string | null = null;
+      if (hasModelCols && prev?.model_key !== key) {
+        const last = lastModel.get(p.game_id as number) ?? null;
+        if (!last || modelKey(last) !== key) {
+          modelChanged = true;
+          const t = nameById.get(p.game_id as number);
+          note = last ? modelNote(last, cur, t?.home_team ?? "Home", t?.away_team ?? "Away") : null;
+        }
+      }
+      const needSnap = priceSnap || modelChanged;
+      const market: NhlMarket = { ...(prev ?? {}), ...next, model_key: hasModelCols ? key : (prev?.model_key ?? null), snap_at: needSnap ? fetchedAt : (saved?.snap_at ?? fetchedAt) };
       if (needSnap) {
-        snapRows.push({ game_id: p.game_id, captured_at: fetchedAt, provider: next.provider, ml_home: next.ml_home, ml_away: next.ml_away, spread_home_line: next.spread_home_line, spread_home_odds: next.spread_home_odds, spread_away_odds: next.spread_away_odds, total_line: next.total_line, over_odds: next.over_odds, under_odds: next.under_odds });
+        snapRows.push({
+          game_id: p.game_id,
+          captured_at: fetchedAt,
+          provider: next.provider,
+          ml_home: next.ml_home,
+          ml_away: next.ml_away,
+          spread_home_line: next.spread_home_line,
+          spread_home_odds: next.spread_home_odds,
+          spread_away_odds: next.spread_away_odds,
+          total_line: next.total_line,
+          over_odds: next.over_odds,
+          under_odds: next.under_odds,
+          model: modelChanged ? cur : null,
+          model_note: modelChanged ? note : null,
+        });
       }
       return { pred: p, market };
     });
@@ -151,9 +308,9 @@ export async function updateNhlOdds(): Promise<OddsUpdateResult> {
     if (failures.length > 0) return fail(`Some updates failed: ${failures[0]}`);
 
     if (snapRows.length > 0) {
-      const { error: snapErr } = await supabaseAdmin.from("nhl_odds_snapshots").insert(snapRows);
+      const snapErr = await insertSnapshots(snapRows);
       // the tables are optional until the migration has been run - never block the odds update on them
-      if (snapErr && !isMissingTable(snapErr)) return fail(snapErr.message);
+      if (snapErr && !snapErr.missing) return fail(snapErr.message);
       if (!snapErr) snapshots = snapRows.length;
     }
 
