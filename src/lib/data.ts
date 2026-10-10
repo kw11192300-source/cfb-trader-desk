@@ -16,6 +16,7 @@ import type {
   NhlGoalieCallRow,
   NhlGoalieStatsRow,
   NhlOddsSnapshot,
+  NhlSkaterRatingRow,
   NhlTeamStatsRow,
   NhlPrediction,
   OddsApiLine,
@@ -849,6 +850,26 @@ export async function getNhlEdgeLog(): Promise<{ graded: NhlEdgeLogRow[]; pendin
     supabase.from("nhl_edge_log").select("id", { count: "exact", head: true }).eq("kind", "close"),
   ]);
   return { graded, pending: Math.round((pending ?? 0) / 6), games: Math.round((gameCount ?? 0) / 6) };
+}
+
+/** Every rated skater (about 1,100 rows) and when the ratings were last refit. Empty before the table exists. */
+export async function getNhlSkaterRatings(): Promise<{ rows: NhlSkaterRatingRow[]; updated: string | null }> {
+  const rows: NhlSkaterRatingRow[] = [];
+  let updated: string | null = null;
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from("nhl_skater_ratings").select("player_id, name, pos, team, stats, updated_at").order("player_id", { ascending: true }).range(from, from + 999);
+    if (error) {
+      if (isMissingTable(error)) return { rows: [], updated: null };
+      throw new Error(error.message);
+    }
+    for (const r of data ?? []) {
+      rows.push({ player_id: r.player_id as number, name: r.name as string | null, pos: r.pos as string | null, team: r.team as string | null, stats: r.stats as Record<string, number | null> });
+      const u = r.updated_at as string | null;
+      if (u && (!updated || u > updated)) updated = u;
+    }
+    if (!data || data.length < 1000) break;
+  }
+  return { rows, updated };
 }
 
 /** Every graded goalie call, read in pages (PostgREST caps a request at 1000 rows), plus how many are still waiting. */

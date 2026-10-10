@@ -378,6 +378,15 @@ export type NhlEdgeLogRow = {
   profit: number | null;
 };
 
+/** One rated skater (nhl_skater_ratings, from python/nhl_model/player_ratings.py). */
+export type NhlSkaterRatingRow = {
+  player_id: number;
+  name: string | null;
+  pos: string | null;
+  team: string | null;
+  stats: Record<string, number | null>;
+};
+
 /** One graded goalie call (nhl_goalie_log): what we expected in net vs who started. */
 export type NhlGoalieCallRow = {
   game_id: number;
