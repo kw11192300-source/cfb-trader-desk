@@ -6,7 +6,7 @@ const rating = (r: number | null) => (r === null ? "" : ` (${r > 0 ? "+" : ""}${
 /** "+1.4" next to a percentage: how many points it moved from the modeled row (blank within 0.05). */
 function Delta({ pts }: { pts: number }) {
   if (Math.abs(pts) < 0.05) return null;
-  return <span className={`ml-1 ${pts > 0 ? "text-accent" : "text-warn"}`}>{pts > 0 ? "+" : ""}{pts.toFixed(1)}</span>;
+  return <span className={`ml-1 ${pts > 0 ? "text-down" : "text-up"}`}>{pts > 0 ? "+" : ""}{pts.toFixed(1)}</span>;
 }
 
 /** The game re-run for each plausible goalie pairing: moneyline prices, win probability, expected total and the over/under at
@@ -34,9 +34,6 @@ export default function NhlGoalieScenarios({ rows, home, away }: { rows: Scenari
                   Over {fmtLine(l)}
                 </th>
               ))}
-              <th className="px-3 py-1.5 text-right font-medium" title="The DraftKings side with the highest expected value if this pairing is what plays">
-                Best DK side
-              </th>
             </tr>
           </thead>
           <tbody>
@@ -74,16 +71,6 @@ export default function NhlGoalieScenarios({ rows, home, away }: { rows: Scenari
                       </td>
                     );
                   })}
-                  <td className="px-3 py-1.5 text-right font-mono">
-                    {r.best ? (
-                      <span className={r.best.ev > 0 ? "text-accent" : "text-muted"}>
-                        {r.best.side} {fmtOdds(r.best.bookOdds)} · {r.best.ev >= 0 ? "+" : ""}
-                        {(r.best.ev * 100).toFixed(1)}%
-                      </span>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
                 </tr>
               );
             })}
@@ -92,9 +79,9 @@ export default function NhlGoalieScenarios({ rows, home, away }: { rows: Scenari
       </div>
       <p className="mt-2 text-[11px] text-muted">
         Numbers in brackets are each goalie&apos;s model rating (goals saved above expected per 100 attempts, shrunk toward average - noisy for backups). Each row
-        re-simulates the game with that pairing in net; the small number beside a percentage is the change from the modeled row, and the small prices under each
-        over are the fair over / under (whole-number totals refund a push, so they&apos;re priced without it). If an edge only exists in pairings you
-        don&apos;t expect, it isn&apos;t one.
+        re-simulates the game with that pairing in net; the small number beside a percentage is the change from the modeled row (red = higher, green = lower), and the small prices under each
+        over are the fair over / under (whole-number totals refund a push, so they&apos;re priced without it). Use it to see how much the numbers
+        depend on who is in net.
       </p>
     </div>
   );
