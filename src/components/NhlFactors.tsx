@@ -1,4 +1,4 @@
-import { importanceLabel, normName, restInfo, type Caution, type Injury, type NhlContext } from "@/lib/nhlContext";
+import { importanceLabel, injuryImpact, normName, restInfo, type Caution, type Injury, type NhlContext } from "@/lib/nhlContext";
 import { espnCode } from "@/lib/nhlTeams";
 import NhlTeamLogo from "./NhlTeamLogo";
 
@@ -84,6 +84,33 @@ function TeamColumn({ team, side, startIso, assumptions, ctx }: { team: string; 
   );
 }
 
+const nickOf = (t: string) => t.split(" ").slice(-1)[0];
+
+/** A rough number for what the injuries are worth, so a gap to the market has something to be compared against. */
+function InjuryImpactLine({ home, away, ctx }: { home: string; away: string; ctx: NhlContext }) {
+  const h = injuryImpact(ctx, home);
+  const a = injuryImpact(ctx, away);
+  if (h.players.length === 0 && a.players.length === 0) return null;
+  const net = h.winPts - a.winPts; // + helps the home team
+  const fmt = (n: number) => `${n > 0 ? "+" : ""}${n.toFixed(1)}`;
+  return (
+    <div className="mb-3 rounded-md border border-border bg-surface-raised px-3 py-2 text-xs">
+      <span className="text-muted">Rough injury effect on win probability (not in the model): </span>
+      <span className="font-mono text-foreground">
+        {nickOf(away)} {fmt(a.winPts)} pts · {nickOf(home)} {fmt(h.winPts)} pts
+      </span>
+      <span className="text-muted"> → net </span>
+      <span className={`font-mono font-semibold ${Math.abs(net) >= 1 ? "text-warn" : "text-foreground"}`}>
+        {fmt(net)} pts for {nickOf(home)}
+      </span>
+      <div className="mt-1 text-[11px] text-muted">
+        Sum of each injured skater&apos;s 5v5 impact per game (Out counted fully, day-to-day half), scaled by what the lineup backtest supports.
+        Even strength only and a rough conversion - treat as a size-of-the-thing, not a price.
+      </div>
+    </div>
+  );
+}
+
 /** What the model doesn't know about this game, and the reasons (if any) to treat its numbers with caution. */
 export default function NhlFactors({
   home,
@@ -114,6 +141,7 @@ export default function NhlFactors({
       ) : (
         <p className="mb-3 text-xs text-muted">Nothing we know of that the model is missing for this game - goalies confirmed, no back-to-back, no injury flags.</p>
       )}
+      {Object.keys(ctx.ratings).length > 0 && <InjuryImpactLine home={home} away={away} ctx={ctx} />}
       <div className="grid gap-3 sm:grid-cols-2">
         <TeamColumn team={away} side="away" startIso={startIso} assumptions={assumptions} ctx={ctx} />
         <TeamColumn team={home} side="home" startIso={startIso} assumptions={assumptions} ctx={ctx} />

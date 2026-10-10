@@ -60,6 +60,40 @@ export function restInfo(ctx: NhlContext, team: string, startIso: string): Rest 
   return { daysRest, backToBack: diff === 1, gamesLast7: prior.filter((x) => t - x <= 7 * 86400000).length };
 }
 
+// How much a missing skater matters. Backtest (lineup_test.py, 1,298 games across four windows incl. the opening six weeks):
+// a lineup's summed ratings predicted its 5v5 xG differential with a fitted slope of 0.67, so a rating is scaled by that
+// before it is used. Separately, a team's standing win probability moves roughly 24 percentage points per goal of goal
+// differential per game.
+export const LINEUP_SLOPE = 0.67;
+const WIN_PCT_PER_GOAL = 0.24;
+
+export type InjuryImpact = {
+  /** Expected goals per game lost by the missing skaters (negative = the team is worse), after the slope above. */
+  goalsPerGame: number;
+  /** Same thing as a shift in that team's win probability, in percentage points. */
+  winPts: number;
+  /** The injured skaters that went into it, with the share counted (Out = 1, Day-to-day = 0.5). */
+  players: { name: string; value: number; counted: number }[];
+};
+
+/** Rough win-probability cost of a team's injuries, from the skater ratings: sum of each injured skater's per-game value
+ * (his net 5v5 impact x usual minutes), Out counted fully and Day-to-day at half. Even strength only, goalies excluded. */
+export function injuryImpact(ctx: NhlContext, team: string): InjuryImpact {
+  const list = ctx.injuries[espnCode(team) ?? ""] ?? [];
+  const players: InjuryImpact["players"] = [];
+  let total = 0;
+  for (const i of list) {
+    if (i.position === "G" || (i.status !== "Out" && i.status !== "Day-To-Day")) continue;
+    const r = ctx.ratings[normName(i.name)];
+    if (!r) continue;
+    const counted = i.status === "Out" ? 1 : 0.5;
+    total += r.valuePg * counted;
+    players.push({ name: i.name, value: r.valuePg, counted });
+  }
+  const goals = -total * LINEUP_SLOPE;
+  return { goalsPerGame: goals, winPts: goals * WIN_PCT_PER_GOAL * 100, players };
+}
+
 export type Caution = { short: string; long: string };
 
 type GoalieAssumptions = {
