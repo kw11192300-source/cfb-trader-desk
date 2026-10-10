@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { americanToProb, fmtOdds, marginCover, overUnder } from "@/lib/nhlModel";
+import { americanToProb, fmtOdds, marginCover, overUnder, probToAmerican } from "@/lib/nhlModel";
 import { nhlLogoUrl } from "@/lib/nhlTeams";
 import type { NhlMarket, NhlModelDigest, NhlOddsSnapshot } from "@/lib/types";
 
@@ -9,7 +9,7 @@ const W = 760;
 const H = 270;
 const PAD_L = 84; // y-axis labels + the team logos at the start of each line
 const PAD_R = 54; // room for the latest price printed at the end of each line
-const PAD_T = 46; // room for the model-change labels
+const PAD_T = 24; // room for the model-change markers
 const PAD_B = 30;
 
 type Tab = "ml" | "pl" | "total";
@@ -184,6 +184,7 @@ export default function NhlOddsChart({
       setHover(best);
     };
     const hf = hover !== null && hover < frames.length ? frames[hover] : null;
+    const hfModel = hf ? modelSides(hf.model!, tab, hf.line) : null;
     const lineLabel = (f: Frame) => (f.line === null ? "" : tab === "pl" ? `${nick(home)} ${fmtLine(f.line)}` : `total ${f.line}`);
 
     const logo = (src: string | null, cy: number, fallback: string, color: string) =>
@@ -211,20 +212,11 @@ export default function NhlOddsChart({
               </g>
             ))}
 
-            {/* model changes: a dashed marker with what changed, staggered so labels don't collide */}
-            {noted.map(({ f, i }, k) => (
+            {/* model changes: a dashed marker and a small diamond; hover the point for what changed */}
+            {noted.map(({ f, i }) => (
               <g key={`m${i}`}>
-                <line x1={x(f.t)} x2={x(f.t)} y1={PAD_T - 4} y2={H - PAD_B} stroke="var(--muted)" strokeWidth={1} strokeDasharray="2 3" />
-                <text
-                  x={Math.min(x(f.t) + 4, W - PAD_R - 4)}
-                  y={12 + (k % 3) * 11}
-                  textAnchor={x(f.t) > W - 260 ? "end" : "start"}
-                  dx={x(f.t) > W - 260 ? -8 : 0}
-                  fontSize={9.5}
-                  fill="var(--foreground)"
-                >
-                  {f.note!.length > 46 ? `${f.note!.slice(0, 45)}…` : f.note}
-                </text>
+                <line x1={x(f.t)} x2={x(f.t)} y1={PAD_T - 6} y2={H - PAD_B} stroke="var(--muted)" strokeWidth={1} strokeDasharray="2 3" />
+                <path d={`M${x(f.t)},${PAD_T - 14} l5,5 l-5,5 l-5,-5 z`} fill="var(--foreground)" />
               </g>
             ))}
 
@@ -301,7 +293,22 @@ export default function NhlOddsChart({
                   {names.b} {fmtOdds(hf.b)}
                 </span>
               </div>
-              {hf.note && <div className="mt-1 text-foreground">Model: {hf.note}</div>}
+              {hfModel && (
+                <div className="mt-1 flex justify-between gap-3 font-mono text-muted">
+                  <span>
+                    model {names.a} {fmtOdds(probToAmerican(hfModel[0]))}
+                  </span>
+                  <span>
+                    {names.b} {fmtOdds(probToAmerican(hfModel[1]))}
+                  </span>
+                </div>
+              )}
+              {hf.note && (
+                <div className="mt-1.5 border-t border-border pt-1.5 text-foreground">
+                  <span className="mr-1 text-muted">Model update:</span>
+                  {hf.note.replace(/^Model re-run: /, "re-run - ")}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -329,7 +336,7 @@ export default function NhlOddsChart({
           </span>
         </div>
         <p className="mt-1 text-[11px] text-muted">
-          Solid = DraftKings&apos; actual price (vig included), open → latest. Dotted = our price for the same side
+          Solid = DraftKings&apos; actual price (vig included), open → latest. Dotted = our price for the same side. A diamond at the top marks where the model changed (a goalie confirmed or changed, or a re-run) - hover the point to see what
           {tab !== "ml" ? ", at whichever number was posted at that moment" : ""}.
           {breaks.length > 0 &&
             ` The ${tab === "pl" ? "puck line" : "total"} moved ${breaks.length} time${breaks.length === 1 ? "" : "s"}, so the lines break at each move - a price on a different number isn't comparable.`}
