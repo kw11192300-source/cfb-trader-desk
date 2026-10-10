@@ -21,9 +21,10 @@ export default async function NhlMovementPage() {
             checked every ~10 minutes, so a move is stamped when we <span className="text-foreground">saw</span> it, not the exact second it happened.
           </p>
           <p className="mt-2">
-            <span className="text-foreground">Move</span> is the change in that side&apos;s implied probability (green = the side got more likely, i.e. the price
-            shortened; red = it drifted), or the change in the number for a line move. <span className="text-foreground">Size</span> is the price change in
-            cents. The last {DAYS} days are kept here; the full history for one game is on its page.
+            One row per market: both sides move together, so <span className="text-foreground">Moved toward</span> names the side that became more likely (the
+            one whose price shortened) and <span className="text-foreground">How far</span> is how much that side&apos;s no-vig win probability grew, in points,
+            with the biggest price change on either side in cents underneath. A moved puck line or total shows the number
+            itself changing (a total going up is green, down is red). The last {DAYS} days are kept here; the full history for one game is on its page.
           </p>
         </div>
 

@@ -17,18 +17,7 @@ const SIZE_OPTIONS = [
 
 const selectCls = "rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-foreground focus:border-accent focus:outline-none";
 const nick = (t: string) => t.split(" ").slice(-1)[0];
-
-/** "6.5 (o+110 / u-130)" -> the number on top, its prices small underneath, so line moves don't stretch the table. */
-function Price({ text, strong }: { text: string; strong?: boolean }) {
-  const i = text.indexOf(" (");
-  if (i < 0) return <>{text}</>;
-  return (
-    <>
-      <div>{text.slice(0, i)}</div>
-      <div className={`text-[10px] font-normal ${strong ? "text-muted" : "text-muted/80"}`}>{text.slice(i + 2, -1)}</div>
-    </>
-  );
-}
+const th = "sticky top-0 z-10 bg-surface-raised px-3 py-2.5 font-medium";
 
 /** "3h 12m before the game" for a move, "after the start" if it happened once the game was under way. */
 function lead(atIso: string, startIso: string): string {
@@ -40,7 +29,9 @@ function lead(atIso: string, startIso: string): string {
   return `${Math.round(h / 24)} days before the game`;
 }
 
-/** Every DraftKings price or line change we've saved, newest first. */
+const fmtSize = (r: MoveRow) => (r.kind === "price" ? `${r.size}¢` : `${r.size % 1 === 0 ? r.size.toFixed(0) : r.size.toFixed(1)} goal${r.size === 1 ? "" : "s"}`);
+
+/** Every DraftKings market move we've saved - one row per market, both sides together - newest first. */
 export default function NhlMovementTable({ rows }: { rows: MoveRow[] }) {
   const [market, setMarket] = useState<"all" | MoveRow["market"]>("all");
   const [minSize, setMinSize] = useState(0);
@@ -94,26 +85,25 @@ export default function NhlMovementTable({ rows }: { rows: MoveRow[] }) {
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-border bg-surface-raised text-left text-[11px] uppercase tracking-wide text-muted">
-                <th className="sticky top-0 z-10 bg-surface-raised px-3 py-2.5 font-medium">Moved</th>
-                <th className="sticky top-0 z-10 bg-surface-raised px-3 py-2.5 font-medium">Game</th>
-                <th className="sticky top-0 z-10 bg-surface-raised px-3 py-2.5 font-medium">Market</th>
-                <th className="sticky top-0 z-10 bg-surface-raised px-3 py-2.5 font-medium">What</th>
-                <th className="sticky top-0 z-10 bg-surface-raised px-3 py-2.5 text-right font-medium">Was</th>
-                <th className="sticky top-0 z-10 bg-surface-raised px-3 py-2.5 text-right font-medium">Now</th>
-                <th className="sticky top-0 z-10 bg-surface-raised px-3 py-2.5 text-right font-medium" title="Price moves: change in the side's implied probability, in points. Line moves: change in the number.">
-                  Move
+                <th className={th}>Moved</th>
+                <th className={th}>Game</th>
+                <th className={th} title="The side the market moved toward: the one that became more likely">
+                  Moved toward
                 </th>
-                <th className="sticky top-0 z-10 bg-surface-raised px-3 py-2.5 text-right font-medium" title="Size of the price move in cents (-105 to +100 is 5 cents)">
-                  Size
+                <th className={th} />
+                <th className={`${th} text-right`}>Was</th>
+                <th className={`${th} text-right`}>Now</th>
+                <th className={`${th} text-right`} title="Price moves: how far the no-vig win probability shifted toward that side, in points, and below it the biggest price change on either side in cents (-105 to +100 is 5 cents). Line moves: the change in the number.">
+                  How far
                 </th>
               </tr>
             </thead>
             <tbody>
               {visible.map((r) => {
-                const tone = r.dir > 0 ? "text-up" : "text-down";
-                const move = r.kind === "price" ? `${(r.probPts ?? 0) >= 0 ? "+" : ""}${(r.probPts ?? 0).toFixed(1)} pts` : `${r.dir > 0 ? "+" : "-"}${r.size}`;
+                const tone = r.tone === "up" ? "text-up" : r.tone === "down" ? "text-down" : "text-foreground";
+                const how = r.kind === "price" ? `${(r.pts ?? 0).toFixed(1)} pts` : r.tone === "up" ? `+${fmtSize(r)}` : r.tone === "down" ? `-${fmtSize(r)}` : fmtSize(r);
                 return (
-                  <tr key={r.key} className="border-b border-border last:border-0 odd:bg-surface/50 hover:bg-surface-raised">
+                  <tr key={r.key} className="border-b border-border align-top last:border-0 odd:bg-surface/50 hover:bg-surface-raised">
                     <td className="px-3 py-2 whitespace-nowrap">
                       <div className="text-foreground">
                         <LocalDateTime iso={r.at} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
@@ -134,16 +124,32 @@ export default function NhlMovementTable({ rows }: { rows: MoveRow[] }) {
                         </span>
                       </Link>
                     </td>
-                    <td className="px-3 py-2 text-xs text-muted">{r.market}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-foreground">{r.what}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <span className={`flex items-center gap-1.5 font-semibold ${tone}`}>
+                        {r.toward.team && <NhlTeamLogo team={r.toward.team} size={18} />}
+                        {r.toward.label}
+                      </span>
+                      <span className="text-[11px] text-muted">{r.market}</span>
+                    </td>
+                    <td className="px-3 py-2 text-xs whitespace-nowrap text-muted">
+                      {r.sides.map((s) => (
+                        <div key={s.label}>{s.label}</div>
+                      ))}
+                    </td>
                     <td className="px-3 py-2 text-right font-mono text-xs whitespace-nowrap text-muted">
-                      <Price text={r.was} />
+                      {r.sides.map((s) => (
+                        <div key={s.label}>{s.was}</div>
+                      ))}
                     </td>
                     <td className="px-3 py-2 text-right font-mono text-xs font-semibold whitespace-nowrap text-foreground">
-                      <Price text={r.now} strong />
+                      {r.sides.map((s) => (
+                        <div key={s.label}>{s.now}</div>
+                      ))}
                     </td>
-                    <td className={`px-3 py-2 text-right font-mono text-xs font-semibold whitespace-nowrap ${tone}`}>{move}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs whitespace-nowrap text-foreground">{r.kind === "price" ? `${r.size}¢` : "line"}</td>
+                    <td className="px-3 py-2 text-right font-mono text-xs whitespace-nowrap">
+                      <div className={`font-semibold ${tone}`}>{how}</div>
+                      {r.kind === "price" && <div className="text-[11px] text-muted">{fmtSize(r)}</div>}
+                    </td>
                   </tr>
                 );
               })}
