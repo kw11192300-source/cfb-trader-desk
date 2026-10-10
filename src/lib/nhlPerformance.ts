@@ -1,4 +1,4 @@
-import type { NhlEdgeLogRow } from "./types";
+import type { NhlEdgeLogRow, NhlGoalieCallRow } from "./types";
 
 export type Group = {
   label: string;
@@ -71,4 +71,44 @@ export function calibration(rows: NhlEdgeLogRow[]): { label: string; n: number; 
       actual: part.filter((r) => r.result === "win").length / part.length,
     };
   });
+}
+
+export type GoalieCallGroup = {
+  label: string;
+  n: number;
+  /** How often our top pick (the goalie we gave the highest probability) was the one who started. */
+  topHit: number | null;
+  /** How often ESPN's named goalie started (null when ESPN named nobody in this group). */
+  espnHit: number | null;
+  /** Average probability we gave the goalie who actually started. */
+  avgP: number | null;
+  /** -mean(log p) on the actual starter, probabilities floored at 2% - lower is better. */
+  logLoss: number | null;
+};
+
+const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+
+export function goalieGroup(label: string, rows: NhlGoalieCallRow[]): GoalieCallGroup {
+  const top = rows.filter((r) => r.hit_top !== null).map((r) => (r.hit_top ? 1 : 0));
+  const espn = rows.filter((r) => r.hit_espn !== null).map((r) => (r.hit_espn ? 1 : 0));
+  const p = rows.map((r) => r.p_actual).filter((x): x is number => x !== null);
+  return {
+    label,
+    n: rows.length,
+    topHit: avg(top),
+    espnHit: avg(espn),
+    avgP: avg(p),
+    logLoss: p.length ? -(p.reduce((s, x) => s + Math.log(Math.max(x, 0.02)), 0) / p.length) : null,
+  };
+}
+
+/** Goalie-call accuracy by what we knew: ESPN confirmed, ESPN expected, nothing from ESPN - at the last look before the game. */
+export function goalieCallGroups(rows: NhlGoalieCallRow[], kind: "first" | "last"): GoalieCallGroup[] {
+  const r = rows.filter((x) => x.kind === kind && x.source !== "locked");
+  return [
+    goalieGroup("ESPN: confirmed", r.filter((x) => x.source === "espn_confirmed")),
+    goalieGroup("ESPN: expected", r.filter((x) => x.source === "espn_expected")),
+    goalieGroup("No ESPN call (usage model only)", r.filter((x) => x.source === "usage")),
+    goalieGroup("All calls", r),
+  ];
 }

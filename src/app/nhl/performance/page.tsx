@@ -1,8 +1,8 @@
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
-import { getNhlEdgeLog } from "@/lib/data";
+import { getNhlEdgeLog, getNhlGoalieCalls } from "@/lib/data";
 import { pct } from "@/lib/nhlModel";
-import { byEvBucket, byMarket, calibration, summarize, type Group } from "@/lib/nhlPerformance";
+import { byEvBucket, byMarket, calibration, goalieCallGroups, summarize, type Group, type GoalieCallGroup } from "@/lib/nhlPerformance";
 
 export const dynamic = "force-dynamic";
 
@@ -69,8 +69,48 @@ function GroupTable({ groups, firstHeader, showClv }: { groups: Group[]; firstHe
   );
 }
 
+function GoalieCallTable({ groups }: { groups: GoalieCallGroup[] }) {
+  const f = (n: number | null, pctOut = true) => (n === null ? "—" : pctOut ? pct(n) : n.toFixed(3));
+  return (
+    <div className="overflow-x-auto rounded-lg border border-border">
+      <table className="w-full border-collapse text-xs">
+        <thead>
+          <tr className="border-b border-border bg-surface-raised text-left text-[11px] uppercase tracking-wide text-muted">
+            <th className="px-3 py-2 font-medium">What we knew</th>
+            <th className="px-3 py-2 text-right font-medium">Calls</th>
+            <th className="px-3 py-2 text-right font-medium" title="How often the goalie we rated most likely was the one who started">
+              Our top pick right
+            </th>
+            <th className="px-3 py-2 text-right font-medium" title="How often ESPN's named goalie started">
+              ESPN right
+            </th>
+            <th className="px-3 py-2 text-right font-medium" title="Average probability we put on the goalie who actually started">
+              Avg. prob. on actual
+            </th>
+            <th className="px-3 py-2 text-right font-medium" title="Lower is better; a coin flip between two goalies is 0.693">
+              Log loss
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map((g) => (
+            <tr key={g.label} className="border-b border-border last:border-0 odd:bg-surface/50">
+              <td className="px-3 py-2 text-foreground">{g.label}</td>
+              <td className="px-3 py-2 text-right font-mono text-foreground">{g.n}</td>
+              <td className="px-3 py-2 text-right font-mono text-foreground">{f(g.topHit)}</td>
+              <td className="px-3 py-2 text-right font-mono text-foreground">{f(g.espnHit)}</td>
+              <td className="px-3 py-2 text-right font-mono text-foreground">{f(g.avgP)}</td>
+              <td className="px-3 py-2 text-right font-mono text-foreground">{f(g.logLoss, false)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default async function NhlPerformancePage() {
-  const { graded, pending, games } = await getNhlEdgeLog();
+  const [{ graded, pending, games }, goalieCalls] = await Promise.all([getNhlEdgeLog(), getNhlGoalieCalls()]);
   const first = graded.filter((r) => r.kind === "first");
   const close = graded.filter((r) => r.kind === "close");
   const cal = calibration(close);
@@ -99,6 +139,31 @@ export default async function NhlPerformancePage() {
             included like any other.
           </p>
         </div>
+
+        <section className="mb-8">
+          <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">How well we call the starting goalie</h2>
+          <p className="mb-2 max-w-4xl text-xs text-muted">
+            Every refresh logs who we expect in net for each upcoming game - ESPN&apos;s call, our rotation model, and the blend the simulator used - and grades it
+            after puck drop against who actually faced the first shot. Manual locks are excluded, so this measures our own estimate.
+            {goalieCalls.pending > 0 ? ` ${goalieCalls.pending} sides are still waiting on a game.` : ""}
+          </p>
+          {goalieCalls.graded.length === 0 ? (
+            <div className="rounded-lg border border-border bg-surface p-5 text-center text-sm text-muted">
+              Nothing graded yet - this fills in as logged games finish and the next model refresh runs.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4">
+              <div>
+                <div className="mb-1 text-[11px] text-muted">At the last look before the game</div>
+                <GoalieCallTable groups={goalieCallGroups(goalieCalls.graded, "last")} />
+              </div>
+              <div>
+                <div className="mb-1 text-[11px] text-muted">At the first sighting (earliest we had a call)</div>
+                <GoalieCallTable groups={goalieCallGroups(goalieCalls.graded, "first")} />
+              </div>
+            </div>
+          )}
+        </section>
 
         {graded.length === 0 ? (
           <div className="rounded-lg border border-border bg-surface p-8 text-center text-sm text-muted">

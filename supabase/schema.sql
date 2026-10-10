@@ -572,6 +572,26 @@ create table if not exists nhl_edge_log (
 );
 create index if not exists nhl_edge_log_game_idx on nhl_edge_log (game_id);
 
+-- Every goalie call the model made for an upcoming game (kind 'first' = the first sighting, 'last' = the final look before
+-- the game, rewritten each refresh), graded afterwards against who actually started. Logged WITHOUT manual locks, so it
+-- measures our own estimate: ESPN's call, our usage model, and the blend the simulator used.
+create table if not exists nhl_goalie_log (
+  id bigserial primary key,
+  game_id bigint not null references games(id) on delete cascade,
+  side text not null,                 -- home | away
+  kind text not null,                 -- first | last
+  logged_at timestamptz not null default now(),
+  espn_name text, espn_status text,   -- ESPN's probable starting goalie and its status (expected | confirmed)
+  source text,                        -- espn_confirmed | espn_expected | usage
+  model jsonb not null,               -- [{id, name, p}] what the simulator used
+  usage jsonb,                        -- [{id, name, p}] the usage model alone
+  top_id bigint, top_name text, top_p numeric,
+  actual_id bigint, actual_name text,
+  hit_espn boolean, hit_top boolean, p_actual numeric,
+  graded_at timestamptz,
+  unique (game_id, side, kind)
+);
+
 create table if not exists nhl_game_xg (
   game_id bigint primary key references games(id) on delete cascade,
   model_version text,
@@ -766,6 +786,7 @@ alter table nhl_goalie_locks enable row level security;
 alter table nhl_team_stats enable row level security;
 alter table nhl_odds_snapshots enable row level security;
 alter table nhl_edge_log enable row level security;
+alter table nhl_goalie_log enable row level security;
 alter table nhl_goalie_stats enable row level security;
 
 create policy "public read" on teams for select using (true);
@@ -795,6 +816,7 @@ create policy "public read" on nhl_goalie_locks for select using (true);
 create policy "public read" on nhl_team_stats for select using (true);
 create policy "public read" on nhl_odds_snapshots for select using (true);
 create policy "public read" on nhl_edge_log for select using (true);
+create policy "public read" on nhl_goalie_log for select using (true);
 create policy "public read" on nhl_goalie_stats for select using (true);
 -- NO policy on bets at all, not even public read - real stakes/P&L, the
 -- one genuinely sensitive table in this app. Only the secret key (service

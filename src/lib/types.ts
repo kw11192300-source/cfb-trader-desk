@@ -378,6 +378,19 @@ export type NhlEdgeLogRow = {
   profit: number | null;
 };
 
+/** One graded goalie call (nhl_goalie_log): what we expected in net vs who started. */
+export type NhlGoalieCallRow = {
+  game_id: number;
+  side: "home" | "away";
+  kind: "first" | "last";
+  source: "espn_confirmed" | "espn_expected" | "usage" | string;
+  espn_status: string | null;
+  top_p: number | null;
+  p_actual: number | null;
+  hit_espn: boolean | null;
+  hit_top: boolean | null;
+};
+
 /** python/nhl_model/team_stats.py - one team's season (or last-10) line. Descriptive, not a forecast. */
 export type NhlTeamStatsRow = {
   season: number;

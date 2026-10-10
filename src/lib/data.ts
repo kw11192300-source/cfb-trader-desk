@@ -13,6 +13,7 @@ import type {
   ModelBacktestGame,
   NhlEdgeLogRow,
   NhlGameXg,
+  NhlGoalieCallRow,
   NhlGoalieStatsRow,
   NhlOddsSnapshot,
   NhlTeamStatsRow,
@@ -848,6 +849,23 @@ export async function getNhlEdgeLog(): Promise<{ graded: NhlEdgeLogRow[]; pendin
     supabase.from("nhl_edge_log").select("id", { count: "exact", head: true }).eq("kind", "close"),
   ]);
   return { graded, pending: Math.round((pending ?? 0) / 6), games: Math.round((gameCount ?? 0) / 6) };
+}
+
+/** Every graded goalie call, read in pages (PostgREST caps a request at 1000 rows), plus how many are still waiting. */
+export async function getNhlGoalieCalls(): Promise<{ graded: NhlGoalieCallRow[]; pending: number }> {
+  const graded: NhlGoalieCallRow[] = [];
+  const cols = "game_id, side, kind, source, espn_status, top_p, p_actual, hit_espn, hit_top";
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from("nhl_goalie_log").select(cols).not("graded_at", "is", null).order("id", { ascending: true }).range(from, from + 999);
+    if (error) {
+      if (isMissingTable(error)) return { graded: [], pending: 0 };
+      throw new Error(error.message);
+    }
+    graded.push(...((data ?? []) as unknown as NhlGoalieCallRow[]));
+    if (!data || data.length < 1000) break;
+  }
+  const { count } = await supabase.from("nhl_goalie_log").select("id", { count: "exact", head: true }).is("graded_at", null).eq("kind", "last");
+  return { graded, pending: count ?? 0 };
 }
 
 /** One NHL game plus its model output, for the game page. */

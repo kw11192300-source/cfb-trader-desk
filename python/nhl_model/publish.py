@@ -275,6 +275,52 @@ def prediction_row(our_id: int, s: dict, assumptions: dict, sim_params: dict, ma
     }
 
 
+def log_goalie_calls(client, rows: list[dict], known: set, rec_map: dict, games: pd.DataFrame, id_to_name: dict, name_to_id: dict) -> None:
+    """Saves each upcoming game's goalie call ('first' once, 'last' rewritten every run until the game starts) and grades
+    the calls for games that just finished against who actually started. Never blocks a refresh; a missing table is just
+    reported."""
+    try:
+        rows = [r for r in rows if r["game_id"] in known]
+        if rows:
+            client.table("nhl_goalie_log").upsert([{**r, "kind": "first"} for r in rows], on_conflict="game_id,side,kind", ignore_duplicates=True).execute()
+            client.table("nhl_goalie_log").upsert([{**r, "kind": "last"} for r in rows], on_conflict="game_id,side,kind").execute()
+
+        # grade: finished games (NHL id -> our id via the ESPN event), actual starter = first goalie to face a shot
+        by_game = games.drop_duplicates("game_id").set_index("game_id")
+        todo = {}
+        for nhl_id, ev in rec_map.items():
+            if nhl_id in by_game.index:
+                todo[_nhl_game_id(ev["espn_id"])] = by_game.loc[nhl_id]
+        if not todo:
+            return
+        pending = client.table("nhl_goalie_log").select("id, game_id, side, kind, espn_name, top_id, model").in_("game_id", list(todo)).is_("graded_at", "null").execute().data
+        graded = 0
+        for r in pending:
+            g = todo[r["game_id"]]
+            actual = g["home_goalie"] if r["side"] == "home" else g["away_goalie"]
+            if pd.isna(actual):
+                continue
+            actual = int(actual)
+            actual_name = id_to_name.get(actual, str(actual))
+            p_actual = next((x["p"] for x in r["model"] if x["id"] == actual), 0.0)
+            espn_id = name_to_id.get(_norm(r["espn_name"])) if r["espn_name"] else None
+            client.table("nhl_goalie_log").update({
+                "actual_id": actual, "actual_name": actual_name,
+                "hit_espn": (int(espn_id) == actual) if espn_id is not None else (None if not r["espn_name"] else _norm(r["espn_name"]) == _norm(actual_name)),
+                "hit_top": r["top_id"] is not None and int(r["top_id"]) == actual,
+                "p_actual": p_actual,
+                "graded_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            }).eq("id", r["id"]).execute()
+            graded += 1
+        print(f"goalie calls: logged {len(rows)} sides, graded {graded}")
+    except Exception as e:  # noqa: BLE001
+        msg = str(e)
+        if "PGRST205" in msg or "does not exist" in msg or "schema cache" in msg:
+            print("(goalie log skipped: run the nhl_goalie_log block in supabase/schema.sql to enable accuracy tracking)")
+        else:
+            print(f"(goalie log failed, continuing: {msg[:120]})")
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
@@ -319,7 +365,7 @@ def main(argv: list[str] | None = None) -> None:
     id_to_name, name_to_id = goalie_directory(games)
     tables = tables_json(tb)
 
-    preds, snapshots, probable_rows = [], [], []
+    preds, snapshots, probable_rows, goalie_log = [], [], [], []
     team_ids = set(upcoming["home_team_id"]) | set(upcoming["away_team_id"])
     try:
         usage_model: UsageModel | None = UsageModel()
@@ -368,6 +414,19 @@ def main(argv: list[str] | None = None) -> None:
                           for side, team in (("home", r.home_team_id), ("away", r.away_team_id))},
         }
         assumptions = {"goalies": assumptions_goalies, "goalie_confirmed": all(confirmed.values()), "sources": sources, "confirmed": confirmed, "pool": pool}
+        # the goalie call, logged WITHOUT any manual lock so it measures our own estimate (graded after the game)
+        for side, team in (("home", r.home_team_id), ("away", r.away_team_id)):
+            est = sim_params["estimated"][side]
+            espn = ev["goalies"][side]
+            top = max(est["goalies"], key=lambda g: g["weight"]) if est["goalies"] else None
+            goalie_log.append({
+                "game_id": our_id, "side": side, "logged_at": now.isoformat(),
+                "espn_name": espn["name"] if espn else None, "espn_status": espn["status"] if espn else None,
+                "source": est["source"],
+                "model": [{"id": g["id"], "name": g["name"], "p": g["weight"]} for g in est["goalies"]],
+                "usage": [{"id": int(g), "name": id_to_name.get(g, str(int(g))), "p": round(float(q), 3)} for g, q in usage_for(team, r.t)],
+                "top_id": top["id"] if top else None, "top_name": top["name"] if top else None, "top_p": top["weight"] if top else None,
+            })
         row = prediction_row(our_id, s, assumptions, sim_params, ev["market"], now)
         row["_label"] = f"{r.away_abbrev} @ {r.home_abbrev}"
         row["_goalies"] = f"{assumptions_goalies['away'][0]['name'] if assumptions_goalies['away'] else '?'} ({sources['away']}) v {assumptions_goalies['home'][0]['name'] if assumptions_goalies['home'] else '?'} ({sources['home']})"
@@ -433,6 +492,7 @@ def main(argv: list[str] | None = None) -> None:
             client.table("nhl_predictions").upsert([{k: v for k, v in p.items() if k != "sim_params"} for p in preds_w], on_conflict="game_id").execute()
     if xg_w:
         client.table("nhl_game_xg").upsert(xg_w, on_conflict="game_id").execute()
+    log_goalie_calls(client, goalie_log, known, rec_map, games, id_to_name, name_to_id)
     print(f"wrote {len(preds_w)} predictions and {len(xg_w)} xG rows ({len(preds) - len(preds_w)} predictions skipped: game not in our games table)")
 
 
