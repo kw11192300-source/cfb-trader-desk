@@ -115,12 +115,17 @@ export default function NhlOddsChart({
     const tMin = frames[0].t;
     const tMax = Math.max(frames[frames.length - 1].t, tMin + 60000);
     // y is the implied probability of the price (vig included) so the American scale is continuous across +100/-100
+    // Once the posted number (puck line / total) moves, the model line stops: the new number is a different bet, and the
+    // current one is priced in the Model vs DraftKings table above. (Moneyline has no number, so it runs the whole way.)
+    const movedAt = tab === "ml" ? -1 : frames.findIndex((f, i) => i > 0 && f.line !== frames[0].line);
+    const showModel = (i: number) => movedAt === -1 || i < movedAt;
+
     const ys: number[] = [];
-    for (const f of frames) {
+    frames.forEach((f, i) => {
       ys.push(americanToProb(f.a!), americanToProb(f.b!));
-      const m = modelSides(f.model!, tab, f.line);
+      const m = showModel(i) ? modelSides(f.model!, tab, f.line) : null;
       if (m) ys.push(m[0], m[1]);
-    }
+    });
     const lo = Math.min(...ys);
     const hi = Math.max(...ys);
     const pad = Math.max((hi - lo) * 0.18, 0.02);
@@ -138,16 +143,16 @@ export default function NhlOddsChart({
         const brk = i === 0 || f.line !== frames[i - 1].line || vals[i - 1] === null;
         if (brk) d += `M${x(f.t).toFixed(1)},${y(v).toFixed(1)} `;
         else d += `L${x(f.t).toFixed(1)},${y(vals[i - 1]!).toFixed(1)} L${x(f.t).toFixed(1)},${y(v).toFixed(1)} `;
-        // hold the price until the next change (or the right edge)
+        // hold the price until the next saved change (or the right edge); a segment never runs past a move of the number
         const next = frames[i + 1];
-        const endT = next && next.line === f.line ? null : tMax;
+        const endT = next ? (next.line === f.line ? null : next.t) : tMax;
         if (endT !== null) d += `L${x(endT).toFixed(1)},${y(v).toFixed(1)} `;
       });
       return d.trim();
     };
     const aVals = frames.map((f) => americanToProb(f.a!));
     const bVals = frames.map((f) => americanToProb(f.b!));
-    const mVals = frames.map((f) => modelSides(f.model!, tab, f.line));
+    const mVals = frames.map((f, i) => (showModel(i) ? modelSides(f.model!, tab, f.line) : null));
     const mA = mVals.map((m) => (m ? m[0] : null));
     const mB = mVals.map((m) => (m ? m[1] : null));
 
@@ -327,7 +332,7 @@ export default function NhlOddsChart({
         </div>
         <p className="mt-1 text-[11px] text-muted">
           Solid = DraftKings&apos; actual price (vig included), open → latest. Dotted = our price for the same side
-          {tab !== "ml" ? ", at whichever number was posted at that moment" : ""}.
+          {tab !== "ml" ? (movedAt === -1 ? ", at the posted number" : ", at the opening number (it stops when the number moves - see Model vs DraftKings above for the current one)") : ""}.
           {breaks.length > 0 &&
             ` The ${tab === "pl" ? "puck line" : "total"} moved ${breaks.length} time${breaks.length === 1 ? "" : "s"}, so the lines break at each move - a price on a different number isn't comparable.`}
         </p>
