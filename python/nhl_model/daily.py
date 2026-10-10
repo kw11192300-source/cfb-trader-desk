@@ -12,6 +12,7 @@ Steps (each reuses the module of the same name):
      cross-fitted by season each time, ~5 minutes - fine for a once-a-day job)
   4. publish: predictions for the next few days + xG for recently finished games
   5. team + goalie tables for the site's Teams / Goalies tabs (team_stats.py)
+  6. skater ratings from shift charts (shifts.py -> player_ratings.py), refit when new games arrived
 
 Runs on this machine. GitHub's scheduler only fires the repo's cron jobs a few
 times a day right now, so this isn't wired into Actions; it belongs on the
@@ -26,7 +27,7 @@ from cfbd_ingest.sync_nhl_espn import _season_year
 
 import pandas as pd
 
-from . import ingest, parse, publish, sim_inputs, team_games, team_stats, xg
+from . import ingest, parse, player_ratings, publish, shifts, sim_inputs, team_games, team_stats, xg
 
 FIRST_SEASON = 2015  # 2015-16: the oldest season the model trains on
 
@@ -75,6 +76,17 @@ def main() -> None:
     publish.main(["--dry-run"] if a.dry_run else [])
     print(f"\n=== team + goalie tables ({time.time() - t0:.0f}s elapsed) ===")
     team_stats.main(["--dry-run"] if a.dry_run else [])
+
+    # skater ratings: pull shift charts for newly finished games, and refit only when something new arrived (or never fit)
+    print(f"\n=== skater ratings ({time.time() - t0:.0f}s elapsed) ===")
+    try:
+        new_shifts = shifts.run_shifts(player_ratings.FIRST_SEASON, season)
+        if new_shifts > 0 or not player_ratings.RATINGS_JSON.exists():
+            player_ratings.run(first=player_ratings.FIRST_SEASON, last=season, publish=not a.dry_run)
+        else:
+            print("no new shift charts - keeping the current skater ratings")
+    except Exception as e:  # noqa: BLE001 - ratings are an add-on; never fail the refresh over them
+        print(f"(skater ratings skipped: {str(e)[:150]})")
     print(f"\ndone in {time.time() - t0:.0f}s")
 
 

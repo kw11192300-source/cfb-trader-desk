@@ -37,6 +37,7 @@ from .xg import SHOTS_XG_OUT
 
 warnings.filterwarnings("ignore")
 
+FIRST_SEASON = 2022  # ratings use the last few seasons; older play adds little and costs a long download
 STINTS_OUT = DATA_DIR / "stints_5v5.csv.gz"
 PLAYERS_JSON = DATA_DIR / "players.json"
 RATINGS_JSON = DATA_DIR / "player_ratings.json"
@@ -217,7 +218,99 @@ def validate(stints: pd.DataFrame, game_dates: pd.Series) -> None:
         print(f"  lambda {lam:>7.0f}: weighted MSE {sse_m:.3f} vs average-player baseline {sse_b:.3f}  ({(1 - sse_m / sse_b) * 100:+.2f}% better)")
 
 
-def main() -> None:
+LAMBDA = 25000.0  # ridge strength; chosen on a held-out 15% of games (validate() above)
+MIN_TOI_MIN = 100  # skaters with less 5v5 time than this in the window aren't rated
+
+
+def _abbrev_by_team_id() -> dict[int, str]:
+    g = pd.read_csv(DATA_DIR / "games.csv.gz", usecols=["home_team_id", "home_abbrev", "away_team_id", "away_abbrev", "start_utc"]).sort_values("start_utc")
+    return {**dict(zip(g["away_team_id"], g["away_abbrev"])), **dict(zip(g["home_team_id"], g["home_abbrev"]))}
+
+
+def current_stints(first: int, last: int) -> pd.DataFrame:
+    """The 5v5 stints table, rebuilt only when shift charts for new games have arrived since it was cached."""
+    n_files = sum(1 for season in range(first, last + 1) for _ in (RAW_SHIFTS / str(season)).glob("*.json.gz"))
+    if STINTS_OUT.exists():
+        cached = pd.read_csv(STINTS_OUT)
+        # a game with no usable 5v5 stretch is rare, so a cache within 1% of the file count is current
+        if cached["game_id"].nunique() >= 0.99 * n_files:
+            return cached
+    print(f"building 5v5 stints from {n_files} shift charts...", flush=True)
+    stints = build_stints(first, last)
+    stints.to_csv(STINTS_OUT, index=False)
+    return stints
+
+
+def rate_skaters(first: int, last: int) -> pd.DataFrame:
+    """One row per rated skater: off/def/net (xG per 60, 5v5, vs an average skater), 5v5 minutes per game, games, and the
+    per-game value (net x minutes) that ranks how much he matters to his team's results."""
+    stints = current_stints(first, last)
+    games = pd.read_csv(DATA_DIR / "games.csv.gz", usecols=["game_id", "start_utc"])
+    game_dates = pd.Series(pd.to_datetime(games["start_utc"], utc=True).to_numpy(), index=games["game_id"])
+    pids, off, de, _, _ = fit_rapm(stints, game_dates, LAMBDA)
+
+    long = pd.concat([stints[["game_id", "dur", c]].rename(columns={c: "pid"}) for c in [f"h{i}" for i in range(5)] + [f"a{i}" for i in range(5)]])
+    toi = long.groupby("pid")["dur"].sum() / 60.0  # minutes of 5v5 in the window
+    gp = long.groupby("pid")["game_id"].nunique()
+    df = pd.DataFrame({"player_id": pids.astype(int), "off": off, "def": de})
+    df["net"] = df["off"] - df["def"]
+    df["toi_min"] = df["player_id"].map(toi)
+    df["gp"] = df["player_id"].map(gp)
+    df["toi_pg"] = df["toi_min"] / df["gp"]
+    df["value_pg"] = df["net"] * df["toi_pg"] / 60.0  # xG per game above an average skater
+    df = df[df["toi_min"] >= MIN_TOI_MIN].copy()
+
+    d = player_directory(first, last)
+    abbrev = _abbrev_by_team_id()
+    df["name"] = df["player_id"].map(lambda p: d.get(int(p), {}).get("name", str(p)))
+    df["pos"] = df["player_id"].map(lambda p: d.get(int(p), {}).get("pos"))
+    df["team"] = df["player_id"].map(lambda p: abbrev.get(d.get(int(p), {}).get("team_id")))
+    df["rank"] = df["value_pg"].rank(ascending=False, method="min").astype(int)
+    df["n"] = len(df)
+    df["pct"] = 1.0 - (df["rank"] - 1) / df["n"]
+    return df.sort_values("rank").reset_index(drop=True)
+
+
+def run(first: int = 2022, last: int | None = None, publish: bool = True) -> pd.DataFrame:
+    from cfbd_ingest.sync_nhl_espn import _season_year
+
+    last = _season_year() if last is None else last
+    t0 = time.time()
+    df = rate_skaters(first, last)
+    print(f"rated {len(df)} skaters in {time.time() - t0:.0f}s")
+    top = df.head(8)
+    print(top[["rank", "name", "pos", "team", "net", "toi_pg", "value_pg"]].round(3).to_string(index=False))
+    RATINGS_JSON.write_text(df.to_json(orient="records"))
+    if not publish:
+        return df
+    from cfbd_ingest.supabase_client import get_client
+
+    client = get_client()
+    now = pd.Timestamp.now(tz="UTC").isoformat()
+    rows = [
+        {
+            "player_id": int(r.player_id), "name": r.name, "pos": r.pos, "team": r.team, "updated_at": now,
+            "stats": {
+                "off": round(float(r.off), 3), "def": round(float(getattr(r, "def_")), 3),
+                "net": round(float(r.net), 3), "toi_pg": round(float(r.toi_pg), 1), "gp": int(r.gp),
+                "value_pg": round(float(r.value_pg), 4), "rank": int(r.rank), "n": int(r.n), "pct": round(float(r.pct), 4),
+            },
+        }
+        for r in df.rename(columns={"def": "def_"}).itertuples()
+    ]
+    try:
+        for i in range(0, len(rows), 300):
+            client.table("nhl_skater_ratings").upsert(rows[i : i + 300], on_conflict="player_id").execute()
+        print(f"published {len(rows)} skater ratings")
+    except Exception as e:  # noqa: BLE001
+        if "PGRST205" in str(e) or "schema cache" in str(e):
+            print("(skater ratings not published: run the nhl_skater_ratings block in supabase/schema.sql)")
+        else:
+            raise
+    return df
+
+
+def validate_main() -> None:
     first, last = 2022, 2026
     t0 = time.time()
     if STINTS_OUT.exists():
@@ -232,6 +325,15 @@ def main() -> None:
     games = pd.read_csv(DATA_DIR / "games.csv.gz", usecols=["game_id", "start_utc"])
     game_dates = pd.Series(pd.to_datetime(games["start_utc"], utc=True).to_numpy(), index=games["game_id"])
     validate(stints, game_dates)
+
+
+def main() -> None:
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "validate":
+        validate_main()
+    else:
+        run(publish="--dry-run" not in sys.argv)
 
 
 if __name__ == "__main__":

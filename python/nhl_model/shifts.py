@@ -32,11 +32,14 @@ def _trim(rows: list[dict]) -> list[dict]:
     return [{k: r.get(k) for k in KEEP} for r in rows]
 
 
-def run_shifts(first: int, last: int) -> None:
+def run_shifts(first: int, last: int) -> int:
+    """Fetches any missing shift charts; returns how many new files were saved."""
     sched = _completed(pd.read_csv(SCHEDULE_CSV))
     sched = sched[(sched["season"] >= first) & (sched["season"] <= last)]
     todo = [(int(r.game_id), int(r.season)) for r in sched.itertuples() if not (RAW_SHIFTS / str(r.season) / f"{r.game_id}.json.gz").exists()]
     print(f"{len(sched)} completed games in range, {len(todo)} shift charts to fetch", flush=True)
+    if not todo:
+        return 0
 
     def fetch(item):
         gid, season = item
@@ -59,6 +62,7 @@ def run_shifts(first: int, last: int) -> None:
             failed += 0 if ok else 1
             if done % 250 == 0 or done == len(todo):
                 print(f"  {done}/{len(todo)} fetched ({failed} failed) - {time.time() - t0:.0f}s", flush=True)
+    return done - failed
 
 
 def main() -> None:

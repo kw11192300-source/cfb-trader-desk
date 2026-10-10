@@ -1,4 +1,4 @@
-import { restInfo, type Caution, type Injury, type NhlContext } from "@/lib/nhlContext";
+import { importanceLabel, normName, restInfo, type Caution, type Injury, type NhlContext } from "@/lib/nhlContext";
 import { espnCode } from "@/lib/nhlTeams";
 import NhlTeamLogo from "./NhlTeamLogo";
 
@@ -54,7 +54,10 @@ function TeamColumn({ team, side, startIso, assumptions, ctx }: { team: string; 
         <div className="mt-1 text-xs text-muted">Nothing listed.</div>
       ) : (
         <ul className="mt-1 flex flex-col gap-1">
-          {injuries.map((i) => (
+          {injuries.map((i) => {
+            const r = i.position === "G" ? undefined : ctx.ratings[normName(i.name)];
+            const key = r !== undefined && r.pct >= 0.75;
+            return (
             <li key={`${i.name}-${i.status}`} className="flex items-start gap-2 text-xs" title={i.comment ?? undefined}>
               <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_STYLE[i.status]}`}>{STATUS_LABEL[i.status]}</span>
               <span className="min-w-0 text-foreground">
@@ -66,9 +69,15 @@ function TeamColumn({ team, side, startIso, assumptions, ctx }: { team: string; 
                     {i.returnDate ? `${i.type ? " · " : ""}back ~${new Date(i.returnDate).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })}` : ""}
                   </span>
                 )}
+                {i.position !== "G" && Object.keys(ctx.ratings).length > 0 && (
+                  <span className={`ml-2 rounded px-1.5 py-0.5 text-[10px] ${key ? "bg-warn/15 font-semibold text-warn" : "bg-surface text-muted"}`} title={r ? `5v5 impact ${r.net >= 0 ? "+" : ""}${r.net.toFixed(2)} xG/60 over ${r.toiPg.toFixed(0)} min a game` : undefined}>
+                    {r ? `${importanceLabel(r)} · #${r.rank}/${r.n}` : importanceLabel(r)}
+                  </span>
+                )}
               </span>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </div>

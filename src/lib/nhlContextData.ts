@@ -1,5 +1,5 @@
 import { getNhlStatSeasons, getNhlTeamStats } from "./data";
-import { EMPTY_CONTEXT, type Injury, type InjuryStatus, type NhlContext } from "./nhlContext";
+import { EMPTY_CONTEXT, normName, type Injury, type InjuryStatus, type NhlContext, type SkaterRating } from "./nhlContext";
 import { espnCode } from "./nhlTeams";
 import { supabase } from "./supabase";
 
@@ -54,6 +54,23 @@ async function fetchInjuries(): Promise<Record<string, Injury[]>> {
   }
 }
 
+/** Rated skaters by normalised name. Empty if the ratings table doesn't exist yet. */
+async function fetchRatings(): Promise<Record<string, SkaterRating>> {
+  try {
+    const { data, error } = await supabase.from("nhl_skater_ratings").select("name, pos, stats");
+    if (error || !data) return {};
+    const out: Record<string, SkaterRating> = {};
+    for (const r of data) {
+      const s = r.stats as Record<string, number>;
+      if (!r.name) continue;
+      out[normName(r.name as string)] = { rank: s.rank, n: s.n, pct: s.pct, net: s.net, valuePg: s.value_pg, toiPg: s.toi_pg, gp: s.gp, pos: (r.pos as string | null) ?? null };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 /** Everything the model doesn't know that we can look up for free: injuries, who played last night, and how many games each
  * team has actually played. Never throws - a failure just leaves that part empty. */
 export async function getNhlContext(): Promise<NhlContext> {
@@ -61,8 +78,9 @@ export async function getNhlContext(): Promise<NhlContext> {
     const now = Date.now();
     const from = new Date(now - 10 * 86400000).toISOString();
     const to = new Date(now + 10 * 86400000).toISOString();
-    const [injuries, sched, seasons] = await Promise.all([
+    const [injuries, ratings, sched, seasons] = await Promise.all([
       fetchInjuries(),
+      fetchRatings(),
       supabase.from("games").select("home_team, away_team, start_date").eq("sport", "nhl").gte("start_date", from).lte("start_date", to),
       getNhlStatSeasons().catch(() => ({ seasons: [] as number[], hasL10: {} })),
     ]);
@@ -78,7 +96,7 @@ export async function getNhlContext(): Promise<NhlContext> {
         if (r.name && typeof r.stats.gp === "number") gp[r.name] = r.stats.gp;
       }
     }
-    return { injuries, starts, gp };
+    return { ratings, injuries, starts, gp };
   } catch {
     return EMPTY_CONTEXT;
   }

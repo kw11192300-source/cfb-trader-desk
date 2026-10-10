@@ -592,6 +592,17 @@ create table if not exists nhl_goalie_log (
   unique (game_id, side, kind)
 );
 
+-- Skater ratings (python/nhl_model/player_ratings.py): 5v5 regularized adjusted plus-minus on expected goals, decayed over
+-- the last few seasons, with his rank among rated skaters - used to say how important an injured player is.
+create table if not exists nhl_skater_ratings (
+  player_id bigint primary key,
+  name text,
+  pos text,
+  team text,
+  stats jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists nhl_game_xg (
   game_id bigint primary key references games(id) on delete cascade,
   model_version text,
@@ -787,6 +798,7 @@ alter table nhl_team_stats enable row level security;
 alter table nhl_odds_snapshots enable row level security;
 alter table nhl_edge_log enable row level security;
 alter table nhl_goalie_log enable row level security;
+alter table nhl_skater_ratings enable row level security;
 alter table nhl_goalie_stats enable row level security;
 
 create policy "public read" on teams for select using (true);
@@ -817,6 +829,7 @@ create policy "public read" on nhl_team_stats for select using (true);
 create policy "public read" on nhl_odds_snapshots for select using (true);
 create policy "public read" on nhl_edge_log for select using (true);
 create policy "public read" on nhl_goalie_log for select using (true);
+create policy "public read" on nhl_skater_ratings for select using (true);
 create policy "public read" on nhl_goalie_stats for select using (true);
 -- NO policy on bets at all, not even public read - real stakes/P&L, the
 -- one genuinely sensitive table in this app. Only the secret key (service

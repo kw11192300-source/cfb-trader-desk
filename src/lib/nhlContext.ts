@@ -15,7 +15,26 @@ export type Injury = {
   comment: string | null;
 };
 
+/** A skater's 5v5 rating (python/nhl_model/player_ratings.py): where he ranks among all rated skaters by impact per game. */
+export type SkaterRating = { rank: number; n: number; pct: number; net: number; valuePg: number; toiPg: number; gp: number; pos: string | null };
+
+/** "Zach Werenski" and "Zach Werenski " and accented spellings all map to the same key. */
+export function normName(name: string): string {
+  return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z ]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** Plain-language importance for an injured skater, from his percentile among rated skaters. */
+export function importanceLabel(r: SkaterRating | undefined): string {
+  if (!r) return "unrated (little 5v5 time)";
+  if (r.pct >= 0.95) return "star";
+  if (r.pct >= 0.8) return "top-line impact";
+  if (r.pct >= 0.5) return "regular contributor";
+  return "depth";
+}
+
 export type NhlContext = {
+  /** Skater ratings by normalised name (empty before the ratings table exists). */
+  ratings: Record<string, SkaterRating>;
   /** Injury list per team, keyed by ESPN's team code (see espnCode). */
   injuries: Record<string, Injury[]>;
   /** Start times of each team's nearby games (past and upcoming), keyed by full team name, sorted. */
@@ -24,7 +43,7 @@ export type NhlContext = {
   gp: Record<string, number>;
 };
 
-export const EMPTY_CONTEXT: NhlContext = { injuries: {}, starts: {}, gp: {} };
+export const EMPTY_CONTEXT: NhlContext = { ratings: {}, injuries: {}, starts: {}, gp: {} };
 
 export type Rest = { daysRest: number | null; backToBack: boolean; gamesLast7: number };
 
@@ -87,6 +106,8 @@ export function cautions(opts: {
 
   const goalieOut: string[] = [];
   const uncertain: { team: string; list: Injury[] }[] = [];
+  const haveRatings = Object.keys(ctx.ratings).length > 0;
+  const keyOut: { team: string; name: string; label: string }[] = [];
   for (const team of [away, home]) {
     const list = ctx.injuries[espnCode(team) ?? ""] ?? [];
     // only a problem when the goalie the model is using is the one on the list (a backup on IR changes nothing)
@@ -95,11 +116,23 @@ export function cautions(opts: {
     if (list.some((i) => i.position === "G" && modeled.includes(i.name.toLowerCase()))) goalieOut.push(team);
     const u = list.filter((i) => i.status === "Out" || i.status === "Day-To-Day");
     if (u.length > 0) uncertain.push({ team, list: u });
+    for (const i of u) {
+      const r = ctx.ratings[normName(i.name)];
+      if (i.position !== "G" && r && r.pct >= 0.75) keyOut.push({ team, name: i.name, label: `${importanceLabel(r)}, #${r.rank} of ${r.n}` });
+    }
   }
   if (goalieOut.length > 0) {
     out.push({ short: "goalie injured", long: `${goalieOut.join(" and ")}: a goalie the model is using is on the injury list - check who is actually available.` });
   }
-  if (uncertain.length > 0) {
+  if (haveRatings) {
+    // with ratings, only players who actually move the needle count as a reason for caution
+    if (keyOut.length > 0) {
+      out.push({
+        short: `key injur${keyOut.length === 1 ? "y" : "ies"}: ${keyOut.map((k) => k.name.split(" ").slice(-1)[0]).join(", ")}`,
+        long: keyOut.map((k) => `${k.name} (${k.team.split(" ").slice(-1)[0]}, ${k.label})`).join("; ") + " - missing from the lineup the model assumes.",
+      });
+    }
+  } else if (uncertain.length > 0) {
     const n = uncertain.reduce((sum, u) => sum + u.list.length, 0);
     out.push({
       short: `injuries (${n})`,
