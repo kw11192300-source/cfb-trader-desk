@@ -128,19 +128,25 @@ async function sendTelegram(text: string): Promise<void> {
 type StoredGoalie = { id: number | null; name: string; weight: number; rating: number };
 type Pool = { id: number | null; name: string; rating: number };
 
-/** Goalies marked unavailable by hand: id -> the date they're out until (null = rest of the season). Empty if the table is missing. */
-async function loadUnavailable(): Promise<Map<number, string | null>> {
-  const { data, error } = await supabaseAdmin.from("nhl_goalie_unavailable").select("goalie_id, until");
-  const m = new Map<number, string | null>();
+/** Goalies marked unavailable by hand: "id:<goalie id>" and "name:<normalised name>" -> the date they're out until (null = rest
+ * of the season). The name key catches a goalie ESPN names who isn't in the pool and so has no id. Empty if the table is missing. */
+async function loadUnavailable(): Promise<Map<string, string | null>> {
+  const { data, error } = await supabaseAdmin.from("nhl_goalie_unavailable").select("goalie_id, name, until");
+  const m = new Map<string, string | null>();
   if (error || !data) return m;
-  for (const r of data) m.set(r.goalie_id as number, (r.until as string | null) ?? null);
+  for (const r of data) {
+    const until = (r.until as string | null) ?? null;
+    m.set(`id:${r.goalie_id as number}`, until);
+    if (r.name) m.set(`name:${normName(r.name as string)}`, until);
+  }
   return m;
 }
 
-const isOutAt = (m: Map<number, string | null>, id: number | null, startIso: string): boolean => {
-  if (id === null || !m.has(id)) return false;
-  const until = m.get(id);
-  return until === null || new Date(startIso).getTime() < new Date(`${until}T00:00:00Z`).getTime();
+const isOutAt = (m: Map<string, string | null>, g: { id: number | null; name: string }, startIso: string): boolean => {
+  const key = g.id !== null && m.has(`id:${g.id}`) ? `id:${g.id}` : m.has(`name:${normName(g.name)}`) ? `name:${normName(g.name)}` : null;
+  if (key === null) return false;
+  const until = m.get(key);
+  return until === null || until === undefined || new Date(startIso).getTime() < new Date(`${until}T00:00:00Z`).getTime();
 };
 
 /** Re-prices upcoming games for the manual unavailable list: a goalie who is out is dropped from a side's assumed starters
@@ -161,7 +167,7 @@ export async function reapplyUnavailable(): Promise<number> {
     if (!a) continue;
     const sides = (["home", "away"] as const).filter((side) => {
       if (a.sources?.[side] === "locked" || a.confirmed?.[side]) return false;
-      return (a.goalies[side] ?? []).some((g) => isOutAt(out, g.id, startIso));
+      return (a.goalies[side] ?? []).some((g) => isOutAt(out, g, startIso));
     });
     if (sides.length === 0) continue;
 
@@ -175,12 +181,12 @@ export async function reapplyUnavailable(): Promise<number> {
     const estimated = sp.estimated as unknown as Record<"home" | "away", { goalies: StoredGoalie[]; source: string; confirmed: boolean }>;
 
     for (const side of sides) {
-      let keep = next[side].filter((g) => !isOutAt(out, g.id, startIso));
+      let keep = next[side].filter((g) => !isOutAt(out, g, startIso));
       if (keep.length > 0) {
         const tot = keep.reduce((s, g) => s + g.weight, 0);
         keep = keep.map((g) => ({ ...g, weight: g.weight / tot }));
       } else {
-        const pool = ((sp.pool?.[side] ?? []) as Pool[]).filter((p) => !isOutAt(out, p.id, startIso)).slice(0, 2);
+        const pool = ((sp.pool?.[side] ?? []) as Pool[]).filter((p) => !isOutAt(out, p, startIso)).slice(0, 2);
         keep =
           pool.length === 0
             ? [{ id: null, name: "Replacement-level goalie", weight: 1, rating: 0 }]
@@ -217,6 +223,8 @@ async function applyGoalieCalls(calls: Map<number, { home?: GoalieCall; away?: G
   const { data: rows, error } = await supabaseAdmin.from("nhl_predictions").select("game_id, assumptions").in("game_id", [...calls.keys()]);
   if (error || !rows) return 0;
   const unavailable = await loadUnavailable();
+  const { data: starts } = await supabaseAdmin.from("games").select("id, start_date").in("id", [...calls.keys()]);
+  const gameStart = new Map((starts ?? []).map((g) => [g.id as number, g.start_date as string]));
 
   let updated = 0;
   for (const row of rows) {
@@ -231,7 +239,7 @@ async function applyGoalieCalls(calls: Map<number, { home?: GoalieCall; away?: G
       // ESPN still lists a goalie you've ruled out as "expected": ignore it (a confirmed call is taken at face value)
       if (call.status === "expected" && unavailable.size > 0) {
         const named = ((a.pool?.[side] ?? []) as Pool[]).find((p) => normName(p.name) === normName(call.name));
-        if (named && named.id !== null && unavailable.has(named.id)) continue;
+        if (isOutAt(unavailable, { id: named?.id ?? null, name: call.name }, gameStart.get(gameId) ?? new Date().toISOString())) continue;
       }
       const list = a.goalies[side] ?? [];
       const top = [...list].sort((x, y) => y.weight - x.weight)[0];
@@ -271,7 +279,9 @@ async function applyGoalieCalls(calls: Map<number, { home?: GoalieCall; away?: G
         notes.push(`${goalie.name} confirmed${prevTop && normName(prevTop.name) !== normName(goalie.name) ? ` (was expecting ${prevTop.name})` : ""}`);
       } else {
         // ESPN now expects a different goalie: lean on him, keep the previous expectation as the hedge
-        const hedge = prevTop && normName(prevTop.name) !== normName(goalie.name) ? [{ ...prevTop, weight: 0.15 }] : [];
+        const startIso = gameStart.get(gameId) ?? new Date().toISOString();
+        const fallback = [prevTop, ...pool.map((p) => ({ ...p, weight: 0 }))].find((g) => g && normName(g.name) !== normName(goalie.name) && !isOutAt(unavailable, g, startIso));
+        const hedge = fallback ? [{ ...fallback, weight: 0.15 }] : [];
         goalie.weight = hedge.length ? 0.85 : 1;
         nextGoalies[side] = [goalie, ...hedge];
         confirmed[side] = false;
@@ -450,6 +460,8 @@ export async function updateNhlOdds(): Promise<OddsUpdateResult> {
   let goalieUpdates = 0;
   try {
     goalieUpdates = await applyGoalieCalls(goalieCalls);
+    // and anyone you've ruled out who is still sitting in an assumed lineup (e.g. ESPN named him, or a stale hedge)
+    goalieUpdates += await reapplyUnavailable();
   } catch {
     /* never let goalie handling stop the odds update */
   }
