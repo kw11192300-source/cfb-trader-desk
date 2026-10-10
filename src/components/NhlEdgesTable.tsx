@@ -109,8 +109,8 @@ export default function NhlEdgesTable({ rows }: { rows: EdgeListRow[] }) {
                   <td className="px-3 py-2 text-right font-mono text-xs text-foreground">{pct(r.bookImplied)}</td>
                   <td className="px-3 py-2 text-right font-mono text-xs text-foreground">{pct(r.model)}</td>
                   <td className="px-3 py-2 text-right font-mono text-xs font-semibold text-foreground">{fairOdds(r.model)}</td>
-                  <td className={`px-3 py-2 text-right font-mono text-xs ${r.edgePts > 0 ? "text-accent" : "text-warn"}`}>{pts(r.edgePts)}</td>
-                  <td className={`px-3 py-2 text-right font-mono text-xs font-semibold ${r.ev > 0 ? "text-accent" : "text-muted"}`}>
+                  <td className={`px-3 py-2 text-right font-mono text-xs ${r.edgePts > 0 ? "text-up" : "text-down"}`}>{pts(r.edgePts)}</td>
+                  <td className={`px-3 py-2 text-right font-mono text-xs font-semibold ${r.ev > 0 ? "text-up" : "text-down"}`}>
                     {r.ev >= 0 ? "+" : ""}
                     {(r.ev * 100).toFixed(1)}%
                   </td>

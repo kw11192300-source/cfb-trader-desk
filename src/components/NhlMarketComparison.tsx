@@ -69,7 +69,7 @@ export default function NhlMarketComparison({ rows, provider }: { rows: EdgeRow[
                   <td className="px-3 py-1.5 text-right font-mono text-foreground">{pct(r.bookImplied)}</td>
                   <td className="px-3 py-1.5 text-right font-mono text-foreground">{pct(r.model)}</td>
                   <td className="px-3 py-1.5 text-right font-mono font-semibold text-foreground">{fairOdds(r.model)}</td>
-                  <td className={`px-3 py-1.5 text-right font-mono ${r.edgePts > 0 ? "text-accent" : "text-warn"}`}>{pts(r.edgePts)}</td>
+                  <td className={`px-3 py-1.5 text-right font-mono ${r.edgePts > 0 ? "text-up" : "text-down"}`}>{pts(r.edgePts)}</td>
                   <td className={`px-3 py-1.5 text-right font-mono ${live ? "text-accent" : "text-muted"}`}>
                     {r.ev >= 0 ? "+" : ""}
                     {(r.ev * 100).toFixed(1)}%

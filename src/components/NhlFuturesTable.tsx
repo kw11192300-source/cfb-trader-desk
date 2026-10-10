@@ -14,15 +14,15 @@ const pctOdds = (key: string) => (r: StatRow) => {
 };
 
 const COLS: StatCol[] = [
-  { key: "cup", label: "Stanley Cup", title: "Chance to win the Cup, and its fair American price (no vig)", fmt: pctOdds("cup") },
-  { key: "final", label: "Win conference", title: "Chance to reach (and so win the conference to play in) the Cup final", fmt: pctOdds("final") },
-  { key: "r3", label: "Conf. final", title: "Chance to reach the conference final (win the second round)", fmt: pctOdds("r3") },
-  { key: "r2", label: "Round 2", title: "Chance to win its first-round series", fmt: pctOdds("r2") },
-  { key: "playoffs", label: "Make playoffs", title: "Chance to finish in the top three of its division or as a wild card", fmt: pctOdds("playoffs") },
-  { key: "division", label: "Win division", title: "Chance to finish first in its division", fmt: pctOdds("division") },
-  { key: "exp_pts", label: "Exp. pts", title: "Average simulated final standings points", fmt: fmtD("exp_pts", 1) },
+  { key: "cup", label: "Stanley Cup", title: "Chance to win the Cup, and its fair American price (no vig)", fmt: pctOdds("cup"), heat: "high" },
+  { key: "final", label: "Win conference", title: "Chance to reach (and so win the conference to play in) the Cup final", fmt: pctOdds("final"), heat: "high" },
+  { key: "r3", label: "Conf. final", title: "Chance to reach the conference final (win the second round)", fmt: pctOdds("r3"), heat: "high" },
+  { key: "r2", label: "Round 2", title: "Chance to win its first-round series", fmt: pctOdds("r2"), heat: "high" },
+  { key: "playoffs", label: "Make playoffs", title: "Chance to finish in the top three of its division or as a wild card", fmt: pctOdds("playoffs"), heat: "high" },
+  { key: "division", label: "Win division", title: "Chance to finish first in its division", fmt: pctOdds("division"), heat: "high" },
+  { key: "exp_pts", label: "Exp. pts", title: "Average simulated final standings points", fmt: fmtD("exp_pts", 1), heat: "high" },
   { key: "sd_pts", label: "± pts", title: "Standard deviation of simulated final points", fmt: fmtD("sd_pts", 1) },
-  { key: "pts", label: "Pts", title: "Points so far", fmt: fmtD("pts", 0) },
+  { key: "pts", label: "Pts", title: "Points so far", fmt: fmtD("pts", 0), heat: "high" },
   { key: "gp", label: "GP", fmt: fmtD("gp", 0) },
 ];
 

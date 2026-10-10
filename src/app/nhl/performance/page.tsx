@@ -45,7 +45,7 @@ function GroupTable({ groups, firstHeader, showClv }: { groups: Group[]; firstHe
                 <td className="px-3 py-2 text-right font-mono text-foreground">{g.n > 0 ? pct(g.avgModel) : "—"}</td>
                 <td className="px-3 py-2 text-right font-mono text-muted">{g.n > 0 ? pct(g.avgBreakEven) : "—"}</td>
                 <td className="px-3 py-2 text-right font-mono text-foreground">{g.n > 0 ? `${signed(g.avgEv * 100)}%` : "—"}</td>
-                <td className={`px-3 py-2 text-right font-mono font-semibold ${g.n === 0 ? "text-muted" : g.roi > 0 ? "text-accent" : "text-warn"}`}>
+                <td className={`px-3 py-2 text-right font-mono font-semibold ${g.n === 0 ? "text-muted" : g.roi > 0 ? "text-up" : "text-down"}`}>
                   {g.n > 0 ? (
                     <>
                       {signed(g.roi * 100)}% <span className="font-normal text-muted">± {(g.roiSe * 100).toFixed(1)}</span>

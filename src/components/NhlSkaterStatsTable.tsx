@@ -6,14 +6,14 @@ import StatTable, { fmtD, type StatCol, type StatRow } from "./StatTable";
 export type SkaterRow = StatRow & { pos: string | null };
 
 const COLS: StatCol[] = [
-  { key: "value_pg", label: "Value/gm", title: "Net impact x 5v5 minutes per game: expected goals per game above an average skater. This is what the rank is sorted on", fmt: fmtD("value_pg", 3), signed: true },
-  { key: "net", label: "Net /60", title: "Offense + defense: how many more expected goals per 60 minutes of 5v5 his team outscores opponents by with him on the ice, vs an average skater", fmt: fmtD("net", 2), signed: true },
-  { key: "off", label: "Offense /60", title: "Extra expected goals his team creates per 60 minutes of 5v5 with him on the ice", fmt: fmtD("off", 2), signed: true },
-  { key: "def_good", label: "Defense /60", title: "Expected goals his team PREVENTS per 60 minutes of 5v5 with him on the ice (positive = fewer goals allowed)", fmt: fmtD("def_good", 2), signed: true },
+  { key: "value_pg", label: "Value/gm", title: "Net impact x 5v5 minutes per game: expected goals per game above an average skater. This is what the rank is sorted on", fmt: fmtD("value_pg", 3), signed: true, heat: "high" },
+  { key: "net", label: "Net /60", title: "Offense + defense: how many more expected goals per 60 minutes of 5v5 his team outscores opponents by with him on the ice, vs an average skater", fmt: fmtD("net", 2), signed: true, heat: "high" },
+  { key: "off", label: "Offense /60", title: "Extra expected goals his team creates per 60 minutes of 5v5 with him on the ice", fmt: fmtD("off", 2), signed: true, heat: "high" },
+  { key: "def_good", label: "Defense /60", title: "Expected goals his team PREVENTS per 60 minutes of 5v5 with him on the ice (positive = fewer goals allowed)", fmt: fmtD("def_good", 2), signed: true, heat: "high" },
   { key: "toi_pg", label: "5v5 min/gm", title: "Even-strength minutes per game", fmt: fmtD("toi_pg", 1) },
   { key: "gp", label: "GP", title: "Games in the rating window (last few seasons)", fmt: fmtD("gp", 0) },
   { key: "rank", label: "Rank", title: "Rank by Value/gm among all rated skaters", fmt: fmtD("rank", 0) },
-  { key: "pct", label: "Pctile", title: "Percentile among rated skaters (100 = best)", fmt: (r) => (r.stats.pct === null || r.stats.pct === undefined ? "—" : `${(r.stats.pct * 100).toFixed(0)}`) },
+  { key: "pct", label: "Pctile", title: "Percentile among rated skaters (100 = best)", fmt: (r) => (r.stats.pct === null || r.stats.pct === undefined ? "—" : `${(r.stats.pct * 100).toFixed(0)}`), heat: "high" },
 ];
 
 const POS_GROUPS: { label: string; test: (p: string | null) => boolean }[] = [
