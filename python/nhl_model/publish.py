@@ -16,15 +16,20 @@ simulation) stays local; only these small tables ever reach the database.
 WHO'S IN NET, in order of authority:
   1. a manual lock (nhl_goalie_locks, set from the game page)       -> certain
   2. ESPN's "Probable Starting Goalie" when its status is Confirmed -> certain
-  3. ESPN's goalie when its status is Expected                      -> 75%, with
-     our own usage-based pick (below) taking the other 25%
-  4. our usage-based pick - who started each team's last 10 games, the
-     previous starter discounted on a back-to-back                   -> used only
-     when ESPN lists nobody
+  3. ESPN's goalie when its status is Expected                      -> combined with
+     our usage model (goalie_usage.py): ESPN's pick has its usage-model odds
+     multiplied by ESPN_EXPECTED_ODDS_MULT, and the remaining probability is
+     split among the next most likely starters in proportion to the model
+  4. our usage model alone - who is next in the team's rotation, from
+     recent starts, rest and back-to-backs, validated on 2018-2025       -> used
+     only when ESPN lists nobody
 ESPN's status flips Expected -> Confirmed when a team announces, so each refresh
-picks that up. Why ESPN outranks our guess: early in a season "who started the
-last 10 games" still reflects last year's roster and misses off-season goalie
-moves - it disagreed with ESPN's projection on ~44% of teams.
+picks that up. The usage model replaced a fixed 75/25 guess: on 2018-2025 it
+gave the goalie who actually started 0.578 on average (the rule: 0.554) with a
+log loss of 0.658 vs 0.825, and it is well calibrated. ESPN's "Expected" tag
+carries information the model can't see (morning skate, coach comments); how
+much to trust it will be measured from the calls archived in
+goalie_probables_forward.csv, and ESPN_EXPECTED_ODDS_MULT refit then.
 
 A goalie ESPN names that we've never seen in net (a rookie or call-up) is
 simulated as a league-average goalie, flagged as such.
@@ -48,6 +53,7 @@ from cfbd_ingest.sync_nhl_espn import _nhl_game_id
 
 from .goalie_model import build_tracker
 from .ingest import DATA_DIR, ESPN_SB, ESPN_TO_NHL_ABBREV, RAW_PBP, SCHEDULE_CSV, _get_json, read_gz
+from .goalie_usage import UsageModel
 from .parse import GAMES_OUT
 from .sim import SimConfig, load_tables, simulate, summarize_sim
 from .sim_backtest import GOALIE_PRIOR_ATTEMPTS, fit_block, load_sim_team_games
@@ -59,7 +65,8 @@ ODDS_FORWARD_CSV = DATA_DIR / "odds_forward.csv"
 PROBABLES_FORWARD_CSV = DATA_DIR / "goalie_probables_forward.csv"
 BACK_TO_BACK_HOURS = 40.0
 BACK_TO_BACK_REPEAT_WEIGHT = 0.3  # chance multiplier for repeating last night's starter on a back-to-back
-ESPN_EXPECTED_WEIGHT = 0.75  # how much an "Expected" (not Confirmed) ESPN goalie is trusted
+ESPN_EXPECTED_FLOOR = 0.6  # lowest weight an ESPN "Expected" goalie gets, whatever the usage model thinks
+ESPN_EXPECTED_ODDS_MULT = 5.7  # an ESPN "Expected" goalie: usage-model odds x this (a 50% model prior -> 85%); refit from the archive
 DIRECTORY_GAMES = 1500  # how many recent games' rosters to scan for goalie names
 
 
@@ -201,10 +208,18 @@ def side_scenarios(espn_g: dict | None, usage: list[tuple[float, float]], lock_i
         name = espn_g["name"] if gid is None else nm(gid)
         if espn_g["status"] == "confirmed":
             return [(gid, name, 1.0)], "espn_confirmed", True
-        alt = next((g for g, _ in usage if g != gid), None)
-        if alt is None:
+        model = {g: p for g, p in usage}
+        # a goalie outside the team's last 20 starters is usually the off-season arrival, which is exactly who ESPN knows
+        # about - treat him as a coin flip before ESPN's call, not as a long shot; and never hold ESPN's named goalie below
+        # ESPN_EXPECTED_FLOOR (it names the backup only when it has a reason)
+        px = min(max(model.get(gid, 0.5), 0.01), 0.99)
+        odds = px / (1.0 - px) * ESPN_EXPECTED_ODDS_MULT
+        w_x = max(odds / (1.0 + odds), ESPN_EXPECTED_FLOOR)
+        alts = sorted(((g, p) for g, p in usage if g != gid), key=lambda kv: -kv[1])[:2]
+        total_alt = sum(p for _, p in alts)
+        if not alts or total_alt <= 0:
             return [(gid, name, 1.0)], "espn_expected", False
-        return [(gid, name, ESPN_EXPECTED_WEIGHT), (alt, nm(alt), 1.0 - ESPN_EXPECTED_WEIGHT)], "espn_expected", False
+        return [(gid, name, w_x)] + [(g, nm(g), (1.0 - w_x) * p / total_alt) for g, p in alts], "espn_expected", False
     return [(g, nm(g), w) for g, w in usage], "usage", False
 
 
@@ -306,7 +321,19 @@ def main(argv: list[str] | None = None) -> None:
 
     preds, snapshots, probable_rows = [], [], []
     team_ids = set(upcoming["home_team_id"]) | set(upcoming["away_team_id"])
-    usage = {t: usage_candidates(recent_starters(games, int(t), now), now) for t in team_ids}
+    try:
+        usage_model: UsageModel | None = UsageModel()
+    except Exception as e:  # noqa: BLE001 - never block a refresh on the starter model
+        print(f"(usage model unavailable, using the recent-starts rule: {str(e)[:80]})")
+        usage_model = None
+
+    def usage_for(team: int, start: pd.Timestamp) -> list[tuple[float, float]]:
+        if usage_model is not None:
+            probs = usage_model.probabilities(int(team), start)
+            if probs:
+                return [(float(g), p) for g, p in probs]
+        return usage_candidates(recent_starters(games, int(team), now), now)
+
     pool_ids = {t: [g for g, _ in recent_starters(games, int(t), now, k=30)] for t in team_ids}
     for r in upcoming.sort_values("t").itertuples():
         ev = up_map.get(int(r.game_id))
@@ -316,7 +343,7 @@ def main(argv: list[str] | None = None) -> None:
         lock = locks.get(our_id, {})
         sides, assumptions_goalies, sources, confirmed, pool = {}, {}, {}, {}, {}
         for side, team in (("home", r.home_team_id), ("away", r.away_team_id)):
-            scen, src, conf = side_scenarios(ev["goalies"][side], usage.get(team, []), lock.get(f"{side}_goalie_id"), name_to_id, id_to_name)
+            scen, src, conf = side_scenarios(ev["goalies"][side], usage_for(team, r.t), lock.get(f"{side}_goalie_id"), name_to_id, id_to_name)
             sides[side] = scen
             assumptions_goalies[side] = [{"id": int(g) if g is not None else None, "name": n, "weight": round(w, 3), "rating": round(tracker.rating(g, now), 3)} for g, n, w in scen]
             sources[side], confirmed[side] = src, conf
@@ -337,7 +364,7 @@ def main(argv: list[str] | None = None) -> None:
                       "pens_a": base.pens_a, "r_sh": base.r_sh, "conv": fit.conv, "beta": fit.beta, "gbar": fit.gbar},
             "tables": tables, "pool": pool,
             # what a refresh would assume with NO manual lock - restored when a lock is removed
-            "estimated": {side: _estimated(ev["goalies"][side], usage.get(team, []), name_to_id, id_to_name, tracker, now)
+            "estimated": {side: _estimated(ev["goalies"][side], usage_for(team, r.t), name_to_id, id_to_name, tracker, now)
                           for side, team in (("home", r.home_team_id), ("away", r.away_team_id))},
         }
         assumptions = {"goalies": assumptions_goalies, "goalie_confirmed": all(confirmed.values()), "sources": sources, "confirmed": confirmed, "pool": pool}

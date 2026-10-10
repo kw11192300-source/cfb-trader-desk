@@ -162,11 +162,6 @@ export default function NhlGameView({
                 />
               </Card>
 
-              {extras.scenarios.length > 0 && (
-                <Card title="Goalie scenarios" note="the game re-run for each plausible pairing">
-                  <NhlGoalieScenarios rows={extras.scenarios} home={home} away={away} bookTotal={m?.total_line ?? null} />
-                </Card>
-              )}
             </>
           )}
 
@@ -286,6 +281,12 @@ export default function NhlGameView({
               </p>
             </Card>
           </div>
+
+          {extras && extras.scenarios.length > 0 && (
+            <Card title="Goalie scenarios" note="the game re-run for each plausible pairing">
+              <NhlGoalieScenarios rows={extras.scenarios} home={home} away={away} bookTotal={m?.total_line ?? null} />
+            </Card>
+          )}
 
           {extras && (
             <Card title="Matchup" note="team numbers and rank among 32">

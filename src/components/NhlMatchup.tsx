@@ -1,7 +1,7 @@
 import type { GoalieLine, MatchupLine } from "@/lib/nhlMatchup";
 import NhlTeamLogo from "./NhlTeamLogo";
 
-const Rank = ({ n }: { n: number | null }) => (n === null ? null : <span className={`ml-1.5 text-[10px] ${n <= 8 ? "text-accent" : n >= 25 ? "text-warn" : "text-muted"}`}>#{n}</span>);
+const Rank = ({ n }: { n: number | null }) => (n === null ? null : <span className={`ml-1.5 text-[10px] font-semibold ${n <= 10 ? "text-up" : n >= 23 ? "text-down" : "text-muted"}`}>#{n}</span>);
 
 /** The two teams side by side from the Teams and Goalies tables, each number with its league rank (#1 = best of 32). */
 export default function NhlMatchup({
@@ -101,7 +101,7 @@ export default function NhlMatchup({
         </div>
       )}
       <p className="mt-2 text-[11px] text-muted">
-        Ranks are among all 32 teams (#1 best; for xGA and penalty-kill numbers lower is better). Everything here comes from our own xG on the Teams and Goalies
+        Ranks are among all 32 teams (#1 best; for xGA and penalty-kill numbers lower is better) - green is top 10, red is bottom 10. Everything here comes from our own xG on the Teams and Goalies
         pages - descriptive, not a forecast.
       </p>
     </div>

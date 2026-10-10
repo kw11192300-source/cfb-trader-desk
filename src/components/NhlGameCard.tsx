@@ -170,7 +170,14 @@ export default function NhlGameCard({
             options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }}
           />
         )}
-        <span>wk {game.week}</span>
+        <span className="flex items-center gap-2">
+          {showModel && cautions.length > 0 && (
+            <span className="text-sm leading-none text-warn" title={`Treat with caution - open the game to see why:\n${cautions.map((c) => c.short).join("\n")}`}>
+              ⚠
+            </span>
+          )}
+          wk {game.week}
+        </span>
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -231,12 +238,6 @@ export default function NhlGameCard({
             {game.home_team.split(" ").slice(-1)[0]} -1.5 {pct(puckLineCover(prediction.margin_dist, "home", -1.5), 0)} ({fairOdds(puckLineCover(prediction.margin_dist, "home", -1.5))})
             {fair ? ` · DK ${pct(fair.home, 0)}` : ""}
           </span>
-          {cautions.length > 0 && (
-            <span className="w-full text-warn" title={cautions.map((c) => c.long).join("\n")}>
-              ⚠ caution: {cautions.slice(0, 3).map((c) => c.short).join(" · ")}
-              {cautions.length > 3 ? ` · +${cautions.length - 3}` : ""}
-            </span>
-          )}
           {edges.length > 0 && (
             <div className="mt-1 flex w-full flex-col gap-0.5 rounded-md border border-border bg-surface-raised px-2.5 py-1.5 text-foreground">
               <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Edge vs DK</span>
