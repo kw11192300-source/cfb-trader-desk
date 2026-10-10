@@ -12,45 +12,27 @@ export type StatCol = {
   title?: string;
   /** How to print the stat (default: one decimal). */
   fmt?: (row: StatRow) => string;
-  /** Colour the number: positive = green, negative = red. */
+  /** Shade the cell by its sign and size (text stays white): green above zero, red below, deeper the further from zero. */
   signed?: boolean;
-  /** Shade the cell by how good the value is: "high" = bigger is better, "low" = smaller is better. Signed columns shade from
-   * zero (green above, red below); the rest by rank within the column (best = greenest, worst = reddest, middle = no shade). */
-  heat?: "high" | "low";
 };
 
-const HEAT_MAX = 38; // % of green/red mixed into the cell at the extremes
+const HEAT_MAX = 32; // % of green/red mixed into the cell at the extremes
 
-/** 0..1 "goodness" per row for one column (0.5 = middle), or null where the value is missing. */
+/** -1 (worst) .. +1 (best) per row for one signed column, scaled by a high percentile of |value| so one outlier doesn't wash
+ * everyone else out. Empty for columns that aren't signed. */
 function heatScores(rows: StatRow[], col: StatCol): Map<string | number, number> {
   const out = new Map<string | number, number>();
-  if (!col.heat) return out;
+  if (!col.signed) return out;
   const vals = rows.map((r) => ({ id: r.id, v: r.stats[col.key] })).filter((x): x is { id: string | number; v: number } => x.v !== null && x.v !== undefined && !Number.isNaN(x.v));
   if (vals.length < 3) return out;
-  const flip = col.heat === "low" ? -1 : 1;
-  if (col.signed) {
-    // zero-centred: scale by a high percentile of |value| so one outlier doesn't wash everyone else out
-    const abs = vals.map((x) => Math.abs(x.v)).sort((a, b) => a - b);
-    const scale = abs[Math.min(abs.length - 1, Math.floor(abs.length * 0.9))] || abs[abs.length - 1] || 1;
-    for (const x of vals) out.set(x.id, 0.5 + 0.5 * Math.max(-1, Math.min(1, (flip * x.v) / scale)));
-    return out;
-  }
-  const sorted = [...vals].sort((a, b) => a.v - b.v);
-  const n = sorted.length;
-  let i = 0;
-  while (i < n) {
-    let j = i;
-    while (j + 1 < n && sorted[j + 1].v === sorted[i].v) j++;
-    const rank = (i + j) / 2 / (n - 1); // ties share the average rank
-    for (let k = i; k <= j; k++) out.set(sorted[k].id, flip === 1 ? rank : 1 - rank);
-    i = j + 1;
-  }
+  const abs = vals.map((x) => Math.abs(x.v)).sort((a, b) => a - b);
+  const scale = abs[Math.min(abs.length - 1, Math.floor(abs.length * 0.9))] || abs[abs.length - 1] || 1;
+  for (const x of vals) out.set(x.id, Math.max(-1, Math.min(1, x.v / scale)));
   return out;
 }
 
-function heatStyle(score: number | undefined): React.CSSProperties | undefined {
-  if (score === undefined) return undefined;
-  const t = (score - 0.5) * 2; // -1 (worst) .. +1 (best)
+function heatStyle(t: number | undefined): React.CSSProperties | undefined {
+  if (t === undefined) return undefined;
   const amount = Math.abs(t) * HEAT_MAX;
   if (amount < 2) return undefined;
   return { backgroundColor: `color-mix(in srgb, var(${t > 0 ? "--up" : "--down"}) ${amount.toFixed(0)}%, transparent)` };
@@ -105,7 +87,7 @@ export default function StatTable({
   // shade against everyone who passes the min-games box (not just the rows the text filter leaves), so filtering doesn't rescale the colours
   const heat = useMemo(() => {
     const pool = rows.filter((r) => !minKey || (r.stats[minKey] ?? 0) >= min);
-    return new Map(cols.filter((c) => c.heat).map((c) => [c.key, heatScores(pool, c)] as const));
+    return new Map(cols.filter((c) => c.signed).map((c) => [c.key, heatScores(pool, c)] as const));
   }, [rows, cols, min, minKey]);
 
   const clickHeader = (key: string) => {
@@ -188,9 +170,8 @@ export default function StatTable({
                   </td>
                   {cols.map((c) => {
                     const v = r.stats[c.key];
-                    const tone = c.signed && v !== null && v !== undefined ? (v > 0 ? "text-up" : v < 0 ? "text-down" : "text-foreground") : "text-foreground";
                     return (
-                      <td key={c.key} style={heatStyle(heat.get(c.key)?.get(r.id))} className={`border-l border-border px-3 py-2 text-right font-mono text-xs ${tone}`}>
+                      <td key={c.key} style={heatStyle(heat.get(c.key)?.get(r.id))} className={`border-l border-border px-3 py-2 text-right font-mono text-xs text-foreground`}>
                         {c.fmt ? c.fmt(r) : d(v, 1)}
                       </td>
                     );
