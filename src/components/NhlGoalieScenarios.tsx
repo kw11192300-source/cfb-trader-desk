@@ -6,7 +6,7 @@ const rating = (r: number | null) => (r === null ? "" : ` (${r > 0 ? "+" : ""}${
 /** "+1.4" next to a percentage: how many points it moved from the modeled row (blank within 0.05). */
 function Delta({ pts }: { pts: number }) {
   if (Math.abs(pts) < 0.05) return null;
-  return <span className={`ml-1 ${pts > 0 ? "text-down" : "text-up"}`}>{pts > 0 ? "+" : ""}{pts.toFixed(1)}</span>;
+  return <span className={`ml-1 ${pts > 0 ? "text-up" : "text-down"}`}>{pts > 0 ? "+" : ""}{pts.toFixed(1)}</span>;
 }
 
 /** The game re-run for each plausible goalie pairing: moneyline prices, win probability, expected total and the over/under at
@@ -79,7 +79,7 @@ export default function NhlGoalieScenarios({ rows, home, away }: { rows: Scenari
       </div>
       <p className="mt-2 text-[11px] text-muted">
         Numbers in brackets are each goalie&apos;s model rating (goals saved above expected per 100 attempts, shrunk toward average - noisy for backups). Each row
-        re-simulates the game with that pairing in net; the small number beside a percentage is the change from the modeled row (red = higher, green = lower), and the small prices under each
+        re-simulates the game with that pairing in net; the small number beside a percentage is the change from the modeled row (green = higher, red = lower), and the small prices under each
         over are the fair over / under (whole-number totals refund a push, so they&apos;re priced without it). Use it to see how much the numbers
         depend on who is in net.
       </p>
