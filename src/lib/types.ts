@@ -329,6 +329,8 @@ export type NhlPrediction = {
     sources?: { home: GoalieSource; away: GoalieSource };
     confirmed?: { home: boolean; away: boolean };
     pool?: { home: NhlGoalie[]; away: NhlGoalie[] }; // goalies you can lock in for each team
+    /** The lineup adjustment folded into the model's rates (python/nhl_model/lineup.py); absent when ratings/rosters weren't available. */
+    lineup?: NhlLineupAdjustment;
   } | null;
   market: NhlMarket | null;
   /** The simulation's inputs (see nhlSim.ts). Only fetched on the game page - it's the heaviest column. */
@@ -342,6 +344,16 @@ export type NhlSimParams = {
   /** What a refresh assumes with NO lock - restored when a lock is removed. */
   estimated: { home: { goalies: NhlGoalie[]; source: GoalieSource; confirmed: boolean }; away: { goalies: NhlGoalie[]; source: GoalieSource; confirmed: boolean } };
 };
+
+export type NhlLineupSide = {
+  d_off: number;
+  d_def: number;
+  net_xg: number;
+  arrivals: { name: string; value: number }[];
+  missing: { name: string; value: number }[];
+};
+
+export type NhlLineupAdjustment = { home: NhlLineupSide; away: NhlLineupSide; applied_xg: { home: number; away: number } };
 
 /** One saved set of DraftKings prices for a game (nhl_odds_snapshots) - written whenever any of them moved. */
 export type NhlOddsSnapshot = {

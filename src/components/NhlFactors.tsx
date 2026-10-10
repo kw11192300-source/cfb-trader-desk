@@ -1,4 +1,5 @@
 import { importanceLabel, injuryImpact, normName, restInfo, type Caution, type Injury, type NhlContext } from "@/lib/nhlContext";
+import type { NhlLineupAdjustment } from "@/lib/types";
 import { espnCode } from "@/lib/nhlTeams";
 import NhlTeamLogo from "./NhlTeamLogo";
 
@@ -19,6 +20,7 @@ const STATUS_STYLE: Record<Injury["status"], string> = {
 const STATUS_LABEL: Record<Injury["status"], string> = { Out: "Out", "Day-To-Day": "Day-to-day", IR: "IR", Suspension: "Suspended" };
 
 type Assumptions = {
+  lineup?: NhlLineupAdjustment;
   goalies: { home: { name: string; weight: number }[]; away: { name: string; weight: number }[] };
   confirmed?: { home: boolean; away: boolean };
   sources?: { home: string; away: string };
@@ -86,6 +88,43 @@ function TeamColumn({ team, side, startIso, assumptions, ctx }: { team: string; 
 
 const nickOf = (t: string) => t.split(" ").slice(-1)[0];
 
+/** The lineup adjustment that IS in the model: each side's change in scoring (own offence + the opponent's defence) from who is
+ * expected to dress, with the biggest arrivals and absences by name. */
+function LineupLine({ home, away, lineup }: { home: string; away: string; lineup: NhlLineupAdjustment }) {
+  const fmt = (n: number, d = 2) => `${n > 0 ? "+" : ""}${n.toFixed(d)}`;
+  const side = (team: string, key: "home" | "away") => {
+    const s = lineup[key];
+    const names = [
+      ...s.arrivals.filter((a) => Math.abs(a.value) >= 0.02).map((a) => `${a.name} in`),
+      ...s.missing.filter((m) => Math.abs(m.value) >= 0.02).map((m) => `${m.name} out`),
+    ];
+    return (
+      <div className="min-w-0">
+        <span className="text-foreground">{nickOf(team)}</span>{" "}
+        <span className="font-mono font-semibold text-foreground">{fmt(s.net_xg)}</span>
+        <span className="text-muted"> xG/game vs. the lineup its rating was built on</span>
+        {names.length > 0 && <div className="text-[11px] text-muted">{names.slice(0, 4).join(" · ")}</div>}
+      </div>
+    );
+  };
+  return (
+    <div className="mb-3 rounded-md border border-border bg-surface-raised px-3 py-2 text-xs">
+      <div className="mb-1 flex flex-wrap items-baseline gap-x-2">
+        <span className="font-semibold text-foreground">Lineup adjustment</span>
+        <span className="text-muted">included in the numbers above - the current roster minus injuries, vs. the lineup each team&apos;s rating was built from</span>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {side(away, "away")}
+        {side(home, "home")}
+      </div>
+      <div className="mt-1 text-[11px] text-muted">
+        Scoring shift applied to the simulation (own offense + opponent&apos;s defense): {nickOf(away)} {fmt(lineup.applied_xg.away)}, {nickOf(home)}{" "}
+        {fmt(lineup.applied_xg.home)} xG per game. Half the strength the backtest supported, capped, even strength only.
+      </div>
+    </div>
+  );
+}
+
 /** A rough number for what the injuries are worth, so a gap to the market has something to be compared against. */
 function InjuryImpactLine({ home, away, ctx }: { home: string; away: string; ctx: NhlContext }) {
   const h = injuryImpact(ctx, home);
@@ -141,7 +180,11 @@ export default function NhlFactors({
       ) : (
         <p className="mb-3 text-xs text-muted">Nothing we know of that the model is missing for this game - goalies confirmed, no back-to-back, no injury flags.</p>
       )}
-      {Object.keys(ctx.ratings).length > 0 && <InjuryImpactLine home={home} away={away} ctx={ctx} />}
+      {assumptions?.lineup ? (
+        <LineupLine home={home} away={away} lineup={assumptions.lineup} />
+      ) : (
+        Object.keys(ctx.ratings).length > 0 && <InjuryImpactLine home={home} away={away} ctx={ctx} />
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <TeamColumn team={away} side="away" startIso={startIso} assumptions={assumptions} ctx={ctx} />
         <TeamColumn team={home} side="home" startIso={startIso} assumptions={assumptions} ctx={ctx} />

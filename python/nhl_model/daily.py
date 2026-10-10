@@ -12,7 +12,8 @@ Steps (each reuses the module of the same name):
      cross-fitted by season each time, ~5 minutes - fine for a once-a-day job)
   4. publish: predictions for the next few days + xG for recently finished games
   5. team + goalie tables for the site's Teams / Goalies tabs (team_stats.py)
-  6. skater ratings from shift charts (shifts.py -> player_ratings.py), refit when new games arrived
+  (before 4) skater ratings from shift charts (shifts.py -> player_ratings.py), refit when new games arrived - the
+     lineup adjustment in publish.py uses them
 
 Runs on this machine. GitHub's scheduler only fires the repo's cron jobs a few
 times a day right now, so this isn't wired into Actions; it belongs on the
@@ -72,11 +73,6 @@ def main() -> None:
             print(f"\n=== {name} ({time.time() - t0:.0f}s elapsed) ===")
             fn()
 
-    print(f"\n=== publish ({time.time() - t0:.0f}s elapsed) ===")
-    publish.main(["--dry-run"] if a.dry_run else [])
-    print(f"\n=== team + goalie tables ({time.time() - t0:.0f}s elapsed) ===")
-    team_stats.main(["--dry-run"] if a.dry_run else [])
-
     # skater ratings: pull shift charts for newly finished games, and refit only when something new arrived (or never fit)
     print(f"\n=== skater ratings ({time.time() - t0:.0f}s elapsed) ===")
     try:
@@ -87,6 +83,12 @@ def main() -> None:
             print("no new shift charts - keeping the current skater ratings")
     except Exception as e:  # noqa: BLE001 - ratings are an add-on; never fail the refresh over them
         print(f"(skater ratings skipped: {str(e)[:150]})")
+
+    print(f"\n=== publish ({time.time() - t0:.0f}s elapsed) ===")
+    publish.main(["--dry-run"] if a.dry_run else [])
+    print(f"\n=== team + goalie tables ({time.time() - t0:.0f}s elapsed) ===")
+    team_stats.main(["--dry-run"] if a.dry_run else [])
+
     print(f"\ndone in {time.time() - t0:.0f}s")
 
 

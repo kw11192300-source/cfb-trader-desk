@@ -54,6 +54,7 @@ from cfbd_ingest.sync_nhl_espn import _nhl_game_id
 from .goalie_model import build_tracker
 from .ingest import DATA_DIR, ESPN_SB, ESPN_TO_NHL_ABBREV, RAW_PBP, SCHEDULE_CSV, _get_json, read_gz
 from .goalie_usage import UsageModel
+from .lineup import LineupAdjuster
 from .parse import GAMES_OUT
 from .sim import SimConfig, load_tables, simulate, summarize_sim
 from .sim_backtest import GOALIE_PRIOR_ATTEMPTS, fit_block, load_sim_team_games
@@ -225,7 +226,8 @@ def side_scenarios(espn_g: dict | None, usage: list[tuple[float, float]], lock_i
 
 # ------------------------------------------------------------------ predict
 
-def simulate_mixture(fit, tb, home_id: int, away_id: int, home_s, away_s, tracker, now) -> dict:
+def simulate_mixture(fit, tb, home_id: int, away_id: int, home_s, away_s, tracker, now, add=(0.0, 0.0)) -> dict:
+    """`add` = (home, away) change to the even-strength xG-per-minute rates from the lineup adjustment."""
     combos = [(gh, ga, wh * wa) for gh, _, wh in (home_s or [(None, "", 1.0)]) for ga, _, wa in (away_s or [(None, "", 1.0)])]
     counts = [int(N_SIMS * w) for _, _, w in combos]
     counts[int(np.argmax([w for _, _, w in combos]))] += N_SIMS - sum(counts)
@@ -234,6 +236,8 @@ def simulate_mixture(fit, tb, home_id: int, away_id: int, home_s, away_s, tracke
         if n <= 0:
             continue
         gp = fit.params(home_id, away_id, tracker.rating(gh, now), tracker.rating(ga, now))
+        gp.r_ev_h = max(gp.r_ev_h + add[0], 1e-6)
+        gp.r_ev_a = max(gp.r_ev_a + add[1], 1e-6)
         parts.append(simulate(gp, tb, n, seed=(home_id * 31 + away_id * 7 + i) % 2_000_000_011))
     merged = {k: np.concatenate([p[k] for p in parts]) for k in parts[0]}
     return summarize_sim(merged, with_grids=True)
@@ -365,6 +369,17 @@ def main(argv: list[str] | None = None) -> None:
     id_to_name, name_to_id = goalie_directory(games)
     tables = tables_json(tb)
 
+    # lineup adjustment (lineup.py): the current roster minus injuries vs the lineup the team ratings were built on
+    try:
+        lineup_adj: LineupAdjuster | None = LineupAdjuster(now)
+        if not lineup_adj.ok:
+            print("(lineup adjustment unavailable - no skater ratings or rosters yet)")
+            lineup_adj = None
+    except Exception as e:  # noqa: BLE001 - an add-on; never block a refresh on it
+        print(f"(lineup adjustment skipped: {str(e)[:100]})")
+        lineup_adj = None
+    ev_min = float(tg["ev_min"].mean())  # even-strength minutes per team-game, to turn xG per game into the sim's xG per minute
+
     preds, snapshots, probable_rows, goalie_log = [], [], [], []
     team_ids = set(upcoming["home_team_id"]) | set(upcoming["away_team_id"])
     try:
@@ -403,8 +418,16 @@ def main(argv: list[str] | None = None) -> None:
             if ev["goalies"][side]:
                 probable_rows.append({"captured_at": now.isoformat(), "game_id": our_id, "side": side, "name": ev["goalies"][side]["name"], "status": ev["goalies"][side]["status"]})
 
-        s = simulate_mixture(fit, tb, int(r.home_team_id), int(r.away_team_id), sides["home"], sides["away"], tracker, now)
+        lh = lineup_adj.team(r.home_abbrev) if lineup_adj else None
+        la = lineup_adj.team(r.away_abbrev) if lineup_adj else None
+        add = (0.0, 0.0)
+        if lh and la:
+            # a team scores more with better offence on its side and when the opponent's defence is weaker
+            add = ((lh["d_off"] + la["d_def"]) / ev_min, (la["d_off"] + lh["d_def"]) / ev_min)
+        s = simulate_mixture(fit, tb, int(r.home_team_id), int(r.away_team_id), sides["home"], sides["away"], tracker, now, add=add)
         base = fit.params(int(r.home_team_id), int(r.away_team_id), fit.gbar, fit.gbar)  # goalie-neutral rates
+        base.r_ev_h = max(base.r_ev_h + add[0], 1e-6)
+        base.r_ev_a = max(base.r_ev_a + add[1], 1e-6)
         sim_params = {
             "rates": {"r_ev_h": base.r_ev_h, "r_ev_a": base.r_ev_a, "r_pp_h": base.r_pp_h, "r_pp_a": base.r_pp_a, "pens_h": base.pens_h,
                       "pens_a": base.pens_a, "r_sh": base.r_sh, "conv": fit.conv, "beta": fit.beta, "gbar": fit.gbar},
@@ -414,6 +437,12 @@ def main(argv: list[str] | None = None) -> None:
                           for side, team in (("home", r.home_team_id), ("away", r.away_team_id))},
         }
         assumptions = {"goalies": assumptions_goalies, "goalie_confirmed": all(confirmed.values()), "sources": sources, "confirmed": confirmed, "pool": pool}
+        if lh and la:
+            assumptions["lineup"] = {
+                "home": lh, "away": la,
+                # xG per game added to each side's scoring (own offence + opponent's defence), included in the numbers above
+                "applied_xg": {"home": round(lh["d_off"] + la["d_def"], 3), "away": round(la["d_off"] + lh["d_def"], 3)},
+            }
         # the goalie call, logged WITHOUT any manual lock so it measures our own estimate (graded after the game)
         for side, team in (("home", r.home_team_id), ("away", r.away_team_id)):
             est = sim_params["estimated"][side]
