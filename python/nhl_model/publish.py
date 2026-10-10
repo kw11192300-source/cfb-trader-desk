@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import re
 import unicodedata
 
@@ -371,6 +372,8 @@ def main(argv: list[str] | None = None) -> None:
 
     # lineup adjustment (lineup.py): the current roster minus injuries vs the lineup the team ratings were built on
     try:
+        if os.environ.get("NHL_NO_LINEUP"):  # comparison runs only: the same model without the lineup adjustment
+            raise RuntimeError("NHL_NO_LINEUP set")
         lineup_adj: LineupAdjuster | None = LineupAdjuster(now)
         if not lineup_adj.ok:
             print("(lineup adjustment unavailable - no skater ratings or rosters yet)")
