@@ -36,7 +36,7 @@ function parseEspnMarket(o: EspnOdds, fetchedAt: string): NhlMarket {
   const ps = o.pointSpread ?? {};
   const tot = o.total ?? {};
   return {
-    provider: o.provider?.name ?? null,
+    provider: bookName(o.provider?.name),
     ml_home: espnOdds(ml.home?.close?.odds),
     ml_away: espnOdds(ml.away?.close?.odds),
     spread_home_line: espnLine(ps.home?.close?.line),
@@ -49,7 +49,11 @@ function parseEspnMarket(o: EspnOdds, fetchedAt: string): NhlMarket {
   };
 }
 
-const PRICE_FIELDS = ["provider", "ml_home", "ml_away", "spread_home_line", "spread_home_odds", "spread_away_odds", "total_line", "over_odds", "under_odds"] as const;
+// ESPN's feed labels the same book "Draft Kings" on one response and "DraftKings" on the next, so the name is never part of
+// "did a price move" - only the numbers are.
+const PRICE_FIELDS = ["ml_home", "ml_away", "spread_home_line", "spread_home_odds", "spread_away_odds", "total_line", "over_odds", "under_odds"] as const;
+
+const bookName = (name: string | undefined): string | null => (name ? (/draft\s*kings/i.test(name) ? "DraftKings" : name) : null);
 
 const samePrices = (a: NhlMarket | null, b: NhlMarket): boolean => a !== null && PRICE_FIELDS.every((k) => a[k] === b[k]);
 
@@ -104,14 +108,33 @@ export async function updateNhlOdds(): Promise<OddsUpdateResult> {
     if (error) return fail(error.message);
     games = preds?.length ?? 0;
 
+    // A full model refresh rewrites a prediction's market without our snap_at marker. For those games, compare against the
+    // latest SAVED snapshot instead, so prices that didn't move never produce a duplicate snapshot.
+    const lastSnap = new Map<number, NhlMarket>();
+    await Promise.all(
+      (preds ?? [])
+        .filter((p) => !(p.market as NhlMarket | null)?.snap_at)
+        .map(async (p) => {
+          const { data: latest, error: snapErr } = await supabaseAdmin
+            .from("nhl_odds_snapshots")
+            .select("captured_at, ml_home, ml_away, spread_home_line, spread_home_odds, spread_away_odds, total_line, over_odds, under_odds")
+            .eq("game_id", p.game_id)
+            .order("captured_at", { ascending: false })
+            .limit(1);
+          if (!snapErr && latest?.[0]) lastSnap.set(p.game_id as number, { ...(latest[0] as unknown as NhlMarket), snap_at: latest[0].captured_at as string });
+        }),
+    );
+
     const snapRows: Record<string, unknown>[] = [];
     const updates = (preds ?? []).map((p) => {
       const next = incoming.get(p.game_id as number)!;
       const prev = (p.market ?? null) as NhlMarket | null;
       const changed = !samePrices(prev, next);
       if (changed) moved++;
-      const needSnap = changed || !prev?.snap_at;
-      const market: NhlMarket = { ...(prev ?? {}), ...next, snap_at: needSnap ? fetchedAt : prev?.snap_at };
+      // what was last saved: the stored market if it carries our marker, else the newest snapshot row (if any)
+      const saved = prev?.snap_at ? prev : (lastSnap.get(p.game_id as number) ?? null);
+      const needSnap = !samePrices(saved, next);
+      const market: NhlMarket = { ...(prev ?? {}), ...next, snap_at: needSnap ? fetchedAt : (saved?.snap_at ?? fetchedAt) };
       if (needSnap) {
         snapRows.push({ game_id: p.game_id, captured_at: fetchedAt, provider: next.provider, ml_home: next.ml_home, ml_away: next.ml_away, spread_home_line: next.spread_home_line, spread_home_odds: next.spread_home_odds, spread_away_odds: next.spread_away_odds, total_line: next.total_line, over_odds: next.over_odds, under_odds: next.under_odds });
       }
