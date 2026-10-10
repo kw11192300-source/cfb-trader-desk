@@ -12,17 +12,18 @@ export type ScenarioRow = {
   awayRating: number | null;
   homeRating: number | null;
   pHome: number;
-  /** Home win as a fair American price. */
+  /** Each side's win as a fair (no-vig) American price. */
   homeOdds: number | null;
+  awayOdds: number | null;
   expTotal: number;
-  /** P(over the book's total), pushes refunded; null when there is no total posted. */
-  overAtBook: number | null;
-  bookTotal: number | null;
+  /** Over/under at fixed lines, pushes taken out (a whole-number line refunds them), with fair prices. */
+  totals: { line: number; over: number; under: number; overOdds: number | null; underOdds: number | null }[];
   /** The best DraftKings side in this scenario by EV (null when there are no lines). */
   best: { side: string; market: string; ev: number; bookOdds: number } | null;
 };
 
 const SIMS = 12000;
+export const SCENARIO_TOTAL_LINES = [5.5, 6, 6.5];
 const nick = (t: string) => t.split(" ").slice(-1)[0];
 
 type PoolGoalie = { id: number | null; name: string; rating: number };
@@ -57,20 +58,20 @@ export function goalieScenarios(pred: NhlPrediction, home: string, away: string)
   const run = (homeG: GoalieScenario[], awayG: GoalieScenario[]) => {
     const s = simulateGame(sp.rates, sp.tables, homeG, awayG, SIMS, seed);
     const m = pred.market;
-    const line = m?.total_line ?? null;
-    let over: number | null = null;
-    if (line !== null) {
+    const totals = SCENARIO_TOTAL_LINES.map((line) => {
       const { over: o, under: u } = overUnder(s.total_dist, line);
-      over = o + u > 0 ? o / (o + u) : null;
-    }
+      const live = o + u;
+      const over = live > 0 ? o / live : 0.5;
+      return { line, over, under: 1 - over, overOdds: probToAmerican(over), underOdds: probToAmerican(1 - over) };
+    });
     const edges = marketEdges({ p_home: s.p_home, margin_dist: s.margin_dist, total_dist: s.total_dist, market: m }, home, away);
     const best = edges.length > 0 ? edges.reduce((x, y) => (y.ev > x.ev ? y : x)) : null;
     return {
       pHome: s.p_home,
       homeOdds: probToAmerican(s.p_home),
+      awayOdds: probToAmerican(1 - s.p_home),
       expTotal: s.exp_total,
-      overAtBook: over,
-      bookTotal: line,
+      totals,
       best: best ? { side: best.side.replace(away, nick(away)).replace(home, nick(home)), market: best.market, ev: best.ev, bookOdds: best.bookOdds } : null,
     };
   };
