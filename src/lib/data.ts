@@ -13,6 +13,7 @@ import type {
   ModelBacktestGame,
   NhlEdgeLogRow,
   NhlGameXg,
+  NhlFuturesRow,
   NhlGoalieCallRow,
   NhlGoalieStatsRow,
   NhlOddsSnapshot,
@@ -850,6 +851,20 @@ export async function getNhlEdgeLog(): Promise<{ graded: NhlEdgeLogRow[]; pendin
     supabase.from("nhl_edge_log").select("id", { count: "exact", head: true }).eq("kind", "close"),
   ]);
   return { graded, pending: Math.round((pending ?? 0) / 6), games: Math.round((gameCount ?? 0) / 6) };
+}
+
+/** The latest season simulation: one row per team, plus when it was run. Empty before the table exists. */
+export async function getNhlFutures(): Promise<{ rows: NhlFuturesRow[]; updated: string | null; season: number | null }> {
+  const { data, error } = await supabase.from("nhl_futures").select("season, team, stats, updated_at").order("season", { ascending: false }).limit(200);
+  if (error) {
+    if (isMissingTable(error)) return { rows: [], updated: null, season: null };
+    throw new Error(error.message);
+  }
+  const all = (data ?? []) as unknown as (NhlFuturesRow & { updated_at: string })[];
+  if (all.length === 0) return { rows: [], updated: null, season: null };
+  const season = all[0].season;
+  const rows = all.filter((r) => r.season === season);
+  return { rows, season, updated: rows.reduce((m, r) => (r.updated_at > m ? r.updated_at : m), "") || null };
 }
 
 /** Every rated skater (about 1,100 rows) and when the ratings were last refit. Empty before the table exists. */

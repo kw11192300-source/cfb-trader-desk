@@ -30,6 +30,7 @@ const NAV_ITEMS: Record<Sport, { href: string; label: string; prefetch?: boolean
     { href: "/nhl/teams", label: "Teams" },
     { href: "/nhl/goalies", label: "Goalies" },
     { href: "/nhl/skaters", label: "Skaters" },
+    { href: "/nhl/futures", label: "Futures" },
     { href: "/nhl/bets", label: "Bets" },
   ],
 };

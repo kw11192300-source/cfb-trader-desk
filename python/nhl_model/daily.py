@@ -28,7 +28,7 @@ from cfbd_ingest.sync_nhl_espn import _season_year
 
 import pandas as pd
 
-from . import ingest, parse, player_ratings, publish, shifts, sim_inputs, team_games, team_stats, xg
+from . import futures, ingest, parse, player_ratings, publish, shifts, sim_inputs, team_games, team_stats, xg
 
 FIRST_SEASON = 2015  # 2015-16: the oldest season the model trains on
 
@@ -89,6 +89,11 @@ def main() -> None:
     print(f"\n=== team + goalie tables ({time.time() - t0:.0f}s elapsed) ===")
     team_stats.main(["--dry-run"] if a.dry_run else [])
 
+    print(f"\n=== futures: division / playoffs / rounds / Cup ({time.time() - t0:.0f}s elapsed) ===")
+    try:
+        futures.run(dry_run=a.dry_run)
+    except Exception as e:  # noqa: BLE001 - an add-on; never fail the refresh over it
+        print(f"(futures skipped: {str(e)[:150]})")
     print(f"\ndone in {time.time() - t0:.0f}s")
 
 

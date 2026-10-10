@@ -603,6 +603,16 @@ create table if not exists nhl_skater_ratings (
   updated_at timestamptz not null default now()
 );
 
+-- Season simulation (python/nhl_model/futures.py): each team's chance to win its division, make the playoffs, win each round,
+-- the conference and the Cup, with fair American odds. One row per team per season; the numbers live in a jsonb blob.
+create table if not exists nhl_futures (
+  season int not null,
+  team text not null,                       -- NHL abbreviation
+  stats jsonb not null,
+  updated_at timestamptz not null default now(),
+  primary key (season, team)
+);
+
 create table if not exists nhl_game_xg (
   game_id bigint primary key references games(id) on delete cascade,
   model_version text,
@@ -799,6 +809,7 @@ alter table nhl_odds_snapshots enable row level security;
 alter table nhl_edge_log enable row level security;
 alter table nhl_goalie_log enable row level security;
 alter table nhl_skater_ratings enable row level security;
+alter table nhl_futures enable row level security;
 alter table nhl_goalie_stats enable row level security;
 
 create policy "public read" on teams for select using (true);
@@ -830,6 +841,7 @@ create policy "public read" on nhl_odds_snapshots for select using (true);
 create policy "public read" on nhl_edge_log for select using (true);
 create policy "public read" on nhl_goalie_log for select using (true);
 create policy "public read" on nhl_skater_ratings for select using (true);
+create policy "public read" on nhl_futures for select using (true);
 create policy "public read" on nhl_goalie_stats for select using (true);
 -- NO policy on bets at all, not even public read - real stakes/P&L, the
 -- one genuinely sensitive table in this app. Only the secret key (service

@@ -390,6 +390,21 @@ export type NhlEdgeLogRow = {
   profit: number | null;
 };
 
+/** One team's season-simulation line (nhl_futures, from python/nhl_model/futures.py). */
+export type NhlFuturesRow = {
+  season: number;
+  team: string;
+  stats: {
+    conference: "East" | "West";
+    div_name: string;
+    gp: number;
+    pts: number;
+    exp_pts: number;
+    sd_pts: number;
+    [k: string]: number | string | null;
+  };
+};
+
 /** One rated skater (nhl_skater_ratings, from python/nhl_model/player_ratings.py). */
 export type NhlSkaterRatingRow = {
   player_id: number;
