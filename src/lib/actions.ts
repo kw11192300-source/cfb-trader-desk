@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { simulateGame, type GoalieScenario } from "@/lib/nhlSim";
-import { recordModelSnapshot, updateNhlOdds, updateNhlScores } from "@/lib/nhlOdds";
+import { recordModelSnapshot, reapplyUnavailable, updateNhlOdds, updateNhlScores } from "@/lib/nhlOdds";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { GoalieSource, NhlGoalie, NhlPrediction } from "@/lib/types";
 
@@ -182,6 +182,30 @@ export async function refreshNhlScores(): Promise<{ ok: boolean; message: string
     revalidatePath("/nhl/performance");
   }
   return { ok: r.ok, message: r.message };
+}
+
+/** Marks a goalie as unable to play - for the rest of the season, or until `until` (YYYY-MM-DD) - so the model stops counting
+ * on him anywhere: starter probabilities, the lock-in pool, and the season simulation. Upcoming games that assumed him are
+ * re-simulated right away. */
+export async function ruleOutGoalie(goalieId: number, name: string, team: string | null, note: string | null, until: string | null): Promise<{ ok: boolean; message: string }> {
+  if (!Number.isFinite(goalieId)) return { ok: false, message: "Pick a goalie." };
+  const { error } = await supabaseAdmin
+    .from("nhl_goalie_unavailable")
+    .upsert({ goalie_id: goalieId, name, team, note: note?.trim() || null, until: until || null }, { onConflict: "goalie_id" });
+  if (error) return { ok: false, message: error.message };
+  const n = await reapplyUnavailable().catch(() => 0);
+  revalidatePath("/nhl");
+  revalidatePath("/nhl/goalies");
+  revalidatePath("/nhl/futures");
+  return { ok: true, message: `${name} is out${until ? ` until ${until}` : " for the season"}. ${n} upcoming game${n === 1 ? "" : "s"} re-simulated; the full refresh updates the season odds and everything else.` };
+}
+
+/** Puts a goalie back in play. Games already re-simulated return to normal on the next model refresh. */
+export async function reinstateGoalie(goalieId: number): Promise<{ ok: boolean; message: string }> {
+  const { error } = await supabaseAdmin.from("nhl_goalie_unavailable").delete().eq("goalie_id", goalieId);
+  if (error) return { ok: false, message: error.message };
+  revalidatePath("/nhl/goalies");
+  return { ok: true, message: "Back in play - upcoming games pick him up again on the next model refresh." };
 }
 
 /** Locks in the confirmed starting goalies for one NHL game and re-simulates it right away (about a second -

@@ -14,6 +14,7 @@ import type {
   NhlEdgeLogRow,
   NhlGameXg,
   NhlFuturesRow,
+  NhlGoalieUnavailable,
   NhlGoalieCallRow,
   NhlGoalieStatsRow,
   NhlOddsSnapshot,
@@ -851,6 +852,16 @@ export async function getNhlEdgeLog(): Promise<{ graded: NhlEdgeLogRow[]; pendin
     supabase.from("nhl_edge_log").select("id", { count: "exact", head: true }).eq("kind", "close"),
   ]);
   return { graded, pending: Math.round((pending ?? 0) / 6), games: Math.round((gameCount ?? 0) / 6) };
+}
+
+/** Goalies marked unavailable by hand (empty before the table exists). */
+export async function getNhlUnavailableGoalies(): Promise<NhlGoalieUnavailable[]> {
+  const { data, error } = await supabase.from("nhl_goalie_unavailable").select("*").order("created_at", { ascending: false });
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw new Error(error.message);
+  }
+  return (data ?? []) as NhlGoalieUnavailable[];
 }
 
 /** The latest season simulation: one row per team, plus when it was run. Empty before the table exists. */

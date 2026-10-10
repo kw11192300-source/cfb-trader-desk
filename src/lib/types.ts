@@ -390,6 +390,16 @@ export type NhlEdgeLogRow = {
   profit: number | null;
 };
 
+/** A goalie marked as unable to play (nhl_goalie_unavailable). */
+export type NhlGoalieUnavailable = {
+  goalie_id: number;
+  name: string | null;
+  team: string | null;
+  note: string | null;
+  until: string | null;
+  created_at: string;
+};
+
 /** One team's season-simulation line (nhl_futures, from python/nhl_model/futures.py). */
 export type NhlFuturesRow = {
   season: number;

@@ -315,8 +315,24 @@ def run(dry_run: bool = False, n_sims: int = 10000, sigma: float = SIGMA) -> lis
     games_df["t"] = pd.to_datetime(games_df["start_utc"], utc=True)
     ids = {v: k for k, v in ab.items()}
 
+    # goalies who can't play (manual list + ESPN injured reserve) are never a team's "main goalie"
+    from .availability import GoalieAvailability
+    from .publish import goalie_directory
+
+    try:
+        from cfbd_ingest.supabase_client import get_client
+
+        avail_client = get_client()
+    except Exception:  # noqa: BLE001
+        avail_client = None
+    gdf = pd.read_csv(DATA_DIR / "games.csv.gz", usecols=["game_id", "season", "start_utc"])
+    gdf["t"] = pd.to_datetime(gdf["start_utc"], utc=True)
+    gdf["season_year"] = gdf["season"] // 10000
+    _, name_to_id = goalie_directory(gdf)
+    avail = GoalieAvailability(avail_client, name_to_id)
+
     def main_goalie_rating(team: str) -> float:
-        starters = recent_starters(games_df, int(ids[team]), now, k=20)
+        starters = [(g, t) for g, t in recent_starters(games_df, int(ids[team]), now, k=20) if not avail.out(g, now)]
         if not starters:
             return 0.0
         from collections import Counter

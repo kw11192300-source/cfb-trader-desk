@@ -116,8 +116,9 @@ class UsageModel:
         self.model = fit(candidate_rows(self.tg))
         self.by_team = {team: d.sort_values(["t", "game_id"]) for team, d in self.tg.groupby("team")}
 
-    def probabilities(self, team_id: int, start: pd.Timestamp, top: int = 3, floor: float = 0.04) -> list[tuple[int, float]]:
-        """[(goalie_id, P(starts))] for the most likely starters, renormalised to sum to 1. Empty if there's no history."""
+    def probabilities(self, team_id: int, start: pd.Timestamp, top: int = 3, floor: float = 0.04, is_out=None) -> list[tuple[int, float]]:
+        """[(goalie_id, P(starts))] for the most likely starters, renormalised to sum to 1. Empty if there's no history.
+        `is_out(goalie_id) -> bool` drops goalies who can't play (injured reserve, ruled out) before the rest are normalised."""
         d = self.by_team.get(team_id)
         if d is None:
             return []
@@ -133,6 +134,8 @@ class UsageModel:
             season_games[r.season] += 1
         season = start.year if start.month >= 9 else start.year - 1
         rows = _feature_rows(hist, season_starts, season_games, start, season)
+        if is_out is not None:
+            rows = [r for r in rows if not is_out(int(r[0]))]
         if not rows:
             return []
         X = pd.DataFrame([r[1:] for r in rows], columns=FEATURES)

@@ -613,6 +613,17 @@ create table if not exists nhl_futures (
   primary key (season, team)
 );
 
+-- A goalie you know can't play (ruled out for the season, or until a date) - set from the Goalies page. The model drops him
+-- from every team's starter probabilities, the lock-in pool and the season simulation; his rating and history stay.
+create table if not exists nhl_goalie_unavailable (
+  goalie_id bigint primary key,
+  name text,
+  team text,
+  note text,
+  until date,                         -- null = the rest of the season
+  created_at timestamptz not null default now()
+);
+
 create table if not exists nhl_game_xg (
   game_id bigint primary key references games(id) on delete cascade,
   model_version text,
@@ -810,6 +821,7 @@ alter table nhl_edge_log enable row level security;
 alter table nhl_goalie_log enable row level security;
 alter table nhl_skater_ratings enable row level security;
 alter table nhl_futures enable row level security;
+alter table nhl_goalie_unavailable enable row level security;
 alter table nhl_goalie_stats enable row level security;
 
 create policy "public read" on teams for select using (true);
@@ -842,6 +854,7 @@ create policy "public read" on nhl_edge_log for select using (true);
 create policy "public read" on nhl_goalie_log for select using (true);
 create policy "public read" on nhl_skater_ratings for select using (true);
 create policy "public read" on nhl_futures for select using (true);
+create policy "public read" on nhl_goalie_unavailable for select using (true);
 create policy "public read" on nhl_goalie_stats for select using (true);
 -- NO policy on bets at all, not even public read - real stakes/P&L, the
 -- one genuinely sensitive table in this app. Only the secret key (service

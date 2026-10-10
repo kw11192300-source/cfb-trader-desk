@@ -54,6 +54,7 @@ from cfbd_ingest.sync_nhl_espn import _nhl_game_id
 
 from .goalie_model import build_tracker
 from .ingest import DATA_DIR, ESPN_SB, ESPN_TO_NHL_ABBREV, RAW_PBP, SCHEDULE_CSV, _get_json, read_gz
+from .availability import GoalieAvailability
 from .goalie_usage import UsageModel
 from .lineup import LineupAdjuster
 from .parse import GAMES_OUT
@@ -198,13 +199,16 @@ def usage_candidates(starters: list[tuple[float, pd.Timestamp]], now: pd.Timesta
     return [(g, v / tot) for g, v in top]
 
 
-def side_scenarios(espn_g: dict | None, usage: list[tuple[float, float]], lock_id, name_to_id: dict, id_to_name: dict) -> tuple[list[tuple], str, bool]:
-    """-> ([(goalie_id|None, name, weight)], source, confirmed) for one side of one game."""
+def side_scenarios(espn_g: dict | None, usage: list[tuple[float, float]], lock_id, name_to_id: dict, id_to_name: dict, is_out=None) -> tuple[list[tuple], str, bool]:
+    """-> ([(goalie_id|None, name, weight)], source, confirmed) for one side of one game.
+    `is_out(goalie_id)`: an "Expected" ESPN goalie who can't play (ruled out / injured reserve) is ignored."""
     nm = lambda gid: id_to_name.get(gid, str(int(gid)))  # noqa: E731
     if lock_id is not None:
         if int(lock_id) == 0:
             return [(None, "Other (league-average goalie)", 1.0)], "locked", True
         return [(float(lock_id), nm(float(lock_id)), 1.0)], "locked", True
+    if espn_g is not None and is_out is not None and espn_g["status"] != "confirmed" and is_out(name_to_id.get(_norm(espn_g["name"]))):
+        espn_g = None
     if espn_g is not None:
         gid = name_to_id.get(_norm(espn_g["name"]))
         name = espn_g["name"] if gid is None else nm(gid)
@@ -244,8 +248,8 @@ def simulate_mixture(fit, tb, home_id: int, away_id: int, home_s, away_s, tracke
     return summarize_sim(merged, with_grids=True)
 
 
-def _estimated(espn_g, usage, name_to_id, id_to_name, tracker, now) -> dict:
-    scen, src, conf = side_scenarios(espn_g, usage, None, name_to_id, id_to_name)
+def _estimated(espn_g, usage, name_to_id, id_to_name, tracker, now, is_out=None) -> dict:
+    scen, src, conf = side_scenarios(espn_g, usage, None, name_to_id, id_to_name, is_out)
     return {
         "goalies": [{"id": int(g) if g is not None else None, "name": n, "weight": round(w, 3), "rating": round(tracker.rating(g, now), 3)} for g, n, w in scen],
         "source": src, "confirmed": conf,
@@ -391,14 +395,23 @@ def main(argv: list[str] | None = None) -> None:
         print(f"(usage model unavailable, using the recent-starts rule: {str(e)[:80]})")
         usage_model = None
 
+    # goalies who can't play: the manual list (Goalies page) plus ESPN's injured reserve, until their expected return
+    avail = GoalieAvailability(client, name_to_id)
+    print(f"goalies unavailable: {avail.summary()}")
+
+    def out_at(start: pd.Timestamp):
+        return lambda g: avail.out(g, start)
+
     def usage_for(team: int, start: pd.Timestamp) -> list[tuple[float, float]]:
         if usage_model is not None:
-            probs = usage_model.probabilities(int(team), start)
+            probs = usage_model.probabilities(int(team), start, is_out=out_at(start))
             if probs:
                 return [(float(g), p) for g, p in probs]
-        return usage_candidates(recent_starters(games, int(team), now), now)
+        fallback = [(g, p) for g, p in usage_candidates(recent_starters(games, int(team), now), now) if not avail.out(g, start)]
+        tot = sum(p for _, p in fallback)
+        return [(g, p / tot) for g, p in fallback] if tot > 0 else []
 
-    pool_ids = {t: [g for g, _ in recent_starters(games, int(t), now, k=30)] for t in team_ids}
+    pool_ids = {t: [g for g, _ in recent_starters(games, int(t), now, k=30) if not avail.out(g, now)] for t in team_ids}
     for r in upcoming.sort_values("t").itertuples():
         ev = up_map.get(int(r.game_id))
         if ev is None:
@@ -407,7 +420,7 @@ def main(argv: list[str] | None = None) -> None:
         lock = locks.get(our_id, {})
         sides, assumptions_goalies, sources, confirmed, pool = {}, {}, {}, {}, {}
         for side, team in (("home", r.home_team_id), ("away", r.away_team_id)):
-            scen, src, conf = side_scenarios(ev["goalies"][side], usage_for(team, r.t), lock.get(f"{side}_goalie_id"), name_to_id, id_to_name)
+            scen, src, conf = side_scenarios(ev["goalies"][side], usage_for(team, r.t), lock.get(f"{side}_goalie_id"), name_to_id, id_to_name, out_at(r.t))
             sides[side] = scen
             assumptions_goalies[side] = [{"id": int(g) if g is not None else None, "name": n, "weight": round(w, 3), "rating": round(tracker.rating(g, now), 3)} for g, n, w in scen]
             sources[side], confirmed[side] = src, conf
@@ -436,7 +449,7 @@ def main(argv: list[str] | None = None) -> None:
                       "pens_a": base.pens_a, "r_sh": base.r_sh, "conv": fit.conv, "beta": fit.beta, "gbar": fit.gbar},
             "tables": tables, "pool": pool,
             # what a refresh would assume with NO manual lock - restored when a lock is removed
-            "estimated": {side: _estimated(ev["goalies"][side], usage_for(team, r.t), name_to_id, id_to_name, tracker, now)
+            "estimated": {side: _estimated(ev["goalies"][side], usage_for(team, r.t), name_to_id, id_to_name, tracker, now, out_at(r.t))
                           for side, team in (("home", r.home_team_id), ("away", r.away_team_id))},
         }
         assumptions = {"goalies": assumptions_goalies, "goalie_confirmed": all(confirmed.values()), "sources": sources, "confirmed": confirmed, "pool": pool}

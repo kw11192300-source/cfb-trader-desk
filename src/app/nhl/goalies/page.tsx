@@ -6,7 +6,8 @@ import SiteHeader from "@/components/SiteHeader";
 import type { StatRow } from "@/components/StatTable";
 import { getNhlRefreshStatus } from "@/lib/actions";
 import { nhlLogoUrl } from "@/lib/nhlTeams";
-import { getNhlGoalieStats, getNhlStatSeasons, getNhlStatsUpdated } from "@/lib/data";
+import GoalieAvailability from "@/components/GoalieAvailability";
+import { getNhlGoalieStats, getNhlStatSeasons, getNhlStatsUpdated, getNhlUnavailableGoalies } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,12 @@ export default async function NhlGoaliesPage({ searchParams }: { searchParams: P
   const requested = Number(params.season);
   const season = seasons.includes(requested) ? requested : (seasons[0] ?? 0);
   const scope = params.scope === "l10" && hasL10[season] ? "l10" : "all";
-  const data = seasons.length > 0 ? await getNhlGoalieStats(season, scope) : [];
+  const [data, unavailable] = await Promise.all([seasons.length > 0 ? getNhlGoalieStats(season, scope) : Promise.resolve([]), getNhlUnavailableGoalies()]);
+  const goalieOptions = data
+    .filter((r) => r.scope === "all" || scope === "all")
+    .map((r) => ({ id: r.goalie_id, name: r.name ?? String(r.goalie_id), team: r.team, gp: r.stats.gp ?? 0 }))
+    .sort((a, b) => (a.team ?? "").localeCompare(b.team ?? "") || b.gp - a.gp)
+    .map(({ id, name, team }) => ({ id, name, team }));
   const rows: StatRow[] = data.map((r) => ({ id: r.goalie_id, label: r.name ?? String(r.goalie_id), sub: r.team ?? undefined, logo: nhlLogoUrl(r.team), stats: r.stats }));
   const maxGp = Math.max(0, ...rows.map((r) => r.stats.gp ?? 0));
   const minDefault = scope === "l10" ? 3 : Math.min(10, Math.ceil(maxGp * 0.25));
@@ -37,6 +43,8 @@ export default async function NhlGoaliesPage({ searchParams }: { searchParams: P
             same idea after time-decay and heavy shrinkage toward average, and is what the game simulator uses.
           </p>
         </div>
+
+        <GoalieAvailability goalies={goalieOptions} current={unavailable} />
 
         <NhlRefreshButton lastPublished={updated} initial={refreshStatus} variant="tables" />
 

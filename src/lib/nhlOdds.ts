@@ -128,6 +128,86 @@ async function sendTelegram(text: string): Promise<void> {
 type StoredGoalie = { id: number | null; name: string; weight: number; rating: number };
 type Pool = { id: number | null; name: string; rating: number };
 
+/** Goalies marked unavailable by hand: id -> the date they're out until (null = rest of the season). Empty if the table is missing. */
+async function loadUnavailable(): Promise<Map<number, string | null>> {
+  const { data, error } = await supabaseAdmin.from("nhl_goalie_unavailable").select("goalie_id, until");
+  const m = new Map<number, string | null>();
+  if (error || !data) return m;
+  for (const r of data) m.set(r.goalie_id as number, (r.until as string | null) ?? null);
+  return m;
+}
+
+const isOutAt = (m: Map<number, string | null>, id: number | null, startIso: string): boolean => {
+  if (id === null || !m.has(id)) return false;
+  const until = m.get(id);
+  return until === null || new Date(startIso).getTime() < new Date(`${until}T00:00:00Z`).getTime();
+};
+
+/** Re-prices upcoming games for the manual unavailable list: a goalie who is out is dropped from a side's assumed starters
+ * (the rest renormalised, or the next goalies in the pool if none are left) and the game is re-simulated. Confirmed starters
+ * and your own locks are left alone. Called when you rule a goalie out; the full refresh does the same from scratch. */
+export async function reapplyUnavailable(): Promise<number> {
+  const out = await loadUnavailable();
+  if (out.size === 0) return 0;
+  const { data: games } = await supabaseAdmin.from("games").select("id, start_date").eq("sport", "nhl").eq("completed", false).gt("start_date", new Date().toISOString());
+  if (!games || games.length === 0) return 0;
+  const start = new Map(games.map((g) => [g.id as number, g.start_date as string]));
+  const { data: rows } = await supabaseAdmin.from("nhl_predictions").select("game_id, assumptions").in("game_id", [...start.keys()]);
+  let updated = 0;
+  for (const row of rows ?? []) {
+    const gameId = row.game_id as number;
+    const a = row.assumptions as NhlPrediction["assumptions"];
+    const startIso = start.get(gameId)!;
+    if (!a) continue;
+    const sides = (["home", "away"] as const).filter((side) => {
+      if (a.sources?.[side] === "locked" || a.confirmed?.[side]) return false;
+      return (a.goalies[side] ?? []).some((g) => isOutAt(out, g.id, startIso));
+    });
+    if (sides.length === 0) continue;
+
+    const { data: full } = await supabaseAdmin.from("nhl_predictions").select("sim_params, assumptions").eq("game_id", gameId).maybeSingle();
+    const sp = full?.sim_params as NhlPrediction["sim_params"];
+    const cur = full?.assumptions as NonNullable<NhlPrediction["assumptions"]>;
+    if (!sp || !cur) continue;
+    const next = { home: [...cur.goalies.home] as StoredGoalie[], away: [...cur.goalies.away] as StoredGoalie[] };
+    const sources = { home: cur.sources?.home ?? "usage", away: cur.sources?.away ?? "usage" } as Record<"home" | "away", string>;
+    const confirmed = { home: Boolean(cur.confirmed?.home), away: Boolean(cur.confirmed?.away) };
+    const estimated = sp.estimated as unknown as Record<"home" | "away", { goalies: StoredGoalie[]; source: string; confirmed: boolean }>;
+
+    for (const side of sides) {
+      let keep = next[side].filter((g) => !isOutAt(out, g.id, startIso));
+      if (keep.length > 0) {
+        const tot = keep.reduce((s, g) => s + g.weight, 0);
+        keep = keep.map((g) => ({ ...g, weight: g.weight / tot }));
+      } else {
+        const pool = ((sp.pool?.[side] ?? []) as Pool[]).filter((p) => !isOutAt(out, p.id, startIso)).slice(0, 2);
+        keep =
+          pool.length === 0
+            ? [{ id: null, name: "Replacement-level goalie", weight: 1, rating: 0 }]
+            : pool.length === 1
+              ? [{ id: pool[0].id, name: pool[0].name, weight: 1, rating: pool[0].rating }]
+              : [
+                  { id: pool[0].id, name: pool[0].name, weight: 0.7, rating: pool[0].rating },
+                  { id: pool[1].id, name: pool[1].name, weight: 0.3, rating: pool[1].rating },
+                ];
+      }
+      next[side] = keep;
+      sources[side] = "usage";
+      confirmed[side] = false;
+      estimated[side] = { goalies: keep, source: "usage", confirmed: false };
+    }
+
+    const toScenario = (g: StoredGoalie): GoalieScenario => ({ rating: g.rating, weight: g.weight });
+    const sim = simulateGame(sp.rates, sp.tables, next.home.map(toScenario), next.away.map(toScenario), 40000, Math.abs(gameId) % 1000003);
+    const assumptions = { ...cur, goalies: next, goalie_confirmed: confirmed.home && confirmed.away, sources, confirmed };
+    const { error: upErr } = await supabaseAdmin.from("nhl_predictions").update({ ...sim, assumptions, sim_params: { ...sp, estimated } }).eq("game_id", gameId);
+    if (upErr) continue;
+    updated++;
+    await recordModelSnapshot(gameId).catch(() => undefined);
+  }
+  return updated;
+}
+
 /** Applies ESPN's current probable goalies to the stored predictions: when a team confirms its starter (or ESPN switches
  * who it expects) the game is re-simulated on the spot with the same engine as a manual lock, the change is marked on
  * the price chart, and a Telegram message is sent if the bot is configured. Games with a manual lock are left alone.
@@ -136,6 +216,7 @@ async function applyGoalieCalls(calls: Map<number, { home?: GoalieCall; away?: G
   if (calls.size === 0) return 0;
   const { data: rows, error } = await supabaseAdmin.from("nhl_predictions").select("game_id, assumptions").in("game_id", [...calls.keys()]);
   if (error || !rows) return 0;
+  const unavailable = await loadUnavailable();
 
   let updated = 0;
   for (const row of rows) {
@@ -147,6 +228,11 @@ async function applyGoalieCalls(calls: Map<number, { home?: GoalieCall; away?: G
     for (const side of ["home", "away"] as const) {
       const call = c[side];
       if (!call || a.sources?.[side] === "locked") continue;
+      // ESPN still lists a goalie you've ruled out as "expected": ignore it (a confirmed call is taken at face value)
+      if (call.status === "expected" && unavailable.size > 0) {
+        const named = ((a.pool?.[side] ?? []) as Pool[]).find((p) => normName(p.name) === normName(call.name));
+        if (named && named.id !== null && unavailable.has(named.id)) continue;
+      }
       const list = a.goalies[side] ?? [];
       const top = [...list].sort((x, y) => y.weight - x.weight)[0];
       const same = top !== undefined && normName(top.name) === normName(call.name);
