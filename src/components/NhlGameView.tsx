@@ -1,6 +1,9 @@
 import GoalieLock from "./GoalieLock";
 import LocalDateTime from "./LocalDateTime";
+import NhlFactors from "./NhlFactors";
+import NhlGoalieScenarios from "./NhlGoalieScenarios";
 import NhlMarketComparison from "./NhlMarketComparison";
+import NhlMatchup from "./NhlMatchup";
 import NhlOddsChart from "./NhlOddsChart";
 import NhlTeamLogo from "./NhlTeamLogo";
 import NhlWinBar from "./NhlWinBar";
@@ -10,6 +13,9 @@ import ScoreGrid from "./ScoreGrid";
 import { matchupColors } from "@/lib/nhlColors";
 import { marketEdges } from "@/lib/nhlEdges";
 import { fairOdds, mostLikelyScore, overUnder, pct, puckLineCover } from "@/lib/nhlModel";
+import type { Caution, NhlContext } from "@/lib/nhlContext";
+import type { GoalieLine, MatchupLine } from "@/lib/nhlMatchup";
+import type { ScenarioRow } from "@/lib/nhlScenarios";
 import type { Game, NhlGameXg, NhlOddsSnapshot, NhlPrediction } from "@/lib/types";
 
 const TOTAL_LINES = Array.from({ length: 11 }, (_, i) => 4 + i * 0.5); // 4, 4.5 ... 9
@@ -32,7 +38,26 @@ function Cell({ children, strong }: { children: React.ReactNode; strong?: boolea
   return <td className={`px-3 py-1.5 text-right font-mono text-xs ${strong ? "font-semibold text-foreground" : "text-foreground"}`}>{children}</td>;
 }
 
-export default function NhlGameView({ game, prediction, xg, snapshots = [] }: { game: Game; prediction: NhlPrediction | null; xg: NhlGameXg | null; snapshots?: NhlOddsSnapshot[] }) {
+export type NhlGameExtras = {
+  ctx: NhlContext;
+  cautions: Caution[];
+  scenarios: ScenarioRow[];
+  matchup: { lines: MatchupLine[]; awayGoalies: GoalieLine[]; homeGoalies: GoalieLine[] };
+};
+
+export default function NhlGameView({
+  game,
+  prediction,
+  xg,
+  snapshots = [],
+  extras,
+}: {
+  game: Game;
+  prediction: NhlPrediction | null;
+  xg: NhlGameXg | null;
+  snapshots?: NhlOddsSnapshot[];
+  extras?: NhlGameExtras;
+}) {
   const home = game.home_team;
   const away = game.away_team;
   const done = game.completed && game.home_points !== null && game.away_points !== null;
@@ -120,6 +145,30 @@ export default function NhlGameView({ game, prediction, xg, snapshots = [] }: { 
               defaults={{ homeSpread: m?.spread_home_line ?? null, total: m?.total_line ?? null }}
             />
           </Card>
+
+          {extras && (
+            <>
+              <Card
+                title="Unmodeled factors"
+                note={extras.cautions.length > 0 ? `${extras.cautions.length} reason${extras.cautions.length === 1 ? "" : "s"} for caution` : "nothing flagged"}
+              >
+                <NhlFactors
+                  home={home}
+                  away={away}
+                  startIso={game.start_date}
+                  assumptions={prediction.assumptions}
+                  ctx={extras.ctx}
+                  cautions={extras.cautions}
+                />
+              </Card>
+
+              {extras.scenarios.length > 0 && (
+                <Card title="Goalie scenarios" note="the game re-run for each plausible pairing">
+                  <NhlGoalieScenarios rows={extras.scenarios} home={home} away={away} bookTotal={m?.total_line ?? null} />
+                </Card>
+              )}
+            </>
+          )}
 
           <Card
             title="DraftKings price movement"
@@ -237,6 +286,12 @@ export default function NhlGameView({ game, prediction, xg, snapshots = [] }: { 
               </p>
             </Card>
           </div>
+
+          {extras && (
+            <Card title="Matchup" note="team numbers and rank among 32">
+              <NhlMatchup home={home} away={away} lines={extras.matchup.lines} awayGoalies={extras.matchup.awayGoalies} homeGoalies={extras.matchup.homeGoalies} />
+            </Card>
+          )}
 
           {prediction.assumptions && (
             <Card title="Goalies" note={prediction.assumptions.goalie_confirmed ? "both starters confirmed" : "starters not both confirmed"}>

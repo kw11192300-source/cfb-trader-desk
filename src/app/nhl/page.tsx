@@ -5,6 +5,10 @@ import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import WeekTabs from "@/components/WeekTabs";
 import { getNhlRefreshStatus } from "@/lib/actions";
+import { cautions as cautionsFor } from "@/lib/nhlContext";
+import type { NhlPrediction } from "@/lib/types";
+import { getNhlContext } from "@/lib/nhlContextData";
+import { devig } from "@/lib/nhlModel";
 import { getAvailableWeeks, getBets, getBoard, getCurrentWeek, getNhlGameXg, getNhlLastPublished, getNhlPredictions, type GradedBet } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -21,11 +25,12 @@ export default async function NhlPage({ searchParams }: { searchParams: Promise<
 
   const weeks = current ? await getAvailableWeeks(current.season, "nhl") : [];
   const games = (board?.rows ?? []).map((r) => r.game);
-  const [predictions, xgByGame, lastPublished, refreshStatus] = await Promise.all([
+  const [predictions, xgByGame, lastPublished, refreshStatus, ctx] = await Promise.all([
     getNhlPredictions(games.map((g) => g.id)),
     getNhlGameXg(games.map((g) => g.id)),
     getNhlLastPublished(),
     getNhlRefreshStatus(),
+    getNhlContext(),
   ]);
 
   // newest time any upcoming game's DraftKings line was read (full refresh or the odds-only button)
@@ -34,6 +39,14 @@ export default async function NhlPage({ searchParams }: { searchParams: Promise<
     const t = p.market?.fetched_at;
     if (t && (!oddsUpdated || t > oddsUpdated)) oddsUpdated = t;
   }
+
+  // reasons to read each game's model numbers with care (goalie unconfirmed, back-to-back, injuries, early season...)
+  const cautionsForGame = (g: (typeof games)[number], p: NhlPrediction | null) => {
+    if (!p || g.completed || g.live_status) return [];
+    const m = p.market;
+    const gap = m && m.ml_home !== null && m.ml_away !== null ? Math.abs(p.p_home - devig(m.ml_home, m.ml_away)) * 100 : null;
+    return cautionsFor({ home: g.home_team, away: g.away_team, startIso: g.start_date, assumptions: p.assumptions, ctx, mlGapPts: gap });
+  };
 
   const betsByGame = new Map<number, GradedBet[]>();
   for (const gb of allBets) {
@@ -68,7 +81,14 @@ export default async function NhlPage({ searchParams }: { searchParams: Promise<
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {games.map((g) => (
-              <NhlGameCard key={g.id} game={g} bets={betsByGame.get(g.id) ?? []} prediction={predictions.get(g.id) ?? null} xg={xgByGame.get(g.id) ?? null} />
+              <NhlGameCard
+                key={g.id}
+                game={g}
+                bets={betsByGame.get(g.id) ?? []}
+                prediction={predictions.get(g.id) ?? null}
+                xg={xgByGame.get(g.id) ?? null}
+                cautions={cautionsForGame(g, predictions.get(g.id) ?? null)}
+              />
             ))}
           </div>
         )}

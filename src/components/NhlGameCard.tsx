@@ -6,6 +6,7 @@ import NhlTeamLogo from "./NhlTeamLogo";
 import type { GradedBet } from "@/lib/data";
 import { marketEdges } from "@/lib/nhlEdges";
 import { balancedTotal, fairMoneyline, fairOdds, pct, puckLineCover } from "@/lib/nhlModel";
+import type { Caution } from "@/lib/nhlContext";
 import type { Bet, Game, NhlGameXg, NhlMarket, NhlPrediction } from "@/lib/types";
 
 /** Spreads only: "+" means this side is getting points (underdog) - same
@@ -25,6 +26,19 @@ function fmtBet(bet: Bet): string {
   if (bet.market === "moneyline") return `${bet.side} ML`;
   if (bet.market === "total") return `${bet.side} ${fmtLine(bet.line)}`;
   return `${bet.side} ${fmtSpreadLine(bet.line)}`;
+}
+
+const b2 = (n: number) => n;
+
+/** A one-line note under the team name: the goalie the model is using and whether he's confirmed. */
+function GoalieChip({ chip }: { chip: { text: string; settled: boolean } | null }) {
+  if (!chip) return null;
+  return (
+    <span className={`block whitespace-nowrap text-[10px] leading-tight ${chip.settled ? "text-foreground/80" : "text-muted"}`}>
+      <span className="text-muted">G </span>
+      {chip.text}
+    </span>
+  );
 }
 
 function fmtTotalLine(line: number): string {
@@ -83,7 +97,19 @@ function fmtStakeOrResult({ status, profit, bet }: GradedBet): string {
   return `${bet.stake.toFixed(2)}u`;
 }
 
-export default function NhlGameCard({ game, bets = [], prediction = null, xg = null }: { game: Game; bets?: GradedBet[]; prediction?: NhlPrediction | null; xg?: NhlGameXg | null }) {
+export default function NhlGameCard({
+  game,
+  bets = [],
+  prediction = null,
+  xg = null,
+  cautions = [],
+}: {
+  game: Game;
+  bets?: GradedBet[];
+  prediction?: NhlPrediction | null;
+  xg?: NhlGameXg | null;
+  cautions?: Caution[];
+}) {
   const teamOptions = [
     { value: game.away_team, label: game.away_team },
     { value: game.home_team, label: game.home_team },
@@ -95,6 +121,18 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
   // Totals here are the official final score, so a shootout winner's extra goal is always counted.
   const total = showModel ? balancedTotal(prediction.total_dist) : null;
   const mkt = showModel ? prediction.market : null;
+  // who is in net: confirmed or locked starters read plainly, anything else is marked as expected
+  const goalieChip = (side: "home" | "away"): { text: string; settled: boolean } | null => {
+    const a = prediction?.assumptions;
+    const list = a?.goalies?.[side] ?? [];
+    if (!showModel || list.length === 0) return null;
+    const top = [...list].sort((x, y) => b2(y.weight) - b2(x.weight))[0];
+    const last = top.name.split(" ").slice(-1)[0];
+    const settled = Boolean(a?.confirmed?.[side]);
+    const locked = a?.sources?.[side] === "locked";
+    if (settled) return { text: `${last} ${locked ? "locked" : "confirmed"}`, settled: true };
+    return { text: `${last}${list.length > 1 ? ` ${Math.round(top.weight * 100)}%` : ""} exp.`, settled: false };
+  };
   // every DraftKings price our simulation beats, best first (see the Model vs DraftKings section on the game page)
   const nick = (team: string) => team.split(" ").slice(-1)[0];
   const edges = showModel
@@ -139,7 +177,10 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
         <div className="flex items-center justify-between text-sm">
           <span className="flex min-w-0 items-center gap-2 text-foreground">
             <NhlTeamLogo team={game.away_team} />
-            {game.away_team}
+            <span className="min-w-0">
+              {game.away_team}
+              <GoalieChip chip={goalieChip("away")} />
+            </span>
           </span>
           {showModel && <ProbCols p={1 - prediction.p_home} book={mkt?.ml_away != null ? { odds: fmtOdds(mkt.ml_away) } : null} />}
           {game.completed && game.away_points !== null && (
@@ -153,7 +194,10 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
         <div className="flex items-center justify-between text-sm">
           <span className="flex min-w-0 items-center gap-2 text-foreground">
             <NhlTeamLogo team={game.home_team} />
-            {game.home_team}
+            <span className="min-w-0">
+              {game.home_team}
+              <GoalieChip chip={goalieChip("home")} />
+            </span>
           </span>
           {showModel && <ProbCols p={prediction.p_home} book={mkt?.ml_home != null ? { odds: fmtOdds(mkt.ml_home) } : null} />}
           {game.completed && game.home_points !== null && (
@@ -187,6 +231,12 @@ export default function NhlGameCard({ game, bets = [], prediction = null, xg = n
             {game.home_team.split(" ").slice(-1)[0]} -1.5 {pct(puckLineCover(prediction.margin_dist, "home", -1.5), 0)} ({fairOdds(puckLineCover(prediction.margin_dist, "home", -1.5))})
             {fair ? ` · DK ${pct(fair.home, 0)}` : ""}
           </span>
+          {cautions.length > 0 && (
+            <span className="w-full text-warn" title={cautions.map((c) => c.long).join("\n")}>
+              ⚠ caution: {cautions.slice(0, 3).map((c) => c.short).join(" · ")}
+              {cautions.length > 3 ? ` · +${cautions.length - 3}` : ""}
+            </span>
+          )}
           {edges.length > 0 && (
             <div className="mt-1 flex w-full flex-col gap-0.5 rounded-md border border-border bg-surface-raised px-2.5 py-1.5 text-foreground">
               <span className="text-[10px] font-semibold uppercase tracking-wide text-muted">Edge vs DK</span>
