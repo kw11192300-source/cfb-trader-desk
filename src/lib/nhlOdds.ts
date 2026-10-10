@@ -1,5 +1,7 @@
 import { supabaseAdmin } from "./supabase-admin";
+import { normName } from "./nhlContext";
 import { marketEdges } from "./nhlEdges";
+import { simulateGame, type GoalieScenario } from "./nhlSim";
 import { americanToProb } from "./nhlModel";
 import type { NhlMarket, NhlModelDigest, NhlPrediction } from "./types";
 
@@ -28,7 +30,14 @@ type EspnOdds = {
   pointSpread?: { home?: EspnPrice; away?: EspnPrice };
   total?: { over?: EspnPrice; under?: EspnPrice };
 };
-type EspnBoard = { events?: { id: string; status?: { type?: { state?: string } }; competitions?: { odds?: EspnOdds[] }[] }[] };
+type EspnProbable = { name?: string; athlete?: { displayName?: string }; status?: { type?: string } };
+type EspnCompetitor = { homeAway?: string; probables?: EspnProbable[] };
+type EspnBoard = {
+  events?: { id: string; status?: { type?: { state?: string } }; competitions?: { odds?: EspnOdds[]; competitors?: EspnCompetitor[] }[] }[];
+};
+
+/** ESPN's probable starting goalie for one side, with whether the team has confirmed him. */
+export type GoalieCall = { name: string; status: "expected" | "confirmed" };
 
 /** Same fields, same "close" side, as parse_market in python/nhl_model/publish.py. */
 function parseEspnMarket(o: EspnOdds, fetchedAt: string): NhlMarket {
@@ -65,8 +74,9 @@ const bookName = (name: string | undefined): string | null => (name ? (/draft\s*
 
 const samePrices = (a: NhlMarket | null, b: NhlMarket): boolean => a !== null && PRICE_FIELDS.every((k) => a[k] === b[k]);
 
-/** DraftKings lines for every upcoming (not started) NHL game ESPN lists, keyed by our game id. Throws if ESPN is down. */
-export async function fetchEspnMarkets(fetchedAt: string): Promise<Map<number, NhlMarket>> {
+/** DraftKings lines AND ESPN's probable goalies for every upcoming (not started) NHL game ESPN lists, keyed by our game id.
+ * Throws if ESPN is down. */
+export async function fetchEspnMarkets(fetchedAt: string): Promise<{ markets: Map<number, NhlMarket>; goalies: Map<number, { home?: GoalieCall; away?: GoalieCall }> }> {
   const now = Date.now();
   // ESPN's date parameter is a US calendar day, so cover a day either side of UTC today.
   const days = [-1, 0, 1, 2, 3].map((d) => new Date(now + d * 86400000).toISOString().slice(0, 10).replaceAll("-", ""));
@@ -78,15 +88,154 @@ export async function fetchEspnMarkets(fetchedAt: string): Promise<Map<number, N
     }),
   );
   const incoming = new Map<number, NhlMarket>();
+  const goalies = new Map<number, { home?: GoalieCall; away?: GoalieCall }>();
   for (const board of boards) {
     for (const ev of board?.events ?? []) {
       if (ev?.status?.type?.state !== "pre") continue;
+      const gid = -(Number(ev.id) + NHL_GAME_ID_OFFSET);
       const o = ev?.competitions?.[0]?.odds?.[0];
-      if (!o) continue;
-      incoming.set(-(Number(ev.id) + NHL_GAME_ID_OFFSET), parseEspnMarket(o, fetchedAt));
+      if (o) incoming.set(gid, parseEspnMarket(o, fetchedAt));
+      const calls: { home?: GoalieCall; away?: GoalieCall } = {};
+      for (const c of ev?.competitions?.[0]?.competitors ?? []) {
+        const p = (c.probables ?? []).find((x) => x.name === "probableStartingGoalie" && x.athlete?.displayName);
+        if (p && (c.homeAway === "home" || c.homeAway === "away")) {
+          calls[c.homeAway] = { name: p.athlete!.displayName!, status: p.status?.type === "confirmed" ? "confirmed" : "expected" };
+        }
+      }
+      if (calls.home || calls.away) goalies.set(gid, calls);
     }
   }
-  return incoming;
+  return { markets: incoming, goalies };
+}
+
+// ---------------------------------------------------------------- goalie news between model refreshes
+
+async function sendTelegram(text: string): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chat = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chat) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chat, text }),
+    });
+  } catch {
+    /* an alert failing must never fail the update */
+  }
+}
+
+type StoredGoalie = { id: number | null; name: string; weight: number; rating: number };
+type Pool = { id: number | null; name: string; rating: number };
+
+/** Applies ESPN's current probable goalies to the stored predictions: when a team confirms its starter (or ESPN switches
+ * who it expects) the game is re-simulated on the spot with the same engine as a manual lock, the change is marked on
+ * the price chart, and a Telegram message is sent if the bot is configured. Games with a manual lock are left alone.
+ * The full model refresh (publish.py) still recomputes everything from scratch; this keeps the site current between runs. */
+async function applyGoalieCalls(calls: Map<number, { home?: GoalieCall; away?: GoalieCall }>): Promise<number> {
+  if (calls.size === 0) return 0;
+  const { data: rows, error } = await supabaseAdmin.from("nhl_predictions").select("game_id, assumptions").in("game_id", [...calls.keys()]);
+  if (error || !rows) return 0;
+
+  let updated = 0;
+  for (const row of rows) {
+    const gameId = row.game_id as number;
+    const a = row.assumptions as NhlPrediction["assumptions"];
+    const c = calls.get(gameId);
+    if (!a || !c) continue;
+    const todo: Partial<Record<"home" | "away", GoalieCall>> = {};
+    for (const side of ["home", "away"] as const) {
+      const call = c[side];
+      if (!call || a.sources?.[side] === "locked") continue;
+      const list = a.goalies[side] ?? [];
+      const top = [...list].sort((x, y) => y.weight - x.weight)[0];
+      const same = top !== undefined && normName(top.name) === normName(call.name);
+      if (call.status === "confirmed") {
+        if (a.confirmed?.[side] && same && list.length === 1) continue;
+        todo[side] = call;
+      } else if (!same && a.sources?.[side] !== "espn_confirmed") {
+        todo[side] = call;
+      }
+    }
+    if (!todo.home && !todo.away) continue;
+
+    // full row (the simulation inputs are big, so they are only read when something actually changed)
+    const { data: full } = await supabaseAdmin.from("nhl_predictions").select("p_home, sim_params, assumptions").eq("game_id", gameId).maybeSingle();
+    const sp = full?.sim_params as NhlPrediction["sim_params"];
+    const cur = full?.assumptions as NonNullable<NhlPrediction["assumptions"]>;
+    if (!sp || !cur) continue;
+
+    const nextGoalies = { home: [...cur.goalies.home] as StoredGoalie[], away: [...cur.goalies.away] as StoredGoalie[] };
+    const confirmed = { home: Boolean(cur.confirmed?.home), away: Boolean(cur.confirmed?.away) };
+    const sources = { home: cur.sources?.home ?? "usage", away: cur.sources?.away ?? "usage" } as Record<"home" | "away", string>;
+    const estimated = sp.estimated as unknown as Record<"home" | "away", { goalies: StoredGoalie[]; source: string; confirmed: boolean }>;
+    const notes: string[] = [];
+
+    for (const side of ["home", "away"] as const) {
+      const call = todo[side];
+      if (!call) continue;
+      const pool = (sp.pool?.[side] ?? []) as Pool[];
+      const hit = pool.find((p) => normName(p.name) === normName(call.name));
+      const goalie: StoredGoalie = { id: hit?.id ?? null, name: hit?.name ?? call.name, weight: 1, rating: hit?.rating ?? 0 };
+      const prevTop = [...cur.goalies[side]].sort((x, y) => y.weight - x.weight)[0];
+      if (call.status === "confirmed") {
+        nextGoalies[side] = [goalie];
+        confirmed[side] = true;
+        sources[side] = "espn_confirmed";
+        notes.push(`${goalie.name} confirmed${prevTop && normName(prevTop.name) !== normName(goalie.name) ? ` (was expecting ${prevTop.name})` : ""}`);
+      } else {
+        // ESPN now expects a different goalie: lean on him, keep the previous expectation as the hedge
+        const hedge = prevTop && normName(prevTop.name) !== normName(goalie.name) ? [{ ...prevTop, weight: 0.15 }] : [];
+        goalie.weight = hedge.length ? 0.85 : 1;
+        nextGoalies[side] = [goalie, ...hedge];
+        confirmed[side] = false;
+        sources[side] = "espn_expected";
+        notes.push(`ESPN now expects ${goalie.name}`);
+      }
+      estimated[side] = { goalies: nextGoalies[side], source: sources[side], confirmed: confirmed[side] };
+    }
+
+    const toScenario = (g: StoredGoalie): GoalieScenario => ({ rating: g.rating, weight: g.weight });
+    const sim = simulateGame(sp.rates, sp.tables, nextGoalies.home.map(toScenario), nextGoalies.away.map(toScenario), 40000, Math.abs(gameId) % 1000003);
+    const assumptions = {
+      ...cur,
+      goalies: nextGoalies,
+      goalie_confirmed: confirmed.home && confirmed.away,
+      sources,
+      confirmed,
+    };
+    const { error: upErr } = await supabaseAdmin.from("nhl_predictions").update({ ...sim, assumptions, sim_params: { ...sp, estimated } }).eq("game_id", gameId);
+    if (upErr) continue;
+    updated++;
+    await recordModelSnapshot(gameId).catch(() => undefined);
+
+    // keep the goalie-accuracy log's "last look" current too (best effort)
+    for (const side of ["home", "away"] as const) {
+      if (!todo[side]) continue;
+      await supabaseAdmin
+        .from("nhl_goalie_log")
+        .update({
+          espn_name: todo[side]!.name,
+          espn_status: todo[side]!.status,
+          source: sources[side],
+          model: nextGoalies[side].map((g) => ({ id: g.id, name: g.name, p: g.weight })),
+          top_id: nextGoalies[side][0]?.id ?? null,
+          top_name: nextGoalies[side][0]?.name ?? null,
+          top_p: nextGoalies[side][0]?.weight ?? null,
+          logged_at: new Date().toISOString(),
+        })
+        .eq("game_id", gameId)
+        .eq("side", side)
+        .eq("kind", "last");
+    }
+
+    const { data: g } = await supabaseAdmin.from("games").select("home_team, away_team").eq("id", gameId).maybeSingle();
+    const before = Number((full as { p_home?: number }).p_home ?? sim.p_home);
+    await sendTelegram(
+      `🥅 ${g?.away_team ?? "Away"} @ ${g?.home_team ?? "Home"}\n${notes.join("\n")}\nModel: ${g?.home_team ?? "Home"} win ${(before * 100).toFixed(1)}% → ${(sim.p_home * 100).toFixed(1)}%`,
+    );
+  }
+  return updated;
 }
 
 // ---------------------------------------------------------------- model state saved with snapshots
@@ -194,7 +343,7 @@ export async function recordModelSnapshot(gameId: number): Promise<void> {
   if (!err) await supabaseAdmin.from("nhl_predictions").update({ market: { ...market, model_key: key, snap_at: capturedAt } }).eq("game_id", gameId);
 }
 
-export type OddsUpdateResult = { ok: boolean; message: string; games: number; moved: number; snapshots: number; logged: number; graded: number };
+export type OddsUpdateResult = { ok: boolean; message: string; games: number; moved: number; snapshots: number; logged: number; graded: number; goalies?: number };
 
 const fail = (message: string): OddsUpdateResult => ({ ok: false, message, games: 0, moved: 0, snapshots: 0, logged: 0, graded: 0 });
 
@@ -202,10 +351,21 @@ const fail = (message: string): OddsUpdateResult => ({ ok: false, message, games
 export async function updateNhlOdds(): Promise<OddsUpdateResult> {
   const fetchedAt = new Date().toISOString();
   let incoming: Map<number, NhlMarket>;
+  let goalieCalls: Map<number, { home?: GoalieCall; away?: GoalieCall }>;
   try {
-    incoming = await fetchEspnMarkets(fetchedAt);
+    const fetched = await fetchEspnMarkets(fetchedAt);
+    incoming = fetched.markets;
+    goalieCalls = fetched.goalies;
   } catch (e) {
     return fail(`Couldn't reach ESPN: ${e instanceof Error ? e.message : "unknown error"}.`);
+  }
+
+  // goalie news first, so the prices below are compared against the freshest model
+  let goalieUpdates = 0;
+  try {
+    goalieUpdates = await applyGoalieCalls(goalieCalls);
+  } catch {
+    /* never let goalie handling stop the odds update */
   }
 
   // 1. new prices -> the stored market of each published prediction, plus a snapshot when a price moved
@@ -357,8 +517,9 @@ export async function updateNhlOdds(): Promise<OddsUpdateResult> {
     return { ok: false, message: `Odds updated, but grading failed: ${e instanceof Error ? e.message : "unknown error"}.`, games, moved, snapshots, logged, graded: 0 };
   }
 
-  const message = games === 0 ? "No upcoming published games have DraftKings lines on ESPN yet." : `DraftKings odds updated for ${games} games (${moved} had moved).`;
-  return { ok: true, message, games, moved, snapshots, logged, graded };
+  const base = games === 0 ? "No upcoming published games have DraftKings lines on ESPN yet." : `DraftKings odds updated for ${games} games (${moved} had moved).`;
+  const message = goalieUpdates > 0 ? `${base} ${goalieUpdates} game${goalieUpdates === 1 ? "" : "s"} re-simulated for goalie news.` : base;
+  return { ok: true, message, games, moved, snapshots, logged, graded, goalies: goalieUpdates };
 }
 
 type EspnScoreboard = {
