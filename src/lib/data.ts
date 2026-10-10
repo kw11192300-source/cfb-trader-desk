@@ -3,6 +3,7 @@ import { supabaseAdmin } from "./supabase-admin";
 import { type DisplayLine, mergeLines, pickHeadlineLine } from "./mergedLines";
 import { devigTwoWay } from "./oddsMath";
 import type { EdgeInputs } from "./nhlEdges";
+import { buildMovements, type MoveRow, type MovementGame, type MovementSnapshot } from "./nhlMovement";
 import type {
   Bet,
   BettingLine,
@@ -831,6 +832,28 @@ export async function getNhlOddsSnapshots(gameId: number): Promise<NhlOddsSnapsh
     throw new Error(error.message);
   }
   return (data ?? []) as NhlOddsSnapshot[];
+}
+
+/** Every DraftKings price/line change saved in the last `days` days, newest first (the Line moves page). Reads only the price
+ * columns of the snapshots, in pages since PostgREST caps a request at 1000 rows. */
+export async function getNhlLineMovements(days = 14): Promise<MoveRow[]> {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const cols = "game_id, captured_at, ml_home, ml_away, spread_home_line, spread_home_odds, spread_away_odds, total_line, over_odds, under_odds";
+  const snaps: MovementSnapshot[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from("nhl_odds_snapshots").select(cols).gte("captured_at", since).order("captured_at", { ascending: true }).range(from, from + 999);
+    if (error) {
+      if (isMissingTable(error)) return [];
+      throw new Error(error.message);
+    }
+    snaps.push(...((data ?? []) as unknown as MovementSnapshot[]));
+    if (!data || data.length < 1000) break;
+  }
+  if (snaps.length === 0) return [];
+  const ids = [...new Set(snaps.map((s) => s.game_id))];
+  const { data: games, error: gErr } = await supabase.from("games").select("id, home_team, away_team, start_date").in("id", ids);
+  if (gErr) throw new Error(gErr.message);
+  return buildMovements(snaps, (games ?? []) as MovementGame[]);
 }
 
 /** Every GRADED edge-log row (the data behind the Edge log page), read in pages since PostgREST caps a request at 1000
