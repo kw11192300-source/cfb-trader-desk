@@ -75,9 +75,13 @@ def abbrev_by_id() -> dict[int, str]:
     return {**dict(zip(s["away_team_id"], s["away_abbrev"])), **dict(zip(s["home_team_id"], s["home_abbrev"]))}
 
 
-def game_outcomes(fit, tb, simulate, home_id: int, away_id: int, g_home: float, g_away: float, n: int, seed: int) -> np.ndarray:
-    """P(home regulation win, home OT win, home shootout win, away OT win, away SO win, away regulation win)."""
-    s = simulate(fit.params(home_id, away_id, g_home, g_away), tb, n, seed=seed)
+def game_outcomes(fit, tb, simulate, home_id: int, away_id: int, g_home: float, g_away: float, n: int, seed: int, add=(0.0, 0.0)) -> np.ndarray:
+    """P(home regulation win, home OT win, home shootout win, away OT win, away SO win, away regulation win).
+    `add` = (home, away) lineup change to the even-strength xG-per-minute rates (see lineup.py)."""
+    gp = fit.params(home_id, away_id, g_home, g_away)
+    gp.r_ev_h = max(gp.r_ev_h + add[0], 1e-6)
+    gp.r_ev_a = max(gp.r_ev_a + add[1], 1e-6)
+    s = simulate(gp, tb, n, seed=seed)
     hw = s["fin_h"] > s["fin_a"]
     reg_h, reg_a = s["reg_h"] > s["reg_a"], s["reg_a"] > s["reg_h"]
     tie, so = s["tie"], s["so"]
@@ -322,23 +326,48 @@ def run(dry_run: bool = False, n_sims: int = 10000, sigma: float = SIGMA) -> lis
 
     rating = {t: main_goalie_rating(t) for t in teams}
 
+    # lineup adjustment (lineup.py), applied for the REST of the season: current rosters (trades, signings) in full, injuries
+    # weighted by how much of the remaining schedule they're expected to cover
+    adjuster = None
+    try:
+        from .lineup import LineupAdjuster
+
+        adjuster = LineupAdjuster(now)
+        if not adjuster.ok:
+            adjuster = None
+    except Exception as e:  # noqa: BLE001
+        print(f"(lineup adjustment skipped for futures: {str(e)[:100]})")
+    ev_min = float(tg["ev_min"].mean())
+    season_end = pd.Timestamp(remaining["t"].max()) if len(remaining) else now + pd.Timedelta(days=170)
+    window = (now, season_end)
+    adj = {t: adjuster.team(t, season=window) if adjuster else None for t in teams}
+
+    def add_for(h: str, a: str) -> tuple[float, float]:
+        lh, la = adj.get(h), adj.get(a)
+        if not lh or not la:
+            return (0.0, 0.0)
+        return ((lh["d_off"] + la["d_def"]) / ev_min, (la["d_off"] + lh["d_def"]) / ev_min)
+
     games: list[tuple[str, str, np.ndarray]] = []
     for k, r in enumerate(remaining.itertuples()):
         h, a = r.home_abbrev, r.away_abbrev
         if h not in DIVISIONS or a not in DIVISIONS:
             continue
-        games.append((h, a, game_outcomes(fit, tb, simulate, int(r.home_team_id), int(r.away_team_id), rating[h], rating[a], GAME_SIMS, 1000 + k)))
+        games.append((h, a, game_outcomes(fit, tb, simulate, int(r.home_team_id), int(r.away_team_id), rating[h], rating[a], GAME_SIMS, 1000 + k, add=add_for(h, a))))
     print(f"{len(games)} remaining games priced in {time.time() - t0:.0f}s", flush=True)
 
     P = np.zeros((len(teams), len(teams)))
     for i, h in enumerate(teams):
         for j, a in enumerate(teams):
             if i != j:
-                o = game_outcomes(fit, tb, simulate, int(ids[h]), int(ids[a]), rating[h], rating[a], PAIR_SIMS, 50_000 + i * 40 + j)
+                o = game_outcomes(fit, tb, simulate, int(ids[h]), int(ids[a]), rating[h], rating[a], PAIR_SIMS, 50_000 + i * 40 + j, add=add_for(h, a))
                 P[i, j] = o[:3].sum()
     print(f"playoff matchup table built in {time.time() - t0:.0f}s", flush=True)
 
     res = simulate_season(teams, st, games, P, n_sims=n_sims, sigma=sigma)
+    if adjuster:
+        biggest = sorted(((t, adj[t]["net_xg"]) for t in teams if adj[t]), key=lambda kv: -abs(kv[1]))[:6]
+        print("lineup adjustment (net xG/game vs the lineup behind each rating): " + ", ".join(f"{t} {v:+.2f}" for t, v in biggest))
     rows = []
     for i, t in enumerate(teams):
         conf, div = DIVISIONS[t]
@@ -347,6 +376,7 @@ def run(dry_run: bool = False, n_sims: int = 10000, sigma: float = SIGMA) -> lis
             p = float(res[k][i])
             row[k] = round(p, 4)
             row[f"{k}_odds"] = american(p)
+        row["lineup_xg"] = adj[t]["net_xg"] if adj.get(t) else None  # net xG per game the lineup adjustment is worth
         row["exp_pts"] = round(float(res["exp_pts"][i]), 1)
         row["sd_pts"] = round(float(res["sd_pts"][i]), 1)
         rows.append(row)

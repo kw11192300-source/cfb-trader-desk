@@ -64,26 +64,42 @@ def fetch_rosters(abbrevs: list[str]) -> dict[str, list[dict]]:
     return out
 
 
-def fetch_injuries() -> dict[str, dict[str, float]]:
-    """normalised ESPN team name -> {normalised player name: share unavailable (1 = out, 0.5 = day-to-day)}."""
+# when ESPN gives no return date, how long a status is assumed to last (days) - only used for season-long projections
+DEFAULT_DAYS_OUT = {"out": 10, "injured reserve": 30, "suspension": 5, "day": 2}
+
+
+def fetch_injuries() -> dict[str, dict[str, dict]]:
+    """normalised ESPN team name -> {normalised player name: {share: unavailable tonight (1 = out, 0.5 = day-to-day),
+    return: ESPN's expected return date or None, status}}."""
     try:
         data = requests.get(ESPN_INJURIES, headers=HEADERS, timeout=30).json()
     except Exception:  # noqa: BLE001
         return {}
-    out: dict[str, dict[str, float]] = {}
+    out: dict[str, dict[str, dict]] = {}
     for t in data.get("injuries", []):
-        m: dict[str, float] = {}
+        m: dict[str, dict] = {}
         for i in t.get("injuries", []):
             status = (i.get("status") or "").lower()
             nm = (i.get("athlete") or {}).get("displayName")
             if not nm:
                 continue
+            ret = (i.get("details") or {}).get("returnDate")
             if status in OUT_STATUSES:
-                m[_norm(nm)] = 1.0
+                m[_norm(nm)] = {"share": 1.0, "return": ret, "status": status}
             elif "day" in status:
-                m[_norm(nm)] = 0.5
+                m[_norm(nm)] = {"share": 0.5, "return": ret, "status": "day"}
         out[_norm(t.get("displayName", ""))] = m
     return out
+
+
+def share_out_over(info: dict, now: pd.Timestamp, season_end: pd.Timestamp) -> float:
+    """Fraction of the REST OF THE SEASON a player is expected to miss, from ESPN's return date (or a default by status)."""
+    remaining = max((season_end - now).days, 1)
+    try:
+        days = max((pd.Timestamp(info["return"], tz="UTC") - now).days, 0) if info.get("return") else DEFAULT_DAYS_OUT.get(info["status"], 7)
+    except Exception:  # noqa: BLE001
+        days = DEFAULT_DAYS_OUT.get(info["status"], 7)
+    return float(min(days / remaining, 1.0))
 
 
 class LineupAdjuster:
@@ -125,15 +141,23 @@ class LineupAdjuster:
         self.injuries = fetch_injuries()
         self.ok = bool(self.baseline) and bool(self.rosters)
 
-    def team(self, abbrev: str) -> dict | None:
-        """The adjustment for one team: xG per game for its own offence and for what it allows, plus a short explanation."""
+    def team(self, abbrev: str, season: tuple[pd.Timestamp, pd.Timestamp] | None = None) -> dict | None:
+        """The adjustment for one team: xG per game for its own offence and for what it allows, plus a short explanation.
+        With `season=(now, season_end)` injuries are weighted by the share of the rest of the season they're expected to
+        last (a month on IR is a small part of a season; a trade is permanent) - used by the season simulation."""
         if not self.ok or abbrev not in self.rosters or abbrev not in self.baseline:
             return None
         inj = self.injuries.get(_norm(TEAM_NAMES.get(abbrev, "")), {})
         avail = []
         for p in self.rosters[abbrev]:
-            gone = inj.get(_norm(p["name"]), 0.0)
-            if gone >= 1.0:
+            info = inj.get(_norm(p["name"]))
+            if info is None:
+                gone = 0.0
+            elif season is not None:
+                gone = share_out_over(info, season[0], season[1])
+            else:
+                gone = info["share"]
+            if gone >= 0.999:
                 continue
             o, d, toi = self.rating.get(p["id"], (0.0, 0.0, 0.0))
             avail.append({"id": p["id"], "name": p["name"], "pos": p["pos"], "off": o, "def": d, "toi": toi, "gone": gone})
