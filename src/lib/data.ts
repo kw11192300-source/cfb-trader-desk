@@ -838,7 +838,7 @@ export async function getNhlOddsSnapshots(gameId: number): Promise<NhlOddsSnapsh
  * columns of the snapshots, in pages since PostgREST caps a request at 1000 rows. */
 export async function getNhlLineMovements(days = 14): Promise<MoveRow[]> {
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
-  const cols = "game_id, captured_at, ml_home, ml_away, spread_home_line, spread_home_odds, spread_away_odds, total_line, over_odds, under_odds";
+  const cols = "game_id, captured_at, ml_home, ml_away, spread_home_line, spread_home_odds, spread_away_odds, total_line, over_odds, under_odds, model";
   const snaps: MovementSnapshot[] = [];
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabase.from("nhl_odds_snapshots").select(cols).gte("captured_at", since).order("captured_at", { ascending: true }).range(from, from + 999);

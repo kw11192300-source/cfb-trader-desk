@@ -302,7 +302,7 @@ def log_goalie_calls(client, rows: list[dict], known: set, rec_map: dict, games:
                 todo[_nhl_game_id(ev["espn_id"])] = by_game.loc[nhl_id]
         if not todo:
             return
-        pending = client.table("nhl_goalie_log").select("id, game_id, side, kind, espn_name, top_id, model").in_("game_id", list(todo)).is_("graded_at", "null").execute().data
+        pending = client.table("nhl_goalie_log").select("id, game_id, side, kind, espn_name, top_id, top_name, model").in_("game_id", list(todo)).is_("graded_at", "null").execute().data
         graded = 0
         for r in pending:
             g = todo[r["game_id"]]
@@ -311,12 +311,14 @@ def log_goalie_calls(client, rows: list[dict], known: set, rec_map: dict, games:
                 continue
             actual = int(actual)
             actual_name = id_to_name.get(actual, str(actual))
-            p_actual = next((x["p"] for x in r["model"] if x["id"] == actual), 0.0)
+            # a goalie with no id in the directory (two Matt Murrays...) is matched by name instead
+            same = lambda gid, name: (gid is not None and int(gid) == actual) or (gid is None and name and _norm(name) == _norm(actual_name))  # noqa: E731
+            p_actual = next((x["p"] for x in r["model"] if same(x.get("id"), x.get("name"))), 0.0)
             espn_id = name_to_id.get(_norm(r["espn_name"])) if r["espn_name"] else None
             client.table("nhl_goalie_log").update({
                 "actual_id": actual, "actual_name": actual_name,
                 "hit_espn": (int(espn_id) == actual) if espn_id is not None else (None if not r["espn_name"] else _norm(r["espn_name"]) == _norm(actual_name)),
-                "hit_top": r["top_id"] is not None and int(r["top_id"]) == actual,
+                "hit_top": bool(same(r["top_id"], r.get("top_name"))),
                 "p_actual": p_actual,
                 "graded_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             }).eq("id", r["id"]).execute()

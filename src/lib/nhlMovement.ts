@@ -1,4 +1,5 @@
-import { devig, fmtOdds } from "./nhlModel";
+import { devig, fmtOdds, overUnder, puckLineCover } from "./nhlModel";
+import type { NhlModelDigest } from "./types";
 
 /** The slim price columns of nhl_odds_snapshots (no model digest - it is big and not needed here). */
 export type MovementSnapshot = {
@@ -12,6 +13,8 @@ export type MovementSnapshot = {
   total_line: number | null;
   over_odds: number | null;
   under_odds: number | null;
+  /** The model's state, present only on snapshots where it changed - carried forward to the moves after it. */
+  model: NhlModelDigest | null;
 };
 
 export type MovementGame = { id: number; home_team: string; away_team: string; start_date: string };
@@ -42,6 +45,9 @@ export type MoveRow = {
   size: number;
   /** Total line moves are "up" / "down" (colored); everything else is neutral. */
   tone: "up" | "down" | "neutral";
+  /** Did the market move toward our model's number? `before`/`after` are the gap to the model (probability points for a
+   * price, goals for a line). Null when we had no model for the game yet. */
+  vsModel: { toward: boolean; before: number; after: number; unit: "pts" | "goals" } | null;
 };
 
 /** American-price change in cents, counting through the +100/-100 gap as one step (-105 -> +100 is 5 cents). */
@@ -76,9 +82,13 @@ export function buildMovements(snaps: MovementSnapshot[], games: MovementGame[])
     const home = nick(game.home_team);
     const away = nick(game.away_team);
 
+    let model: NhlModelDigest | null = list[0].model ?? null;
     for (let i = 1; i < list.length; i++) {
       const p = list[i - 1];
       const c = list[i];
+      if (c.model) model = c.model;
+      const m = model;
+      const meanOf = (dist: Record<string, number>) => Object.entries(dist).reduce((s, [k, v]) => s + Number(k) * v, 0);
       let n = 0;
       const add = (r: Omit<MoveRow, "key" | "at" | "gameId" | "startDate" | "home" | "away">) =>
         out.push({ ...r, key: `${gameId}-${c.captured_at}-${n++}`, at: c.captured_at, gameId, startDate: game.start_date, home: game.home_team, away: game.away_team });
@@ -94,6 +104,7 @@ export function buildMovements(snaps: MovementSnapshot[], games: MovementGame[])
         homeLabel: string,
         awayTeam: string | null,
         homeTeam: string | null,
+        modelSecond: number | null, // the model's probability for the second side
       ) => {
         if (pa === null || pb === null || ca === null || cb === null) return;
         if (pa === ca && pb === cb) return;
@@ -103,6 +114,8 @@ export function buildMovements(snaps: MovementSnapshot[], games: MovementGame[])
         const size = Math.max(Math.abs(priceCents(pa, ca)), Math.abs(priceCents(pb, cb)));
         const quiet = Math.abs(d) < 0.05;
         const homeWay = d > 0;
+        const gapBefore = modelSecond === null ? null : Math.abs(modelSecond - before) * 100;
+        const gapAfter = modelSecond === null ? null : Math.abs(modelSecond - after) * 100;
         add({
           market,
           kind: "price",
@@ -114,11 +127,12 @@ export function buildMovements(snaps: MovementSnapshot[], games: MovementGame[])
           pts: Math.abs(d),
           size,
           tone: "neutral",
+          vsModel: gapBefore === null || gapAfter === null || quiet ? null : { toward: gapAfter < gapBefore, before: gapBefore, after: gapAfter, unit: "pts" },
         });
       };
 
       // moneyline
-      twoWay("Moneyline", p.ml_away, p.ml_home, c.ml_away, c.ml_home, `${away} ML`, `${home} ML`, game.away_team, game.home_team);
+      twoWay("Moneyline", p.ml_away, p.ml_home, c.ml_away, c.ml_home, `${away} ML`, `${home} ML`, game.away_team, game.home_team, m ? m.p_home : null);
 
       // puck line: a moved line is one row (the odds come with it); otherwise the two prices at the same line
       if (p.spread_home_line !== null && c.spread_home_line !== null) {
@@ -136,10 +150,28 @@ export function buildMovements(snaps: MovementSnapshot[], games: MovementGame[])
             pts: null,
             size: Math.abs(d),
             tone: "neutral",
+            vsModel: (() => {
+              if (!m) return null;
+              const mm = meanOf(m.margin_dist); // the model's expected home margin; the line prices the home margin at -line
+              const before = Math.abs(mm + p.spread_home_line!);
+              const after = Math.abs(mm + c.spread_home_line!);
+              return { toward: after < before, before, after, unit: "goals" as const };
+            })(),
           });
         } else {
           const l = c.spread_home_line;
-          twoWay("Puck line", p.spread_away_odds, p.spread_home_odds, c.spread_away_odds, c.spread_home_odds, `${away} ${fmtLine(-l)}`, `${home} ${fmtLine(l)}`, game.away_team, game.home_team);
+          twoWay(
+            "Puck line",
+            p.spread_away_odds,
+            p.spread_home_odds,
+            c.spread_away_odds,
+            c.spread_home_odds,
+            `${away} ${fmtLine(-l)}`,
+            `${home} ${fmtLine(l)}`,
+            game.away_team,
+            game.home_team,
+            m ? puckLineCover(m.margin_dist, "home", l) : null,
+          );
         }
       }
 
@@ -158,10 +190,19 @@ export function buildMovements(snaps: MovementSnapshot[], games: MovementGame[])
             pts: null,
             size: Math.abs(d),
             tone: d > 0 ? "up" : "down",
+            vsModel: (() => {
+              if (!m) return null;
+              const mt = meanOf(m.total_dist);
+              const before = Math.abs(mt - p.total_line!);
+              const after = Math.abs(mt - c.total_line!);
+              return { toward: after < before, before, after, unit: "goals" as const };
+            })(),
           });
         } else {
           const l = num(c.total_line);
-          twoWay("Total", p.over_odds, p.under_odds, c.over_odds, c.under_odds, `Over ${l}`, `Under ${l}`, null, null);
+          const ou = m ? overUnder(m.total_dist, c.total_line) : null;
+          const underShare = ou && ou.over + ou.under > 0 ? ou.under / (ou.over + ou.under) : null;
+          twoWay("Total", p.over_odds, p.under_odds, c.over_odds, c.under_odds, `Over ${l}`, `Under ${l}`, null, null, underShare);
         }
       }
     }

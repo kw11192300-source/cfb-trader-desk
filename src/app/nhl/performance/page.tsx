@@ -109,6 +109,45 @@ function GoalieCallTable({ groups }: { groups: GoalieCallGroup[] }) {
   );
 }
 
+/** The one-glance answer: the model's positive-EV sides at the first sighting - did the price move our way, and did they pay? */
+function Headline({ g }: { g: Group }) {
+  const CLV_TARGET = 200;
+  const verdict =
+    g.clv === null || g.clvN < 30
+      ? `Too early to say - ${g.clvN} of about ${CLV_TARGET} closing-line samples needed.`
+      : g.clv - 2 * g.clvSe > 0
+        ? "The price is moving our way: the model is beating the close."
+        : g.clv + 2 * g.clvSe < 0
+          ? "The market is moving against our picks - the model is not beating the close."
+          : "No clear signal either way yet - the average move is inside its margin of error.";
+  const stat = (label: string, value: string, tone = "text-foreground", sub?: string) => (
+    <div className="rounded-lg border border-border bg-surface px-4 py-3">
+      <div className="text-[11px] uppercase tracking-wide text-muted">{label}</div>
+      <div className={`font-mono text-lg font-semibold ${tone}`}>{value}</div>
+      {sub && <div className="text-[11px] text-muted">{sub}</div>}
+    </div>
+  );
+  return (
+    <section>
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Headline - positive-EV sides at first sighting</h2>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {stat("Bets graded", String(g.n), "text-foreground", `${g.wins} won`)}
+        {stat("ROI (flat 1u)", g.n ? `${signed(g.roi * 100)}%` : "—", g.roi > 0 ? "text-up" : "text-down", `± ${(g.roiSe * 100).toFixed(1)} (1 SE)`)}
+        {stat(
+          "Avg. closing-line value",
+          g.clv === null ? "—" : `${signed(g.clv, 2)} pts`,
+          g.clv === null ? "text-foreground" : g.clv > 0 ? "text-up" : "text-down",
+          g.clv === null ? undefined : `± ${g.clvSe.toFixed(2)} (1 SE), n=${g.clvN}`,
+        )}
+        {stat("Beat the close", g.clvPositive === null ? "—" : pct(g.clvPositive, 0), "text-foreground", "share of picks whose price improved")}
+      </div>
+      <p className="mt-2 max-w-4xl text-xs text-muted">
+        {verdict} Every side of every market is logged, so the all-sides total is just the book&apos;s vig - only the positive-EV slice says anything about the model.
+      </p>
+    </section>
+  );
+}
+
 export default async function NhlPerformancePage() {
   const [{ graded, pending, games }, goalieCalls] = await Promise.all([getNhlEdgeLog(), getNhlGoalieCalls()]);
   const first = graded.filter((r) => r.kind === "first");
@@ -182,6 +221,8 @@ export default async function NhlPerformancePage() {
                 <span className="font-mono text-foreground">{pending}</span> games waiting on a result
               </span>
             </div>
+
+            <Headline g={summarize("All positive-EV sides", first.filter((r) => r.ev > 0))} />
 
             <section>
               <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Bet at the first sighting - by modeled EV</h2>

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import LocalDateTime from "./LocalDateTime";
+import OddsAge from "./OddsAge";
 import { getNhlRefreshStatus, refreshNhlOdds, refreshNhlScores, triggerNhlRefresh, type NhlRefreshStatus } from "@/lib/actions";
 
 const TIME = { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" } as const;
@@ -48,7 +49,7 @@ export default function NhlRefreshButton({
         {oddsUpdated && (
           <>
             {" "}
-            · DK odds as of <LocalDateTime iso={oddsUpdated} options={TIME} />
+            · DK odds as of <LocalDateTime iso={oddsUpdated} options={TIME} /> (<OddsAge iso={oddsUpdated} />)
           </>
         )}
       </div>

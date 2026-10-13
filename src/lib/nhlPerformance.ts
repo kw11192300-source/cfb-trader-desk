@@ -16,6 +16,8 @@ export type Group = {
   clv: number | null;
   clvN: number;
   clvPositive: number | null;
+  /** One standard error on that mean CLV. */
+  clvSe: number;
 };
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
@@ -39,6 +41,7 @@ export function summarize(label: string, rows: NhlEdgeLogRow[]): Group {
     clv: clvs.length ? mean(clvs) : null,
     clvN: clvs.length,
     clvPositive: clvs.length ? clvs.filter((c) => c > 0).length / clvs.length : null,
+    clvSe: clvs.length > 1 ? Math.sqrt(clvs.reduce((a, c) => a + (c - mean(clvs)) ** 2, 0) / (clvs.length - 1) / clvs.length) : 0,
   };
 }
 

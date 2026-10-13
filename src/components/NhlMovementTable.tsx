@@ -93,6 +93,9 @@ export default function NhlMovementTable({ rows }: { rows: MoveRow[] }) {
                 <th className={th} />
                 <th className={`${th} text-right`}>Was</th>
                 <th className={`${th} text-right`}>Now</th>
+                <th className={`${th} text-right`} title="Did the market move toward our model's number (the gap to the model shrank) or away from it? Gap before to after: win-probability points for prices, goals for lines. Uses the model as it stood at that moment.">
+                  vs our model
+                </th>
                 <th className={`${th} text-right`} title="Price moves: how far the no-vig win probability shifted toward that side, in points, and below it the biggest price change on either side in cents (-105 to +100 is 5 cents). Line moves: the change in the number.">
                   How far
                 </th>
@@ -145,6 +148,18 @@ export default function NhlMovementTable({ rows }: { rows: MoveRow[] }) {
                       {r.sides.map((s) => (
                         <div key={s.label}>{s.now}</div>
                       ))}
+                    </td>
+                    <td className="px-3 py-2 text-right text-xs whitespace-nowrap">
+                      {r.vsModel ? (
+                        <>
+                          <div className={`font-semibold ${r.vsModel.toward ? "text-up" : "text-down"}`}>{r.vsModel.toward ? "Toward" : "Away"}</div>
+                          <div className="font-mono text-[11px] text-muted">
+                            {r.vsModel.before.toFixed(1)} → {r.vsModel.after.toFixed(1)} {r.vsModel.unit}
+                          </div>
+                        </>
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right font-mono text-xs whitespace-nowrap">
                       <div className={`font-semibold ${tone}`}>{how}</div>
