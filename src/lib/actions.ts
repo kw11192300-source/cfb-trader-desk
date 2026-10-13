@@ -123,6 +123,19 @@ async function github(path: string, init?: RequestInit): Promise<Response> {
   });
 }
 
+/** When the odds timer last checked DraftKings, as stored (the newest market.fetched_at). The odds-age indicator polls this
+ * so a tab left open for hours shows the real age instead of the age of the page it loaded. Never throws. */
+export async function getNhlOddsFetchedAt(): Promise<string | null> {
+  try {
+    const { data } = await supabaseAdmin.from("nhl_predictions").select("fetched:market->>fetched_at").order("generated_at", { ascending: false }).limit(80);
+    let best: string | null = null;
+    for (const r of (data ?? []) as unknown as { fetched: string | null }[]) if (r.fetched && (!best || r.fetched > best)) best = r.fetched;
+    return best;
+  } catch {
+    return null;
+  }
+}
+
 /** State of the most recent refresh run. Never throws - the board shouldn't break because GitHub's API did. */
 export async function getNhlRefreshStatus(): Promise<NhlRefreshStatus> {
   const none: NhlRefreshStatus = { state: "none", createdAt: null, updatedAt: null, url: null };
