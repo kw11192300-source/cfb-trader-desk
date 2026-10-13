@@ -5,6 +5,7 @@ import NhlGoalieScenarios from "./NhlGoalieScenarios";
 import NhlMarketComparison from "./NhlMarketComparison";
 import NhlMatchup from "./NhlMatchup";
 import NhlOddsChart from "./NhlOddsChart";
+import NhlTeamGamesTable from "./NhlTeamGamesTable";
 import NhlTeamLogo from "./NhlTeamLogo";
 import NhlWinBar from "./NhlWinBar";
 import NhlYourLine from "./NhlYourLine";
@@ -16,6 +17,7 @@ import { fairOdds, mostLikelyScore, overUnder, pct, puckLineCover } from "@/lib/
 import type { Caution, NhlContext } from "@/lib/nhlContext";
 import type { GoalieLine, MatchupLine } from "@/lib/nhlMatchup";
 import type { ScenarioRow } from "@/lib/nhlScenarios";
+import type { TeamGameRow } from "@/lib/nhlTeamGames";
 import type { Game, NhlGameXg, NhlOddsSnapshot, NhlPrediction } from "@/lib/types";
 
 const TOTAL_LINES = Array.from({ length: 11 }, (_, i) => 4 + i * 0.5); // 4, 4.5 ... 9
@@ -51,12 +53,15 @@ export default function NhlGameView({
   xg,
   snapshots = [],
   extras,
+  recent,
 }: {
   game: Game;
   prediction: NhlPrediction | null;
   xg: NhlGameXg | null;
   snapshots?: NhlOddsSnapshot[];
   extras?: NhlGameExtras;
+  /** Each team's last five finished games before this one (the form guide). */
+  recent?: { home: TeamGameRow[]; away: TeamGameRow[] };
 }) {
   const home = game.home_team;
   const away = game.away_team;
@@ -350,6 +355,25 @@ export default function NhlGameView({
             Shots on goal and attempts are regulation only; xG covers regulation and overtime. Goals include any empty-net or shootout credit, so they can run
             slightly above xG.
           </p>
+        </Card>
+      )}
+
+      {recent && (recent.home.length > 0 || recent.away.length > 0) && (
+        <Card title="Recent games" note="each team's last five before this game - actual, our model's pre-game number and the DraftKings close">
+          <div className="flex flex-col gap-4">
+            {([away, home] as const).map((team, i) => {
+              const rows = i === 0 ? recent.away : recent.home;
+              return (
+                <div key={team}>
+                  <div className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-foreground">
+                    <NhlTeamLogo team={team} size={18} />
+                    {team}
+                  </div>
+                  {rows.length > 0 ? <NhlTeamGamesTable rows={rows} compact /> : <p className="text-xs text-muted">No earlier games this season.</p>}
+                </div>
+              );
+            })}
+          </div>
         </Card>
       )}
     </div>

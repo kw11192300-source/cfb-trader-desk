@@ -5,6 +5,7 @@ import { devigTwoWay } from "./oddsMath";
 import type { EdgeInputs } from "./nhlEdges";
 import { buildMovements, type MoveRow, type MovementGame, type MovementSnapshot } from "./nhlMovement";
 import { goalieNewsEvents, type NewsEvent, type NewsGame, type NewsSnapshot } from "./nhlGoalieNews";
+import { etDay, teamGameRows, type GameInput, type PredInput, type TeamGameRow, type XgInput } from "./nhlTeamGames";
 import type {
   Bet,
   BettingLine,
@@ -742,6 +743,82 @@ export async function getNhlGameXg(gameIds: number[]): Promise<Map<number, NhlGa
     throw new Error(error.message);
   }
   return new Map((data as NhlGameXg[]).map((x) => [x.game_id, x]));
+}
+
+/** The NHL team names we have games for (as stored: ESPN's full names), alphabetical. */
+export async function getNhlTeamNames(): Promise<string[]> {
+  const { data, error } = await supabase.from("games").select("home_team").eq("sport", "nhl").limit(3000);
+  if (error) throw new Error(error.message);
+  return [...new Set((data ?? []).map((r) => r.home_team as string))].sort();
+}
+
+const GAME_COLS = "id, start_date, completed, home_team, away_team, home_points, away_points, live_status";
+
+/** One team's games with the model's last pre-game numbers, our xG and DraftKings' closing prices (each null where we don't
+ * have it - the model and odds tracking only began with the odds timer). Newest information last in the array order: rows come
+ * back oldest first. `before` keeps only games that started earlier than that instant; `limitCompleted` keeps the latest N
+ * finished games. Reads only the small columns (no score grids, no simulation inputs). */
+export async function getNhlTeamGames(team: string, opts: { before?: string; limitCompleted?: number; includeUpcoming?: boolean } = {}): Promise<TeamGameRow[]> {
+  const quoted = `"${team.replace(/"/g, "")}"`;
+  let q = supabase.from("games").select(GAME_COLS).eq("sport", "nhl").or(`home_team.eq.${quoted},away_team.eq.${quoted}`).order("start_date", { ascending: true });
+  if (opts.before) q = q.lt("start_date", opts.before);
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  let games = (data ?? []) as GameInput[];
+  if (opts.includeUpcoming === false) games = games.filter((g) => g.completed);
+  if (opts.limitCompleted !== undefined) {
+    const done = games.filter((g) => g.completed);
+    const keep = new Set(done.slice(-opts.limitCompleted).map((g) => g.id));
+    games = games.filter((g) => keep.has(g.id) || (!g.completed && opts.includeUpcoming !== false));
+  }
+  if (games.length === 0) return [];
+  const ids = games.map((g) => g.id);
+  const [xgRes, predRes] = await Promise.all([
+    supabase.from("nhl_game_xg").select("game_id, home_xg, away_xg").in("game_id", ids),
+    supabase.from("nhl_predictions").select("game_id, p_home, exp_home, exp_away, exp_total, market").in("game_id", ids),
+  ]);
+  if (xgRes.error && !isMissingTable(xgRes.error)) throw new Error(xgRes.error.message);
+  if (predRes.error && !isMissingTable(predRes.error)) throw new Error(predRes.error.message);
+  const xg = new Map(((xgRes.data ?? []) as XgInput[]).map((r) => [r.game_id, r]));
+  const preds = new Map(((predRes.data ?? []) as unknown as PredInput[]).map((r) => [r.game_id, r]));
+  return teamGameRows(team, games, xg, preds);
+}
+
+export type NhlDayGame = { id: number; home_team: string; away_team: string; start_date: string; completed: boolean; home_points: number | null; away_points: number | null; live: boolean };
+
+/** The games on the same Eastern-time schedule day as `startIso` (for the switcher on a game page), plus the first game of
+ * the previous and next game days so the strip can step across days. */
+export async function getNhlGameDay(startIso: string): Promise<{ day: string; games: NhlDayGame[]; prevGameId: number | null; nextGameId: number | null; prevDay: string | null; nextDay: string | null }> {
+  const t = new Date(startIso).getTime();
+  const from = new Date(t - 4 * 86_400_000).toISOString();
+  const to = new Date(t + 4 * 86_400_000).toISOString();
+  const { data, error } = await supabase.from("games").select(GAME_COLS).eq("sport", "nhl").gte("start_date", from).lte("start_date", to).order("start_date", { ascending: true });
+  if (error) throw new Error(error.message);
+  const rows = ((data ?? []) as GameInput[]).map((g) => ({ ...g, day: etDay(g.start_date) }));
+  const day = etDay(startIso);
+  const days = [...new Set(rows.map((r) => r.day))].sort();
+  const prevDay = days.filter((d) => d < day).pop() ?? null;
+  const nextDay = days.find((d) => d > day) ?? null;
+  const first = (d: string | null) => (d ? (rows.find((r) => r.day === d)?.id ?? null) : null);
+  return {
+    day,
+    games: rows
+      .filter((r) => r.day === day)
+      .map((g) => ({
+        id: g.id,
+        home_team: g.home_team,
+        away_team: g.away_team,
+        start_date: g.start_date,
+        completed: g.completed,
+        home_points: g.home_points,
+        away_points: g.away_points,
+        live: Boolean(g.live_status) && !g.completed,
+      })),
+    prevGameId: first(prevDay),
+    nextGameId: first(nextDay),
+    prevDay,
+    nextDay,
+  };
 }
 
 /** When the NHL model last published predictions, across all games (null before the first run). */

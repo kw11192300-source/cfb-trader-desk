@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
+import NhlGameStrip from "@/components/NhlGameStrip";
 import NhlGameView, { type NhlGameExtras } from "@/components/NhlGameView";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
-import { getNhlGame, getNhlGoalieStats, getNhlOddsSnapshots, getNhlStatSeasons, getNhlTeamStats } from "@/lib/data";
+import { getNhlGame, getNhlGameDay, getNhlGoalieStats, getNhlOddsSnapshots, getNhlStatSeasons, getNhlTeamGames, getNhlTeamStats } from "@/lib/data";
 import { cautions } from "@/lib/nhlContext";
 import { getNhlContext } from "@/lib/nhlContextData";
 import { devig } from "@/lib/nhlModel";
@@ -17,6 +18,13 @@ export default async function NhlGamePage({ params }: { params: Promise<{ id: st
   if (!Number.isFinite(gameId)) notFound();
   const [found, snapshots, ctx, seasonInfo] = await Promise.all([getNhlGame(gameId), getNhlOddsSnapshots(gameId), getNhlContext(), getNhlStatSeasons()]);
   if (!found) notFound();
+
+  // the day's games for the switcher at the top, and each team's last five finished games before this one
+  const [dayGames, homeRecent, awayRecent] = await Promise.all([
+    getNhlGameDay(found.game.start_date),
+    getNhlTeamGames(found.game.home_team, { before: found.game.start_date, limitCompleted: 5, includeUpcoming: false }),
+    getNhlTeamGames(found.game.away_team, { before: found.game.start_date, limitCompleted: 5, includeUpcoming: false }),
+  ]);
 
   // everything the model doesn't know + the tables it can be read against, only for games that have a prediction
   let extras: NhlGameExtras | undefined;
@@ -45,8 +53,9 @@ export default async function NhlGamePage({ params }: { params: Promise<{ id: st
   return (
     <div className="flex min-h-screen flex-col">
       <SiteHeader subtitle={`${found.game.away_team} @ ${found.game.home_team}`} sport="nhl" />
+      <NhlGameStrip currentId={found.game.id} {...dayGames} />
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
-        <NhlGameView game={found.game} prediction={found.prediction} xg={found.xg} snapshots={snapshots} extras={extras} />
+        <NhlGameView game={found.game} prediction={found.prediction} xg={found.xg} snapshots={snapshots} extras={extras} recent={{ home: homeRecent, away: awayRecent }} />
       </main>
       <SiteFooter />
     </div>
