@@ -1,6 +1,8 @@
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
-import { getNhlEdgeLog, getNhlGoalieCalls } from "@/lib/data";
+import LocalDateTime from "@/components/LocalDateTime";
+import { getNhlEdgeLog, getNhlGoalieCalls, getNhlGoalieNews } from "@/lib/data";
+import { summarizeNews, type NewsEvent } from "@/lib/nhlGoalieNews";
 import { pct } from "@/lib/nhlModel";
 import { byEvBucket, byMarket, calibration, goalieCallGroups, summarize, type Group, type GoalieCallGroup } from "@/lib/nhlPerformance";
 
@@ -148,8 +150,79 @@ function Headline({ g }: { g: Group }) {
   );
 }
 
+/** Does DraftKings lag our re-price when a goalie is confirmed or switched? A test that fills itself in as the season runs. */
+function GoalieNews({ events }: { events: NewsEvent[] }) {
+  const s = summarizeNews(events);
+  const recent = events.filter((e) => e.isSwitch || Math.abs(e.modelMove) >= s.threshold).slice(0, 12);
+  const f = (n: number | null, d = 1) => (n === null ? "—" : n.toFixed(d));
+  return (
+    <section className="mb-8">
+      <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">Goalie news - does DraftKings lag our re-price?</h2>
+      <p className="mb-2 max-w-4xl text-xs text-muted">
+        Each time a goalie is confirmed (or the expected starter switches) we re-run the game within ~10 minutes. This measures how far that moved our number and
+        whether DraftKings had already moved, moved afterwards, or never moved. If it often moves <span className="text-foreground">afterwards</span> on big news, there is a window worth acting in. Plain confirmations usually move us
+        little because the model already assumes ESPN&apos;s expected goalie - the starter switches are the ones that matter.
+      </p>
+      {events.length === 0 ? (
+        <div className="rounded-lg border border-border bg-surface p-5 text-center text-sm text-muted">No goalie-news updates saved yet.</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[
+              ["Updates", `${s.events}`, `${s.games} games`],
+              ["Starter switches", `${s.switches}`, s.avgMoveSwitch === null ? "none yet" : `avg move ${f(s.avgMoveSwitch)} pts`],
+              ["Plain confirmations", `${s.events - s.switches}`, s.avgMoveOther === null ? "" : `avg move ${f(s.avgMoveOther)} pts`],
+              [`Moved us ≥ ${s.threshold} pt`, `${s.meaningful}`, `DK led ${s.dkLed} · with us ${s.dkWithUs} · later ${s.dkLater} · never ${s.dkNoMove}`],
+            ].map(([label, value, sub]) => (
+              <div key={label} className="rounded-lg border border-border bg-surface px-4 py-3">
+                <div className="text-[11px] uppercase tracking-wide text-muted">{label}</div>
+                <div className="font-mono text-lg font-semibold text-foreground">{value}</div>
+                <div className="text-[11px] text-muted">{sub}</div>
+              </div>
+            ))}
+          </div>
+          {recent.length > 0 && (
+            <div className="mt-3 overflow-x-auto rounded-lg border border-border">
+              <table className="w-full border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-surface-raised text-left text-[11px] uppercase tracking-wide text-muted">
+                    <th className="px-3 py-2 font-medium">When</th>
+                    <th className="px-3 py-2 font-medium">Game</th>
+                    <th className="px-3 py-2 font-medium">News</th>
+                    <th className="px-3 py-2 text-right font-medium" title="How far the news moved our home win probability, in points">Our move</th>
+                    <th className="px-3 py-2 text-right font-medium" title="DraftKings' no-vig home probability change over the hour before we re-priced: if it already moved our way, the market knew first">DK, hour before</th>
+                    <th className="px-3 py-2 text-right font-medium" title="DraftKings' no-vig home probability change in the same ~10-minute window">DK, same window</th>
+                    <th className="px-3 py-2 text-right font-medium" title="DraftKings' change over the following hour (blank if the game was about to start)">DK, next hour</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recent.map((e) => (
+                    <tr key={e.key} className="border-b border-border align-top last:border-0 odd:bg-surface/50">
+                      <td className="px-3 py-2 whitespace-nowrap text-muted">
+                        <LocalDateTime iso={e.at} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-foreground">
+                        {e.away.split(" ").slice(-1)[0]} @ {e.home.split(" ").slice(-1)[0]}
+                      </td>
+                      <td className="px-3 py-2 text-foreground">{e.note}</td>
+                      <td className={`px-3 py-2 text-right font-mono ${e.modelMove >= 0 ? "text-up" : "text-down"}`}>{signed(e.modelMove)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-foreground">{signed(e.dkBefore)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-foreground">{signed(e.dkSame)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-foreground">{e.dkAfter === null ? "—" : signed(e.dkAfter)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 export default async function NhlPerformancePage() {
-  const [{ graded, pending, games }, goalieCalls] = await Promise.all([getNhlEdgeLog(), getNhlGoalieCalls()]);
+  const [{ graded, pending, games }, goalieCalls, news] = await Promise.all([getNhlEdgeLog(), getNhlGoalieCalls(), getNhlGoalieNews()]);
   const first = graded.filter((r) => r.kind === "first");
   const close = graded.filter((r) => r.kind === "close");
   const cal = calibration(close);
@@ -203,6 +276,8 @@ export default async function NhlPerformancePage() {
             </div>
           )}
         </section>
+
+        <GoalieNews events={news} />
 
         {graded.length === 0 ? (
           <div className="rounded-lg border border-border bg-surface p-8 text-center text-sm text-muted">

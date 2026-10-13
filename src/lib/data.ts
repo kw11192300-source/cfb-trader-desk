@@ -4,6 +4,7 @@ import { type DisplayLine, mergeLines, pickHeadlineLine } from "./mergedLines";
 import { devigTwoWay } from "./oddsMath";
 import type { EdgeInputs } from "./nhlEdges";
 import { buildMovements, type MoveRow, type MovementGame, type MovementSnapshot } from "./nhlMovement";
+import { goalieNewsEvents, type NewsEvent, type NewsGame, type NewsSnapshot } from "./nhlGoalieNews";
 import type {
   Bet,
   BettingLine,
@@ -854,6 +855,34 @@ export async function getNhlLineMovements(days = 14): Promise<MoveRow[]> {
   const { data: games, error: gErr } = await supabase.from("games").select("id, home_team, away_team, start_date").in("id", ids);
   if (gErr) throw new Error(gErr.message);
   return buildMovements(snaps, (games ?? []) as MovementGame[]);
+}
+
+/** Every goalie-news update (a goalie confirmed or the expected starter switched) this season and how DraftKings' moneyline
+ * reacted around it. Pulls only the moneyline prices and the model's win probability out of the snapshots (not the whole
+ * model digest) to keep the read small. */
+export async function getNhlGoalieNews(): Promise<NewsEvent[]> {
+  const snaps: NewsSnapshot[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from("nhl_odds_snapshots")
+      .select("game_id, captured_at, ml_home, ml_away, model_note, p_home:model->>p_home")
+      .order("captured_at", { ascending: true })
+      .range(from, from + 999);
+    if (error) {
+      if (isMissingTable(error) || error.message.includes("model")) return [];
+      throw new Error(error.message);
+    }
+    for (const r of (data ?? []) as unknown as (Omit<NewsSnapshot, "p_home"> & { p_home: string | null })[]) {
+      snaps.push({ ...r, p_home: r.p_home === null || r.p_home === undefined ? null : Number(r.p_home) });
+    }
+    if (!data || data.length < 1000) break;
+  }
+  if (snaps.length === 0) return [];
+  const ids = [...new Set(snaps.filter((s) => s.model_note).map((s) => s.game_id))];
+  if (ids.length === 0) return [];
+  const { data: games, error: gErr } = await supabase.from("games").select("id, home_team, away_team, start_date").in("id", ids);
+  if (gErr) throw new Error(gErr.message);
+  return goalieNewsEvents(snaps.filter((s) => ids.includes(s.game_id)), (games ?? []) as NewsGame[]);
 }
 
 /** Every GRADED edge-log row (the data behind the Edge log page), read in pages since PostgREST caps a request at 1000
