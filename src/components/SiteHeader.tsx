@@ -27,6 +27,7 @@ const NAV_ITEMS: Record<Sport, { href: string; label: string; prefetch?: boolean
     { href: "/nhl", label: "Board" },
     { href: "/nhl/edges", label: "Edges" },
     { href: "/nhl/movement", label: "Line moves" },
+    { href: "/nhl/model-moves", label: "Model moves" },
     { href: "/nhl/performance", label: "Edge log" },
     { href: "/nhl/teams", label: "Teams" },
     { href: "/nhl/schedule", label: "Schedule" },

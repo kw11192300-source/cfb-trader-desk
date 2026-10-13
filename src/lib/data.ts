@@ -5,6 +5,7 @@ import { devigTwoWay } from "./oddsMath";
 import type { EdgeInputs } from "./nhlEdges";
 import { buildMovements, type MoveRow, type MovementGame, type MovementSnapshot } from "./nhlMovement";
 import { goalieNewsEvents, type NewsEvent, type NewsGame, type NewsSnapshot } from "./nhlGoalieNews";
+import { buildModelMoves, type ModelGame, type ModelMoveRow, type ModelSnapshot } from "./nhlModelMoves";
 import { etDay, teamGameRows, type GameInput, type PredInput, type TeamGameRow, type XgInput } from "./nhlTeamGames";
 import type {
   Bet,
@@ -932,6 +933,33 @@ export async function getNhlLineMovements(days = 14): Promise<MoveRow[]> {
   const { data: games, error: gErr } = await supabase.from("games").select("id, home_team, away_team, start_date").in("id", ids);
   if (gErr) throw new Error(gErr.message);
   return buildMovements(snaps, (games ?? []) as MovementGame[]);
+}
+
+/** Every change in the model's numbers for each game in the last `days` days (the Model moves page), newest first - read from
+ * the snapshots that carry a model digest, with the price at that moment for the "closer to DraftKings?" comparison. */
+export async function getNhlModelMoves(days = 14): Promise<ModelMoveRow[]> {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const snaps: ModelSnapshot[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from("nhl_odds_snapshots")
+      .select("game_id, captured_at, ml_home, ml_away, model_note, model")
+      .not("model", "is", null)
+      .gte("captured_at", since)
+      .order("captured_at", { ascending: true })
+      .range(from, from + 999);
+    if (error) {
+      if (isMissingTable(error) || /model/i.test(error.message)) return [];
+      throw new Error(error.message);
+    }
+    snaps.push(...((data ?? []) as unknown as ModelSnapshot[]));
+    if (!data || data.length < 1000) break;
+  }
+  if (snaps.length === 0) return [];
+  const ids = [...new Set(snaps.map((s) => s.game_id))];
+  const { data: games, error: gErr } = await supabase.from("games").select("id, home_team, away_team, start_date").in("id", ids);
+  if (gErr) throw new Error(gErr.message);
+  return buildModelMoves(snaps, (games ?? []) as ModelGame[]);
 }
 
 /** Every goalie-news update (a goalie confirmed or the expected starter switched) this season and how DraftKings' moneyline
