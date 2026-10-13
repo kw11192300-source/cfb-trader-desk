@@ -16,7 +16,11 @@ export default async function NhlSkatersPage() {
     sub: [r.pos, r.team].filter(Boolean).join(" · "),
     logo: nhlLogoUrl(r.team),
     pos: r.pos,
-    stats: { ...r.stats, def_good: r.stats.def === null || r.stats.def === undefined ? null : -r.stats.def },
+    stats: {
+      ...r.stats,
+      def_good: r.stats.def === null || r.stats.def === undefined ? null : -r.stats.def,
+      pk_good: r.stats.pk_def === null || r.stats.pk_def === undefined ? null : -r.stats.pk_def,
+    },
   }));
 
   return (

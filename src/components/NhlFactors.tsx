@@ -119,7 +119,14 @@ function LineupLine({ home, away, lineup }: { home: string; away: string; lineup
       </div>
       <div className="mt-1 text-[11px] text-muted">
         Scoring shift applied to the simulation (own offense + opponent&apos;s defense): {nickOf(away)} {fmt(lineup.applied_xg.away)}, {nickOf(home)}{" "}
-        {fmt(lineup.applied_xg.home)} xG per game. Half the strength the backtest supported, capped, even strength only.
+        {fmt(lineup.applied_xg.home)} xG per game
+        {lineup.applied_st_xg && (
+          <>
+            {" "}
+            (of which special teams: {nickOf(away)} {fmt(lineup.applied_st_xg.away)}, {nickOf(home)} {fmt(lineup.applied_st_xg.home)})
+          </>
+        )}
+        . Half the strength the backtest supported, capped.
       </div>
     </div>
   );

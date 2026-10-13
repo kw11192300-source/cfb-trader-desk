@@ -348,12 +348,23 @@ export type NhlSimParams = {
 export type NhlLineupSide = {
   d_off: number;
   d_def: number;
+  /** Special teams (absent before they were added): change in xG per 60 PP minutes created / PK minutes allowed, and what
+   * the two are worth per game to this team's goal difference. */
+  d_pp?: number;
+  d_pk?: number;
+  st_xg?: number;
   net_xg: number;
   arrivals: { name: string; value: number }[];
   missing: { name: string; value: number }[];
 };
 
-export type NhlLineupAdjustment = { home: NhlLineupSide; away: NhlLineupSide; applied_xg: { home: number; away: number } };
+export type NhlLineupAdjustment = {
+  home: NhlLineupSide;
+  away: NhlLineupSide;
+  applied_xg: { home: number; away: number };
+  /** The power-play part of applied_xg (own PP unit + the other side's penalty kill), xG per game. */
+  applied_st_xg?: { home: number; away: number };
+};
 
 /** One saved set of DraftKings prices for a game (nhl_odds_snapshots) - written whenever any of them moved. */
 export type NhlOddsSnapshot = {

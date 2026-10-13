@@ -10,6 +10,8 @@ const COLS: StatCol[] = [
   { key: "net", label: "Net /60", title: "Offense + defense: how many more expected goals per 60 minutes of 5v5 his team outscores opponents by with him on the ice, vs an average skater", fmt: fmtD("net", 2), signed: true },
   { key: "off", label: "Offense /60", title: "Extra expected goals his team creates per 60 minutes of 5v5 with him on the ice", fmt: fmtD("off", 2), signed: true },
   { key: "def_good", label: "Defense /60", title: "Expected goals his team PREVENTS per 60 minutes of 5v5 with him on the ice (positive = fewer goals allowed)", fmt: fmtD("def_good", 2), signed: true },
+  { key: "pp_off", label: "PP /60", title: "Power play: extra expected goals per 60 minutes of power play his team creates with him on the ice vs an average skater (shrunk hard - the sample is small). 0 for skaters who rarely play on the PP", fmt: fmtD("pp_off", 2), signed: true },
+  { key: "pk_good", label: "PK /60", title: "Penalty kill: expected goals per 60 minutes shorthanded his team PREVENTS with him on the ice vs an average skater (positive = good). 0 for skaters who rarely kill penalties", fmt: fmtD("pk_good", 2), signed: true },
   { key: "toi_pg", label: "5v5 min/gm", title: "Even-strength minutes per game", fmt: fmtD("toi_pg", 1) },
   { key: "gp", label: "GP", title: "Games in the rating window (last few seasons)", fmt: fmtD("gp", 0) },
   { key: "rank", label: "Rank", title: "Rank by Value/gm among all rated skaters", fmt: fmtD("rank", 0) },

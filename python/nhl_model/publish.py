@@ -232,7 +232,7 @@ def side_scenarios(espn_g: dict | None, usage: list[tuple[float, float]], lock_i
 # ------------------------------------------------------------------ predict
 
 def simulate_mixture(fit, tb, home_id: int, away_id: int, home_s, away_s, tracker, now, add=(0.0, 0.0)) -> dict:
-    """`add` = (home, away) change to the even-strength xG-per-minute rates from the lineup adjustment."""
+    """`add` = (home EV, away EV[, home PP, away PP]) change to the xG-per-minute rates from the lineup adjustment."""
     combos = [(gh, ga, wh * wa) for gh, _, wh in (home_s or [(None, "", 1.0)]) for ga, _, wa in (away_s or [(None, "", 1.0)])]
     counts = [int(N_SIMS * w) for _, _, w in combos]
     counts[int(np.argmax([w for _, _, w in combos]))] += N_SIMS - sum(counts)
@@ -243,6 +243,9 @@ def simulate_mixture(fit, tb, home_id: int, away_id: int, home_s, away_s, tracke
         gp = fit.params(home_id, away_id, tracker.rating(gh, now), tracker.rating(ga, now))
         gp.r_ev_h = max(gp.r_ev_h + add[0], 1e-6)
         gp.r_ev_a = max(gp.r_ev_a + add[1], 1e-6)
+        if len(add) > 2:
+            gp.r_pp_h = max(gp.r_pp_h + add[2], 1e-6)
+            gp.r_pp_a = max(gp.r_pp_a + add[3], 1e-6)
         parts.append(simulate(gp, tb, n, seed=(home_id * 31 + away_id * 7 + i) % 2_000_000_011))
     merged = {k: np.concatenate([p[k] for p in parts]) for k in parts[0]}
     return summarize_sim(merged, with_grids=True)
@@ -438,14 +441,20 @@ def main(argv: list[str] | None = None) -> None:
 
         lh = lineup_adj.team(r.home_abbrev) if lineup_adj else None
         la = lineup_adj.team(r.away_abbrev) if lineup_adj else None
-        add = (0.0, 0.0)
+        add = (0.0, 0.0, 0.0, 0.0)
         if lh and la:
-            # a team scores more with better offence on its side and when the opponent's defence is weaker
-            add = ((lh["d_off"] + la["d_def"]) / ev_min, (la["d_off"] + lh["d_def"]) / ev_min)
+            # a team scores more with better offence on its side and when the opponent's defence is weaker; the power play
+            # likewise (its own PP unit, and how much the opposing penalty kill leaks). xG per minute in both cases.
+            add = (
+                (lh["d_off"] + la["d_def"]) / ev_min, (la["d_off"] + lh["d_def"]) / ev_min,
+                (lh.get("d_pp", 0.0) + la.get("d_pk", 0.0)) / 60.0, (la.get("d_pp", 0.0) + lh.get("d_pk", 0.0)) / 60.0,
+            )
         s = simulate_mixture(fit, tb, int(r.home_team_id), int(r.away_team_id), sides["home"], sides["away"], tracker, now, add=add)
         base = fit.params(int(r.home_team_id), int(r.away_team_id), fit.gbar, fit.gbar)  # goalie-neutral rates
         base.r_ev_h = max(base.r_ev_h + add[0], 1e-6)
         base.r_ev_a = max(base.r_ev_a + add[1], 1e-6)
+        base.r_pp_h = max(base.r_pp_h + add[2], 1e-6)
+        base.r_pp_a = max(base.r_pp_a + add[3], 1e-6)
         sim_params = {
             "rates": {"r_ev_h": base.r_ev_h, "r_ev_a": base.r_ev_a, "r_pp_h": base.r_pp_h, "r_pp_a": base.r_pp_a, "pens_h": base.pens_h,
                       "pens_a": base.pens_a, "r_sh": base.r_sh, "conv": fit.conv, "beta": fit.beta, "gbar": fit.gbar},
@@ -460,6 +469,11 @@ def main(argv: list[str] | None = None) -> None:
                 "home": lh, "away": la,
                 # xG per game added to each side's scoring (own offence + opponent's defence), included in the numbers above
                 "applied_xg": {"home": round(lh["d_off"] + la["d_def"], 3), "away": round(la["d_off"] + lh["d_def"], 3)},
+                # the power-play part of it, in xG per game (own PP unit + the other side's penalty kill), also included above
+                "applied_st_xg": {
+                    "home": round((lh.get("d_pp", 0.0) + la.get("d_pk", 0.0)) * lineup_adj.l_st / 60.0, 3),
+                    "away": round((la.get("d_pp", 0.0) + lh.get("d_pk", 0.0)) * lineup_adj.l_st / 60.0, 3),
+                },
             }
         # the goalie call, logged WITHOUT any manual lock so it measures our own estimate (graded after the game)
         for side, team in (("home", r.home_team_id), ("away", r.away_team_id)):

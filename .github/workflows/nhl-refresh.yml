@@ -44,6 +44,8 @@ jobs:
             python/data/nhl/goalie_names.json
             python/data/nhl/raw/shifts
             python/data/nhl/stints_5v5.csv.gz
+            python/data/nhl/stints_pp.csv.gz
+            python/data/nhl/special_meta.json
             python/data/nhl/player_ratings.json
           key: nhl-data-${{ github.run_id }}
           restore-keys: nhl-data-

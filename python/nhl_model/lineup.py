@@ -14,6 +14,10 @@ This module turns that into a small, capped nudge to each team's even-strength e
 
   adjustment = SLOPE x (expected - baseline), separately for offence and defence, capped at +-CAP xG per game.
 
+Special teams work the same way with the power-play / penalty-kill ratings (player_ratings.fit_special): a unit's rate is
+the sum over its skaters of rating x share of the unit's minutes, so a missing PP1 forward lowers the team's power-play
+xG per 60 and a missing penalty killer raises what it allows. The change is applied to the sim's PP rate (xG per minute).
+
 SLOPE: lineup_test.py fitted 0.67 (a lineup's summed rating predicted its realised 5v5 xG differential with that slope),
 on lineups that actually dressed. The roster feed gives the EXPECTED lineup (it can't see scratches), so production uses
 0.5. The adjustment is part of the model's single set of numbers - there is no second model.
@@ -27,12 +31,16 @@ import numpy as np
 import pandas as pd
 import requests
 
+import json
+
 from .ingest import DATA_DIR, HEADERS, NHL_WEB
 from .player_ratings import RATINGS_JSON, STINTS_OUT
 from .team_stats import TEAM_NAMES
 
 SLOPE = 0.5  # backtested slope was 0.67 on lineups that actually dressed; production uses EXPECTED lineups, so a haircut
 CAP = 0.20  # xG per game, per team and per direction - a single missing star is ~0.1, so this only binds in extreme cases
+SLOPE_ST = 0.5  # special teams: no backtest of its own, so the same haircut as the even-strength slope
+CAP_ST = 1.5  # xG per 60 minutes of power play / penalty kill (a PP unit's rate is ~6.5)
 FORWARDS, DEFENSE = 12, 6
 BASELINE_DAYS = 365
 HALF_LIFE_DAYS = 120.0  # matches SimConfig.half_life_days
@@ -110,6 +118,12 @@ class LineupAdjuster:
         r = pd.read_json(RATINGS_JSON)
         self.rating = {int(p): (float(o), float(d), float(t)) for p, o, d, t in zip(r["player_id"], r["off"], r["def"], r["toi_pg"])}
         self.names = {int(p): n for p, n in zip(r["player_id"], r["name"])}
+        # special teams (absent in ratings written before they existed: then the adjustment is simply even strength only)
+        self.special: dict[int, tuple[float, float]] = {}
+        if {"pp_off", "pk_def", "pp_share", "pk_share"} <= set(r.columns):
+            self.special = {int(p): (float(po * ps), float(pk * ks)) for p, po, pk, ps, ks in zip(r["player_id"], r["pp_off"], r["pk_def"], r["pp_share"], r["pk_share"])}
+        meta = DATA_DIR / "special_meta.json"
+        self.l_st = float(json.loads(meta.read_text())["L"]) if meta.exists() else 3.0
 
         # the lineups that fed each team's rating: dressed skaters per team-game, with a recency weight
         games = pd.read_csv(DATA_DIR / "games.csv.gz", usecols=["game_id", "start_utc", "home_team_id", "away_team_id", "home_abbrev", "away_abbrev"])
@@ -124,13 +138,17 @@ class LineupAdjuster:
         dressed = pd.concat([long_h, long_a])
         dressed["off"] = dressed["pid"].map(lambda p: self.rating.get(int(p), (0.0, 0.0, 0.0))[0] * self.rating.get(int(p), (0.0, 0.0, 0.0))[2] / 60.0)
         dressed["def"] = dressed["pid"].map(lambda p: self.rating.get(int(p), (0.0, 0.0, 0.0))[1] * self.rating.get(int(p), (0.0, 0.0, 0.0))[2] / 60.0)
-        per_game = dressed.groupby(["team", "game_id"])[["off", "def"]].sum().reset_index()
+        dressed["pp"] = dressed["pid"].map(lambda p: self.special.get(int(p), (0.0, 0.0))[0])
+        dressed["pk"] = dressed["pid"].map(lambda p: self.special.get(int(p), (0.0, 0.0))[1])
+        per_game = dressed.groupby(["team", "game_id"])[["off", "def", "pp", "pk"]].sum().reset_index()
         per_game["age"] = (now - per_game["game_id"].map(games["t"])).dt.total_seconds() / 86400.0
         per_game["w"] = 0.5 ** (per_game["age"] / HALF_LIFE_DAYS)
         self.baseline: dict[str, tuple[float, float]] = {}
+        self.baseline_st: dict[str, tuple[float, float]] = {}
         for team, g in per_game.groupby("team"):
             w = g["w"].to_numpy()
             self.baseline[team] = (float((g["off"] * w).sum() / w.sum()), float((g["def"] * w).sum() / w.sum()))
+            self.baseline_st[team] = (float((g["pp"] * w).sum() / w.sum()), float((g["pk"] * w).sum() / w.sum()))
         # how often each player dressed for the team in that window, to tell "regular" from "arrival" in the notes
         n_games = per_game.groupby("team")["game_id"].nunique()
         self.share = {
@@ -171,6 +189,14 @@ class LineupAdjuster:
         d_off = float(np.clip(SLOPE * (exp_off - b_off), -CAP, CAP))
         d_def = float(np.clip(SLOPE * (exp_def - b_def), -CAP, CAP))  # + = allows MORE xG
 
+        # special teams: xG per 60 minutes of PP / PK, from the same lineup (day-to-day players at their available share)
+        exp_pp = sum(self.special.get(a["id"], (0.0, 0.0))[0] * (1.0 - a["gone"]) for a in lineup)
+        exp_pk = sum(self.special.get(a["id"], (0.0, 0.0))[1] * (1.0 - a["gone"]) for a in lineup)
+        b_pp, b_pk = self.baseline_st.get(abbrev, (exp_pp, exp_pk))
+        d_pp = float(np.clip(SLOPE_ST * (exp_pp - b_pp), -CAP_ST, CAP_ST)) if self.special else 0.0
+        d_pk = float(np.clip(SLOPE_ST * (exp_pk - b_pk), -CAP_ST, CAP_ST)) if self.special else 0.0  # + = allows MORE per 60 PK minutes
+        st_xg = (d_pp - d_pk) * self.l_st / 60.0  # xG per game the special-teams change is worth to this team's goal difference
+
         value = lambda a: (a["off"] - a["def"]) * a["toi"] / 60.0  # noqa: E731
         arrivals = sorted((a for a in lineup if self.share.get((abbrev, a["id"]), 0.0) < 0.35 and a["toi"] > 0), key=lambda a: -abs(value(a)))[:3]
         in_lineup = {a["id"] for a in lineup}
@@ -185,7 +211,8 @@ class LineupAdjuster:
         missing.sort(key=lambda m: -abs(m["value"]))
         return {
             "d_off": round(d_off, 3), "d_def": round(d_def, 3),
-            "net_xg": round(d_off - d_def, 3),
+            "d_pp": round(d_pp, 3), "d_pk": round(d_pk, 3), "st_xg": round(st_xg, 3),
+            "net_xg": round(d_off - d_def + st_xg, 3),
             "arrivals": [{"name": a["name"], "value": round(value(a), 3)} for a in arrivals],
             "missing": [{"name": m["name"], "value": round(m["value"], 3)} for m in missing[:3]],
         }

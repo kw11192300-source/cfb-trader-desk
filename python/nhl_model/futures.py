@@ -77,10 +77,13 @@ def abbrev_by_id() -> dict[int, str]:
 
 def game_outcomes(fit, tb, simulate, home_id: int, away_id: int, g_home: float, g_away: float, n: int, seed: int, add=(0.0, 0.0)) -> np.ndarray:
     """P(home regulation win, home OT win, home shootout win, away OT win, away SO win, away regulation win).
-    `add` = (home, away) lineup change to the even-strength xG-per-minute rates (see lineup.py)."""
+    `add` = (home EV, away EV[, home PP, away PP]) lineup change to the xG-per-minute rates (see lineup.py)."""
     gp = fit.params(home_id, away_id, g_home, g_away)
     gp.r_ev_h = max(gp.r_ev_h + add[0], 1e-6)
     gp.r_ev_a = max(gp.r_ev_a + add[1], 1e-6)
+    if len(add) > 2:
+        gp.r_pp_h = max(gp.r_pp_h + add[2], 1e-6)
+        gp.r_pp_a = max(gp.r_pp_a + add[3], 1e-6)
     s = simulate(gp, tb, n, seed=seed)
     hw = s["fin_h"] > s["fin_a"]
     reg_h, reg_a = s["reg_h"] > s["reg_a"], s["reg_a"] > s["reg_h"]
@@ -358,11 +361,14 @@ def run(dry_run: bool = False, n_sims: int = 10000, sigma: float = SIGMA) -> lis
     window = (now, season_end)
     adj = {t: adjuster.team(t, season=window) if adjuster else None for t in teams}
 
-    def add_for(h: str, a: str) -> tuple[float, float]:
+    def add_for(h: str, a: str) -> tuple[float, float, float, float]:
         lh, la = adj.get(h), adj.get(a)
         if not lh or not la:
-            return (0.0, 0.0)
-        return ((lh["d_off"] + la["d_def"]) / ev_min, (la["d_off"] + lh["d_def"]) / ev_min)
+            return (0.0, 0.0, 0.0, 0.0)
+        return (
+            (lh["d_off"] + la["d_def"]) / ev_min, (la["d_off"] + lh["d_def"]) / ev_min,
+            (lh.get("d_pp", 0.0) + la.get("d_pk", 0.0)) / 60.0, (la.get("d_pp", 0.0) + lh.get("d_pk", 0.0)) / 60.0,
+        )
 
     games: list[tuple[str, str, np.ndarray]] = []
     for k, r in enumerate(remaining.itertuples()):
