@@ -108,6 +108,27 @@ export async function fetchEspnMarkets(fetchedAt: string): Promise<{ markets: Ma
   return { markets: incoming, goalies };
 }
 
+/** Sends one test message and says what happened - used by the cron route's `?telegram=test` to confirm the bot token and
+ * chat id are right. */
+export async function testTelegram(): Promise<{ ok: boolean; message: string }> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chat = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chat) {
+    return { ok: false, message: `Missing ${[!token && "TELEGRAM_BOT_TOKEN", !chat && "TELEGRAM_CHAT_ID"].filter(Boolean).join(" and ")} on the server (redeploy after adding them).` };
+  }
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chat, text: "✅ NHL Trader Desk alerts are connected." }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { ok?: boolean; description?: string };
+    return body.ok ? { ok: true, message: "Test message sent - check Telegram." } : { ok: false, message: `Telegram said: ${body.description ?? res.status}` };
+  } catch (e) {
+    return { ok: false, message: `Couldn't reach Telegram: ${e instanceof Error ? e.message : "unknown error"}` };
+  }
+}
+
 // ---------------------------------------------------------------- alerts
 
 const ALERT_EV = Number(process.env.NHL_ALERT_EV ?? "0.05"); // a side newly worth at least this much per $1

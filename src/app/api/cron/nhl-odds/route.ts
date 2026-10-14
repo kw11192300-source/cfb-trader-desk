@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { updateNhlOdds, updateNhlScores } from "@/lib/nhlOdds";
+import { testTelegram, updateNhlOdds, updateNhlScores } from "@/lib/nhlOdds";
 
 // Called on a timer (every ~10 minutes) by an outside scheduler - cron-job.org, or Vercel Cron on a plan that allows
 // that frequency. It is exempt from the site password (src/proxy.ts) because a timer can't log in, so it checks its own
@@ -22,6 +22,12 @@ export async function GET(request: Request) {
     return Response.json({ ok: false, message: "CRON_SECRET is not set on the server." }, { status: 500 });
   }
   if (!authorized(request)) return Response.json({ ok: false, message: "Unauthorized." }, { status: 401 });
+
+  // `?telegram=test` just sends a test message (to confirm the bot setup) and skips the update
+  if (new URL(request.url).searchParams.get("telegram") === "test") {
+    const t = await testTelegram();
+    return Response.json(t, { status: t.ok ? 200 : 502 });
+  }
 
   // scores first, so the grading at the end of the odds update already sees anything that just went final
   const scores = await updateNhlScores();
