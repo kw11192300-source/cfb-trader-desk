@@ -126,10 +126,11 @@ def build_rows(season: int) -> list[dict]:
                     "pos": p.get("pos"), "g": int(g), "mpg": round(mn / g, 1), "ppg": round(float(p["pts"]) / g, 1),
                     "rpg": round((float(p["oreb"]) + float(p["dreb"])) / g, 1), "apg": round(float(p["ast"]) / g, 1),
                     "spg": round(float(p["stl"]) / g, 1), "bpg": round(float(p["blk"]) / g, 1), "tpg": round(float(p["tov"]) / g, 1),
-                    "fg_pct": round(float(p["fgm"]) / fga, 3) if fga > 0 else None,
-                    "tp_pct": round(float(p["tpm"]) / float(p["tpa"]), 3) if float(p["tpa"]) > 0 else None,
-                    "ft_pct": round(float(p["ftm"]) / fta, 3) if fta > 0 else None,
-                    "ts_pct": round(float(p["pts"]) / (2 * (fga + 0.44 * fta)), 3) if fga + 0.44 * fta > 0 else None,
+                    # percentages from a handful of shots mean nothing: shown only past a minimum number of attempts
+                    "fg_pct": round(float(p["fgm"]) / fga, 3) if fga >= 15 else None,
+                    "tp_pct": round(float(p["tpm"]) / float(p["tpa"]), 3) if float(p["tpa"]) >= 15 else None,
+                    "ft_pct": round(float(p["ftm"]) / fta, 3) if fta >= 15 else None,
+                    "ts_pct": round(float(p["pts"]) / (2 * (fga + 0.44 * fta)), 3) if fga + 0.44 * fta >= 25 else None,
                     "last_net": round(float(p["v_net"]), 2), "last_off": round(float(p["v_off"]), 2), "last_def": round(float(p["v_de"]), 2),
                     "lineup_poss": None if pd.isna(p.get("lineup_poss", np.nan)) else int(p["lineup_poss"]),
                     "last_floor": round(float(p["f"]) * 20.0, 1),  # % of team minutes (f sums to 5)
@@ -179,6 +180,15 @@ def main() -> None:
     conf_df = pd.read_csv(DATA_DIR / "conferences.csv")
     conf_now = conf_df[conf_df["season"] == conf_df["season"].max()].set_index("team_id")["conference"].to_dict()
     payload = [{**r, "conference": conf_now.get(r["team_id"]), "impact": r["stats"]["impact"], "updated_at": now} for r in rows]
+
+    def clean(v):  # JSON has no NaN: a missing height or class goes in as null
+        if isinstance(v, dict):
+            return {k: clean(x) for k, x in v.items()}
+        if isinstance(v, float) and v != v:
+            return None
+        return v
+
+    payload = [clean(r) for r in payload]
     for i in range(0, len(payload), 300):
         client.table("cbb_player_ratings").upsert(payload[i : i + 300], on_conflict="season,player_id,kind").execute()
     print(f"published {len(payload):,} players")

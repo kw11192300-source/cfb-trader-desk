@@ -15,7 +15,7 @@ type SchedEvent = { date: string; opp: { id: number; name: string }; home: boole
 
 async function loadSchedule(teamId: number): Promise<SchedEvent[]> {
   try {
-    const res = await fetch(`${ESPN}/teams/${teamId}/schedule?season=${SEASON + 1}`, { next: { revalidate: 1800 } });
+    const res = await fetch(`${ESPN}/teams/${teamId}/schedule?season=${SEASON + 1}&seasontype=2`, { next: { revalidate: 1800 } });
     if (!res.ok) return [];
     const j = (await res.json()) as {
       events?: {
