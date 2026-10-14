@@ -1,51 +1,198 @@
-rank,name,pos,school
-1,Tyran Stokes,SF,Kansas
-2,Caleb Holt,SG,Arizona
-3,Jordan Smith Jr.,CG,Arkansas
-4,Cameron Williams,PF,Duke
-5,Bruce Branch III,SF,BYU
-6,Marcus Spears Jr.,PF,Texas
-7,Jason Crowe Jr.,CG,Missouri
-8,Christian Collins,PF,USC
-9,Anthony Thompson,SF,Ohio State
-10,Brandon McCoy Jr.,SG,Michigan
-11,Baba Oladotun,SF,Maryland
-12,Dylan Mingo,CG,Baylor
-13,Deron Rippey Jr.,PG,Duke
-14,Abdou Toure,SF,Arkansas
-15,Obinna Ekezie Jr.,C,Louisville
-16,Caleb Gaskins,PF,Miami
-17,JJ Andrews,SF,Arkansas
-18,Quentin Coleman,SG,Illinois
-19,Miles Sadler,PG,West Virginia
-20,Adonis Ratliff,PF,USC
-21,Toni Bryant,PF,Missouri
-22,Taylen Kinney,PG,Kansas
-23,Bryson Howard,SG,Duke
-24,Austin Goosby,CG,Texas
-25,Jaxon Richardson,SF,Alabama
-26,Maximo Adams,SF,North Carolina
-27,Colben Landrew,SF,UConn
-28,Arafan Diane,C,Houston
-29,Joaquim Boumtje Boumtje,PF,Duke
-30,Qayden Samuels,SF,Alabama
-31,DaKari Spear,SG,Texas Tech
-32,Darius Ratliff,C,USC
-33,Jasiah Jervis,SG,Michigan State
-34,Javon Bardwell,SF,Providence
-35,Tajh Ariza,SF,Oregon
-36,Quinn Costello,PF,Michigan
-37,Latrell Allmond,PF,Oklahoma State
-38,Gabe Nesmith,SF,Vanderbilt
-39,Elijah Williams,SF,Baylor
-40,Anthony Felesi,SF,Oklahoma State
-41,Chase Foster,PF,Pittsburgh
-42,Luke Ertel,PG,Purdue
-43,Ethan Taylor,C,Michigan State
-44,Junior County,SG,UConn
-45,Anderson Diaz,PG,Alabama
-46,Marcis Ponder,C,Florida State
-47,Cameron Holmes,SF,Arizona
-48,Lincoln Cosby,SF,Michigan
-49,Kaden House,CG,Maryland
-50,Bo Ogden,SF,Texas
+rank,name,pos,rating,school
+1,Tyran Stokes,SF,1.0000,Kansas
+2,Caleb Holt,SG,0.9994,Arizona
+3,Jordan Smith Jr.,CG,0.9993,Arkansas
+4,Cameron Williams,PF,0.9986,Duke
+5,Bruce Branch III,SF,0.9983,BYU
+6,Marcus Spears Jr.,PF,0.9977,Texas
+7,Jason Crowe Jr.,CG,0.9973,Missouri
+8,Christian Collins,PF,0.9971,USC
+9,Anthony Thompson,SF,0.9971,Ohio State
+10,Brandon McCoy Jr.,SG,0.9964,Michigan
+11,Baba Oladotun,SF,0.9964,Maryland
+12,Dylan Mingo,CG,0.9963,Baylor
+13,Deron Rippey Jr.,PG,0.9955,Duke
+14,Abdou Toure,SF,0.9954,Arkansas
+15,Obinna Ekezie Jr.,C,0.9952,Louisville
+16,Caleb Gaskins,PF,0.9950,Miami
+17,JJ Andrews,SF,0.9945,Arkansas
+18,Quentin Coleman,SG,0.9940,Illinois
+19,Miles Sadler,PG,0.9934,West Virginia
+20,Adonis Ratliff,PF,0.9925,USC
+21,Toni Bryant,PF,0.9925,Missouri
+22,Taylen Kinney,PG,0.9923,Kansas
+23,Bryson Howard,SG,0.9922,Duke
+24,Austin Goosby,CG,0.9917,Texas
+25,Jaxon Richardson,SF,0.9910,Alabama
+26,Maximo Adams,SF,0.9910,North Carolina
+27,Colben Landrew,SF,0.9907,UConn
+28,Arafan Diane,C,0.9907,Houston
+29,Joaquim Boumtje Boumtje,PF,0.9900,Duke
+30,Qayden Samuels,SF,0.9899,Alabama
+31,DaKari Spear,SG,0.9899,Texas Tech
+32,Darius Ratliff,C,0.9896,USC
+33,Jasiah Jervis,SG,0.9887,Michigan State
+34,Javon Bardwell,SF,0.9879,Providence
+35,Tajh Ariza,SF,0.9877,Oregon
+36,Quinn Costello,PF,0.9877,Michigan
+37,Latrell Allmond,PF,0.9875,Oklahoma State
+38,Gabe Nesmith,SF,0.9867,Vanderbilt
+39,Elijah Williams,SF,0.9865,Baylor
+40,Anthony Felesi,SF,0.9860,Oklahoma State
+41,Chase Foster,PF,0.9856,Pittsburgh
+42,Luke Ertel,PG,0.9845,Purdue
+43,Ethan Taylor,C,0.9842,Michigan State
+44,Junior County,SG,0.9841,UConn
+45,Anderson Diaz,PG,0.9841,Alabama
+46,Marcis Ponder,C,0.9838,Florida State
+47,Cameron Holmes,SF,0.9837,Arizona
+48,Lincoln Cosby,SF,0.9836,Michigan
+49,Kaden House,CG,0.9835,Maryland
+50,Bo Ogden,SF,0.9833,Texas
+51,Davion Thompson,PG,0.9828,Arkansas
+52,Lucas Morillo,SG,0.9827,Illinois
+53,LJ Smith,CG,0.9822,Ohio State
+54,Ikenna Alozie,CG,0.9818,Houston
+55,Tarris Bouie,SF,0.9812,Alabama
+56,Boyuan Zhang,SF,0.9811,Louisville
+57,Carlos Medlock Jr.,PG,0.9810,Michigan State
+58,Christopher Washington Jr.,SF,0.9810,Tennessee
+59,Quincy Wadley,SG,0.9801,Oklahoma
+60,Luca Foster,SF,0.9801,Gonzaga
+61,Miikka Muurinen,PF,0.9800,Arkansas
+61,Sayon Keita,C,0.9800,North Carolina
+61,Nikola Kusturica,SF,0.9800,UCLA
+64,Joe Philon,PF,0.9773,UCLA
+65,Sammy Jackson,SF,0.9771,VCU
+66,Alex Constanza,SF,0.9768,Pepperdine
+67,Amadou Seini,C,0.9762,West Virginia
+68,Adam Oumiddoch,SG,0.9762,Villanova
+69,Vaughn Karvala,SF,0.9762,Indiana
+70,Caleb Ourigou,C,0.9761,Arkansas
+71,Jacob Webber,SF,0.9760,Purdue
+72,Davion Adkins,C,0.9759,Kansas
+73,Tristan Reed,C,0.9756,Mississippi State
+74,Darius Bivins,PG,0.9751,Saint Mary's
+75,Sinan Huan,C,0.9744,Purdue
+76,Aziz Olajuwon,SF,0.9739,Stanford
+77,Ralph Scott,SF,0.9736,Tennessee
+78,Ethan Mgbako,SF,0.9735,Vanderbilt
+79,Aiden Derkack,SG,0.9735,Dayton
+80,Kayden Allen,SF,0.9732,Georgia Tech
+81,Trevor Manhertz,SF,0.9728,Indiana
+82,Jonathan Sanderson,PG,0.9727,Notre Dame
+83,Marcus Johnson,PG,0.9724,South Carolina
+84,Anthony Brown,PG,0.9715,Vanderbilt
+85,Katrelle Harmon,CG,0.9715,Creighton
+86,Dean Rueckert,SF,0.9710,BYU
+87,Gavin Placide,PF,0.9704,Wake Forest
+89,Gage Mayfield,PF,0.9696,Oklahoma
+90,Josiah Johnson,PG,0.9695,UC Irvine
+91,Martay Barnes,CG,0.9693,Florida State
+92,Colin Rice,SF,0.9690,Nebraska
+93,Jayden Hodge,SF,0.9687,Northwestern
+94,Julius Avent,PF,0.9677,Michigan State
+95,Alex Egbuonu,SF,0.9674,Marquette
+96,Dhani Miller,SG,0.9668,Kent State
+97,Joseph Hartman,SG,0.9667,Michigan
+98,Willie Burnett III,CG,0.9660,Mississippi State
+99,Jalen Montonati,SF,0.9660,Oklahoma State
+100,Kalek House,SG,0.9649,Xavier
+101,Kevin Thomas,SF,0.9647,North Carolina
+102,Gallagher Placide,PF,0.9641,Wake Forest
+103,Dorian Rinaldo-Komlan,C,0.9640,Iowa State
+104,Fred Smith Jr.,PF,0.9633,Memphis
+105,Trent Perry,SF,0.9618,Kansas
+106,Felipe Quinones,CG,0.9607,Florida Atlantic
+107,Josh Irving,C,0.9580,Texas A&M
+109,Collin Ross,PF,0.9507,VCU
+110,Narcisse Ngoy,C,0.9500,Auburn
+110,Owen Foxwell,PG,0.9500,Wisconsin
+110,Dink Pate,SG,0.9500,Providence
+110,Bryson Warren,CG,0.9500,Texas A&M
+114,Rider Portela,SF,0.9500,Colorado
+115,Nolen Anderson,SF,0.9497,Minnesota
+116,Prince-Alexander Moody,CG,0.9470,Indiana
+117,Sam Funches,C,0.9467,Gonzaga
+118,Theo Edema,C,0.9462,St. John's
+119,Brandon Bass Jr.,SG,0.9451,Florida State
+120,Cody Peck,C,0.9450,Dayton
+121,David Ugonna Ike,C,0.9448,Georgia
+122,Ethan Harris,PF,0.9440,Iowa
+123,Isaiah Rogers,CG,0.9439,Stanford
+124,Maxime Meyer,C,0.9435,Duke
+125,Harris Reynolds,SG,0.9430,Clemson
+126,Christian Gibson,SF,0.9430,Utah Tech
+127,Jacob Lanier,SG,0.9426,Nebraska
+128,Moustapha Diop,C,0.9416,Georgia Tech
+129,Jackson Sheffield,C,0.9416,Vanderbilt
+130,Joe Sterling,CG,0.9414,Texas
+131,Luke Barnett,SG,0.9408,Kansas
+132,Herly Brutus,SF,0.9406,Butler
+133,Jalyn Collingwood,SF,0.9403,Mississippi State
+134,Christian Wiggins,SG,0.9403,Iowa State
+135,Jackson Kiss,C,0.9403,UNLV
+136,Ousmane N'Diaye,PF,0.9400,Kentucky
+137,JRob Croy,CG,0.9397,Arizona State
+138,Collin Paul,SF,0.9389,Florida State
+139,Yabi Aklog,C,0.9388,Oregon State
+140,Trey Beamer,PG,0.9388,FIU
+141,Eli Sancomb,CG,0.9381,Liberty
+142,Shane Pendergrass,PF,0.9381,George Mason
+143,Aidan Chronister,SF,0.9377,Missouri
+144,Adama Tambedou,PF,0.9376,Maryland
+146,Jaroslavs Pihtovs,C,0.9372,San Francisco
+147,Mason Williams,PG,0.9371,Kentucky
+148,Trevon Carter-Givens,C,0.9369,Creighton
+149,Elias Obenyah,CG,0.9366,Stanford
+150,Aliou Dioum,C,0.9360,West Virginia
+151,Favour Ibe,C,0.9355,Virginia
+152,Dreylan Creasy,SF,0.9329,East Carolina
+153,Drew Anderson,PF,0.9323,Stanford
+154,Zavier Zens,PF,0.9312,Illinois
+155,Symon Ghai,C,0.9307,Northwestern
+156,Noah Smith,PF,0.9304,DePaul
+157,Domen Petrovic,PF,0.9300,Florida
+157,Asim Djulovic,SF,0.9300,Butler
+157,Maksim Brnovic,PF,0.9300,Arizona
+160,Kendre Harrison,C,0.9291,Oregon
+161,Jasen Lopez,PG,0.9285,Florida State
+162,Gan-Erdene Solongo,C,0.9278,Notre Dame
+163,Chadrack Mpoyi,C,0.9268,Minnesota
+164,Jaen Chatman,PG,0.9267,Rhode Island
+165,Maper Maker,C,0.9265,Arkansas
+166,Jaidyn Coon,SF,0.9258,Iowa
+167,Mading Kuany,SF,0.9213,Georgia
+168,Marcus Gillespie,SG,0.9205,Omaha
+169,Jaylen Alexander,PG,0.9201,Kansas State
+170,Jack Kayil,CG,0.9200,Gonzaga
+170,Mantas Rubstavicius,SF,0.9200,Auburn
+170,Mantas Laurencikas,PG,0.9200,Texas
+170,Gunars Grinvalds,SF,0.9200,UCLA
+174,Nicolas Mitrovic,C,0.9197,California
+175,Torrey Brooks Jr.,PG,0.9197,Monmouth
+176,Javonte Floyd,C,0.9181,UCLA
+177,Mason Fuentes,PG,0.9174,Stetson
+178,Julius Price,SG,0.9156,Stanford
+179,Manny Green,PF,0.9154,Tennessee
+181,Marcus Vaughns,SF,0.9150,LSU
+182,Jermal Jones,SG,0.9148,Pittsburgh
+183,Cam Lomax,CG,0.9146,SMU
+184,SJ Madison,SF,0.9129,Nevada
+185,Trey Pearson,PG,0.9128,High Point
+186,Will Stevens,C,0.9123,Clemson
+187,Darien Moore,CG,0.9122,Seton Hall
+188,Justin Caldwell,PF,0.9121,Georgetown
+189,Jason Singleton,CG,0.9121,Harvard
+190,Ryan Moesch,PG,0.9116,Syracuse
+191,Tyshawn Duncan,C,0.9116,Louisiana
+192,Steven Reynolds,SG,0.9108,California Baptist
+193,Jermel Thomas,PG,0.9102,Saint Louis
+194,Keriawn Berry,SF,0.9102,Kennesaw State
+195,Yohance Connor,CG,0.9101,Ole Miss
+196,Kaiden Bailey,CG,0.9101,Georgia Tech
+198,Egor Ryzhov,C,0.9100,Miami
+198,Abdramane Siby,C,0.9100,Syracuse
+198,Egor Amosov,SF,0.9100,UConn
+198,Alec Anigbata,PF,0.9100,Utah
+202,Parker Robinson,SG,0.9100,Oklahoma State

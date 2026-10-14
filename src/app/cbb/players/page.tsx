@@ -90,11 +90,11 @@ export default async function CbbPlayersPage({ searchParams }: { searchParams: P
                   <th className="sticky top-0 z-10 bg-surface-raised px-3 py-2.5 font-medium">Team</th>
                   <th className="sticky top-0 z-10 bg-surface-raised px-2 py-2.5 font-medium">Cl</th>
                   <th className="sticky top-0 z-10 bg-surface-raised px-2 py-2.5 font-medium">Ht</th>
-                  <th className="sticky top-0 z-10 bg-surface-raised px-3 py-2.5 text-right font-medium" title="Impact: rating x expected share of the floor">Impact</th>
+                  <th className="sticky top-0 z-10 bg-surface-raised px-3 py-2.5 text-right font-medium" title="Impact = Rating x share of the game he is on the floor (MPG / 40). Rating is how good he is per possession; impact is how much he moves his TEAM, so a great bench player ranks below a great starter.">Impact</th>
                   <th className="sticky top-0 z-10 bg-surface-raised px-3 py-2.5 text-right font-medium" title="Projected rating, points per 100 possessions vs an average player">Rating</th>
                   <th className="sticky top-0 z-10 bg-surface-raised px-3 py-2.5 text-right font-medium">Off</th>
                   <th className="sticky top-0 z-10 bg-surface-raised px-3 py-2.5 text-right font-medium" title="Points per 100 allowed (lower is better)">Def</th>
-                  <th className="sticky top-0 z-10 bg-surface-raised px-3 py-2.5 text-right font-medium" title="Expected share of the team's floor time">Min %</th>
+                  <th className="sticky top-0 z-10 bg-surface-raised px-3 py-2.5 text-right font-medium" title="Projected minutes per game (a team has 200 to hand out: five players for 40 minutes)">Proj MPG</th>
                   <th className="sticky top-0 z-10 border-l border-border bg-surface-raised px-3 py-2.5 text-right font-medium">MPG</th>
                   <th className="sticky top-0 z-10 bg-surface-raised px-3 py-2.5 text-right font-medium">PPG</th>
                   <th className="sticky top-0 z-10 bg-surface-raised px-3 py-2.5 text-right font-medium">RPG</th>

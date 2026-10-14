@@ -139,6 +139,7 @@ export default async function CbbTeamPage({ params }: { params: Promise<{ id: st
                     <th className="px-2 py-2 font-medium">Cl</th>
                     <th className="px-2 py-2 font-medium">Ht</th>
                     <th className="px-3 py-2 text-right font-medium" title="Projected rating, points per 100 possessions vs an average player">Rating</th>
+                    <th className="px-3 py-2 text-right font-medium" title="Impact = Rating x share of the game he is on the floor (MPG / 40): how much he moves the team's rating">Impact</th>
                     <th className="px-3 py-2 text-right font-medium">Off</th>
                     <th className="px-3 py-2 text-right font-medium" title="Lower is better">Def</th>
                     <th className="px-3 py-2 text-right font-medium" title="Projected minutes per game (a team plays 200 player-minutes: five players for 40)">Proj MPG</th>
@@ -163,7 +164,8 @@ export default async function CbbTeamPage({ params }: { params: Promise<{ id: st
                           <td className="px-3 py-1.5 whitespace-nowrap text-foreground">{r.name}</td>
                           <td className="px-2 py-1.5 text-muted">{(s.class as string) ?? ""}</td>
                           <td className="px-2 py-1.5 whitespace-nowrap text-muted">{fmtHt(s.height)}</td>
-                          <td className={`px-3 py-1.5 text-right font-mono font-semibold ${tone(s.proj_net)}`}>{sg(s.proj_net)}</td>
+                          <td className={`px-3 py-1.5 text-right font-mono ${tone(s.proj_net)}`}>{sg(s.proj_net)}</td>
+                          <td className={`px-3 py-1.5 text-right font-mono font-semibold ${tone(r.impact)}`}>{sg(r.impact, 2)}</td>
                           <td className={`px-3 py-1.5 text-right font-mono ${tone(s.last_off)}`}>{sg(s.last_off)}</td>
                           <td className={`px-3 py-1.5 text-right font-mono ${typeof s.last_def === "number" ? (s.last_def < -0.05 ? "text-up" : s.last_def > 0.05 ? "text-down" : "text-foreground") : "text-muted"}`}>{sg(s.last_def)}</td>
                           <td className="px-3 py-1.5 text-right font-mono text-foreground">{n(s.proj_mpg, 1)}</td>
@@ -184,7 +186,8 @@ export default async function CbbTeamPage({ params }: { params: Promise<{ id: st
             </div>
           )}
           <p className="mt-2 text-[11px] text-muted">
-            Rating is each player&apos;s projected value for 2026-27 (points per 100 possessions vs an average player); Off/Def are last season&apos;s measured offence and
+            Rating is each player&apos;s projected value for 2026-27 (points per 100 possessions vs an average player); Impact is rating x the share of the game he is on the
+            floor, which is what adds up to the team&apos;s rating; Off/Def are last season&apos;s measured offence and
             defence; Proj MPG is his expected minutes a game (a team has 200 to hand out). Per-game numbers are last season&apos;s.{" "}
             <Link href="/cbb/players" className="text-accent hover:underline">
               All players ›

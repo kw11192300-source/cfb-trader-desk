@@ -60,41 +60,71 @@ def calibrate(class_year: int = 2025) -> dict:
     played = j[j["v_net"].notna() & (j["min"] >= 150)]
     print(f"class of {class_year}: {len(rec)} ranked, {int(j['v_net'].notna().sum())} found in last season's box scores, {len(played)} with 150+ minutes")
 
-    x = np.log(played["rank"].to_numpy())
-    X = np.c_[np.ones(len(x)), x]
-    wts = np.sqrt(played["min"].to_numpy())
-    beta = np.linalg.lstsq(X * wts[:, None], played["v_net"].to_numpy() * wts, rcond=None)[0]
-    pred = X @ beta
-    r2 = 1 - np.sum((played["v_net"] - pred) ** 2) / np.sum((played["v_net"] - played["v_net"].mean()) ** 2)
-    print(f"rating = {beta[0]:+.2f} + {beta[1]:+.2f} * ln(rank)   R2 {r2:.2f}")
-
-    bands = [(1, 5), (6, 15), (16, 30), (31, 50)]
-    floor = {}
+    # rank bands, each with its average first-season rating and floor share; a recruit's prior interpolates between band
+    # centres on a log-rank scale (flat beyond the ends) instead of extrapolating a fitted line to the #1 recruit
+    bands = [(1, 5), (6, 15), (16, 30), (31, 50), (51, 100), (101, 200)]
+    out_bands = []
     for lo, hi in bands:
         b = played[(played["rank"] >= lo) & (played["rank"] <= hi)]
-        floor[f"{lo}-{hi}"] = round(float(b["f"].mean()), 3) if len(b) else None
-        print(f"  ranks {lo:>2}-{hi:<2}: n={len(b):>2}, mean rating {b['v_net'].mean():+.2f}, mean floor share {b['f'].mean():.2f}")
+        if len(b) < 3:
+            continue
+        w = b["min"].to_numpy()
+        out_bands.append(
+            {
+                "lo": lo, "hi": hi, "center": round(float(np.log(np.sqrt(lo * hi))), 4), "n": int(len(b)),
+                "rating": round(float(np.average(b["v_net"], weights=w)), 2), "floor": round(float(np.average(b["f"], weights=w)), 3),
+                "rating_sd": round(float(b["v_net"].std()), 2),
+            }
+        )
+        print(f"  ranks {lo:>3}-{hi:<3}: n={len(b):>2}, mean rating {out_bands[-1]['rating']:+.2f} (sd {out_bands[-1]['rating_sd']:.1f}), mean floor share {out_bands[-1]['floor']:.2f}")
+    # a better recruit can't be worth less on average: pool adjacent bands that break the order (sample noise)
+    def pav(values: list[float], weights: list[float]) -> list[float]:
+        blocks = [[v, w, 1] for v, w in zip(values, weights)]
+        i = 0
+        while i < len(blocks) - 1:
+            if blocks[i][0] < blocks[i + 1][0] - 1e-12:  # must be non-increasing with rank
+                v = (blocks[i][0] * blocks[i][1] + blocks[i + 1][0] * blocks[i + 1][1]) / (blocks[i][1] + blocks[i + 1][1])
+                blocks[i : i + 2] = [[v, blocks[i][1] + blocks[i + 1][1], blocks[i][2] + blocks[i + 1][2]]]
+                i = max(i - 1, 0)
+            else:
+                i += 1
+        out: list[float] = []
+        for v, _, c in blocks:
+            out += [v] * c
+        return out
+
+    if out_bands:
+        ws = [b["n"] for b in out_bands]
+        for key in ("rating", "floor"):
+            smoothed = pav([b[key] for b in out_bands], ws)
+            for b, v in zip(out_bands, smoothed):
+                b[key] = round(float(v), 3 if key == "floor" else 2)
     ranked_keys = set(rec["key"])
     other = first_year[~first_year["key"].isin(ranked_keys) & (first_year["f"] >= 0.2)]
     unranked = {"rating": round(float(np.average(other["v_net"], weights=other["f"])), 2), "floor": round(float(other["f"].mean()), 3), "n": int(len(other))}
     print(f"unranked first-year players with real minutes: n={unranked['n']}, mean rating {unranked['rating']:+.2f}, mean floor share {unranked['floor']:.2f}")
 
-    out = {"class_year": class_year, "a": round(float(beta[0]), 3), "b": round(float(beta[1]), 3), "r2": round(float(r2), 3), "floor_by_band": floor, "unranked": unranked}
+    out = {"class_year": class_year, "bands": out_bands, "unranked": unranked, "max_rank": 200}
     CALIBRATION_JSON.write_text(json.dumps(out, indent=1))
     return out
 
 
 def prior(rank: int | None, cal: dict | None = None) -> tuple[float, float]:
-    """(rating, floor share f) for a freshman of this recruit rank (None = unranked)."""
+    """(rating, floor share f) for a freshman of this recruit rank (None / beyond the ranked list = unranked)."""
     cal = cal or json.loads(CALIBRATION_JSON.read_text())
-    if rank is None:
+    if rank is None or rank > cal.get("max_rank", 200):
         return float(cal["unranked"]["rating"]), float(cal["unranked"]["floor"])
-    rating = cal["a"] + cal["b"] * float(np.log(rank))
-    for band, f in cal["floor_by_band"].items():
-        lo, hi = (int(x) for x in band.split("-"))
-        if lo <= rank <= hi and f is not None:
-            return float(rating), float(f)
-    return float(rating), float(cal["unranked"]["floor"])
+    bands = cal["bands"]
+    xs = [b["center"] for b in bands]
+    lr = float(np.log(rank))
+    rating = float(np.interp(lr, xs, [b["rating"] for b in bands]))
+    floor = float(np.interp(lr, xs, [b["floor"] for b in bands]))
+    # the last band's end is #200; between it and the unranked default, fade toward the unranked values
+    if lr > xs[-1]:
+        t = min(1.0, (lr - xs[-1]) / max(np.log(200) - xs[-1], 1e-6))
+        rating = float((1 - t) * bands[-1]["rating"] + t * cal["unranked"]["rating"])
+        floor = float((1 - t) * bands[-1]["floor"] + t * cal["unranked"]["floor"])
+    return rating, floor
 
 
 def recruit_extras(roster: pd.DataFrame, extras: pd.DataFrame, season: int, last_ids: set) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
