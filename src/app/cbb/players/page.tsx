@@ -118,7 +118,7 @@ export default async function CbbPlayersPage({ searchParams }: { searchParams: P
                       <td className="px-3 py-1.5 whitespace-nowrap">
                         <Link href={`/cbb/teams/${r.team_id}`} prefetch={false} className="flex items-center gap-1.5 text-foreground hover:underline">
                           <CbbLogo teamId={r.team_id} size={16} />
-                          {r.team.replace(/ [A-Z][A-Za-z.'&-]+( [A-Z][A-Za-z.'&-]+)?$/, "") || r.team}
+                          {String(r.stats.school ?? r.team)}
                         </Link>
                       </td>
                       <td className="px-2 py-1.5 text-muted">{(s.class as string) ?? ""}</td>
@@ -127,7 +127,7 @@ export default async function CbbPlayersPage({ searchParams }: { searchParams: P
                       <td className={`px-3 py-1.5 text-right font-mono ${tone(net)}`}>{sg(net, 1)}</td>
                       <td className={`px-3 py-1.5 text-right font-mono ${tone(lastOff)}`}>{sg(lastOff, 1)}</td>
                       <td className={`px-3 py-1.5 text-right font-mono ${typeof lastDef === "number" ? (lastDef < -0.05 ? "text-up" : lastDef > 0.05 ? "text-down" : "text-foreground") : "text-muted"}`}>{sg(lastDef, 1)}</td>
-                      <td className="px-3 py-1.5 text-right font-mono text-foreground">{n(s.proj_floor, 0)}</td>
+                      <td className="px-3 py-1.5 text-right font-mono text-foreground">{n(s.proj_mpg, 1)}</td>
                       <td className="border-l border-border px-3 py-1.5 text-right font-mono text-foreground">{n(s.mpg)}</td>
                       <td className="px-3 py-1.5 text-right font-mono text-foreground">{n(s.ppg)}</td>
                       <td className="px-3 py-1.5 text-right font-mono text-foreground">{n(s.rpg)}</td>
@@ -135,7 +135,7 @@ export default async function CbbPlayersPage({ searchParams }: { searchParams: P
                       <td className="px-3 py-1.5 text-right font-mono text-foreground">{pc(s.ts_pct)}</td>
                       <td className="px-3 py-1.5 text-right font-mono text-foreground">{pc(s.tp_pct)}</td>
                       <td className="px-3 py-1.5 whitespace-nowrap text-muted">
-                        {role === "transfer" ? `from ${String(s.prev_team ?? "").replace(/ [A-Z][A-Za-z.'&-]+$/, "")}` : role}
+                        {role === "transfer" ? `from ${String(s.prev_team ?? "")}` : role}
                       </td>
                     </tr>
                   );

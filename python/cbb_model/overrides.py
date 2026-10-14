@@ -42,10 +42,22 @@ def norm(name: str) -> str:
     return re.sub(r"[^a-z]", "", s)
 
 
+TRANSFERS_CSV = Path(__file__).resolve().parent / "transfers_2026.csv"
+
+
 def load() -> pd.DataFrame:
-    if not OVERRIDES_CSV.exists():
-        return pd.DataFrame(columns=["team", "player", "action", "kind", "from_team", "net_value", "floor_share", "note", "source"])
-    return pd.read_csv(OVERRIDES_CSV, comment="#")
+    cols = ["team", "player", "action", "kind", "from_team", "net_value", "floor_share", "note", "source"]
+    ov = pd.read_csv(OVERRIDES_CSV, comment="#") if OVERRIDES_CSV.exists() else pd.DataFrame(columns=cols)
+    if TRANSFERS_CSV.exists():
+        # a published list of portal moves (player, from, to): each becomes "add as a transfer to the new school" (the
+        # school names are matched to ESPN team names in apply())
+        t = pd.read_csv(TRANSFERS_CSV)
+        add = pd.DataFrame(
+            {"team": t["to_school"], "player": t["player"], "action": "add", "kind": "transfer", "from_team": t["from_school"], "net_value": np.nan,
+             "floor_share": np.nan, "note": "portal move", "source": t["source"]}
+        )
+        ov = pd.concat([add, ov], ignore_index=True)  # hand entries come last so they win
+    return ov
 
 
 def newcomer_values(ps40: pd.DataFrame, weights: dict, seasons: range) -> tuple[float, float]:
@@ -79,6 +91,13 @@ def apply(roster: pd.DataFrame, ps40: pd.DataFrame, teams: pd.Series, weights: d
     if ov.empty:
         return roster, pd.DataFrame(columns=["team_id", "f", "v_off", "v_de", "name", "kind"]), notes
     name_to_team = {n.lower(): int(i) for i, n in teams.items()}
+    # published lists use school names ("Kentucky", "St. John's", "UConn"): ESPN's `location` field matches them
+    from .ingest import DATA_DIR as D
+
+    names_csv = D / "team_names.csv"
+    if names_csv.exists():
+        for sch, i in zip(pd.read_csv(names_csv)["school"], pd.read_csv(names_csv)["id"]):
+            name_to_team.setdefault(str(sch).lower(), int(i))
     by_name = ps40[ps40["season"] >= last_season - 2].copy()
     by_name["key"] = by_name["name"].map(norm)
     nv_o, nv_d = newcomer_values(ps40, weights, range(max(ps40["season"].min() + 1, last_season - 4), last_season + 1))
@@ -101,8 +120,10 @@ def apply(roster: pd.DataFrame, ps40: pd.DataFrame, teams: pd.Series, weights: d
         found = by_name[by_name["key"] == key].sort_values("season", ascending=False).head(1)
         if kind == "transfer" and len(found):
             # a college player: his old line carries (the roster join picks up his id); keep his own floor share unless one is set
-            roster = roster[~((roster["team_id"] == team_id) & (roster["name"].map(norm) == key))]
-            roster = pd.concat([roster, pd.DataFrame([{"team_id": team_id, "player_id": int(found.iloc[0]["player_id"]), "name": r.player}])], ignore_index=True)
+            pid = int(found.iloc[0]["player_id"])
+            # leave the old school's roster (ESPN may still list him there) and join the new one
+            roster = roster[~((roster["player_id"] == pid) | (roster["name"].map(norm) == key))]
+            roster = pd.concat([roster, pd.DataFrame([{"team_id": team_id, "player_id": pid, "name": r.player}])], ignore_index=True)
             notes.append(f"added transfer {r.player} -> {r.team}")
         else:
             net = float(r.net_value) if pd.notna(getattr(r, "net_value", np.nan)) else None

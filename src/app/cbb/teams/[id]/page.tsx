@@ -141,7 +141,7 @@ export default async function CbbTeamPage({ params }: { params: Promise<{ id: st
                     <th className="px-3 py-2 text-right font-medium" title="Projected rating, points per 100 possessions vs an average player">Rating</th>
                     <th className="px-3 py-2 text-right font-medium">Off</th>
                     <th className="px-3 py-2 text-right font-medium" title="Lower is better">Def</th>
-                    <th className="px-3 py-2 text-right font-medium">Min %</th>
+                    <th className="px-3 py-2 text-right font-medium" title="Projected minutes per game (a team plays 200 player-minutes: five players for 40)">Proj MPG</th>
                     <th className="border-l border-border px-3 py-2 text-right font-medium">MPG</th>
                     <th className="px-3 py-2 text-right font-medium">PPG</th>
                     <th className="px-3 py-2 text-right font-medium">RPG</th>
@@ -166,7 +166,7 @@ export default async function CbbTeamPage({ params }: { params: Promise<{ id: st
                           <td className={`px-3 py-1.5 text-right font-mono font-semibold ${tone(s.proj_net)}`}>{sg(s.proj_net)}</td>
                           <td className={`px-3 py-1.5 text-right font-mono ${tone(s.last_off)}`}>{sg(s.last_off)}</td>
                           <td className={`px-3 py-1.5 text-right font-mono ${typeof s.last_def === "number" ? (s.last_def < -0.05 ? "text-up" : s.last_def > 0.05 ? "text-down" : "text-foreground") : "text-muted"}`}>{sg(s.last_def)}</td>
-                          <td className="px-3 py-1.5 text-right font-mono text-foreground">{n(s.proj_floor, 0)}</td>
+                          <td className="px-3 py-1.5 text-right font-mono text-foreground">{n(s.proj_mpg, 1)}</td>
                           <td className="border-l border-border px-3 py-1.5 text-right font-mono text-foreground">{n(s.mpg)}</td>
                           <td className="px-3 py-1.5 text-right font-mono text-foreground">{n(s.ppg)}</td>
                           <td className="px-3 py-1.5 text-right font-mono text-foreground">{n(s.rpg)}</td>
@@ -185,7 +185,7 @@ export default async function CbbTeamPage({ params }: { params: Promise<{ id: st
           )}
           <p className="mt-2 text-[11px] text-muted">
             Rating is each player&apos;s projected value for 2026-27 (points per 100 possessions vs an average player); Off/Def are last season&apos;s measured offence and
-            defence; Min % is his expected share of the team&apos;s floor time. Per-game numbers are last season&apos;s.{" "}
+            defence; Proj MPG is his expected minutes a game (a team has 200 to hand out). Per-game numbers are last season&apos;s.{" "}
             <Link href="/cbb/players" className="text-accent hover:underline">
               All players ›
             </Link>

@@ -29,7 +29,10 @@ def build_rows(season: int) -> list[dict]:
     teams = pd.read_csv(DATA_DIR / "teams.csv").drop_duplicates("id").set_index("id")["name"]
     listed = roster.groupby("team_id").size()  # what ESPN lists, before hand-entered changes
     roster, extras, notes = apply_overrides(roster, ps40, teams, value_weights(ps40, tgt, season), season - 1)
-    for n in notes:
+    from .recruits import recruit_extras
+
+    roster, extras, rnotes = recruit_extras(roster, extras, season, set(ps40[ps40["season"] == season - 1]["player_id"]))
+    for n in notes + rnotes:
         print("  override:", n)
     pre = preseason_ratings(season, ps40, tgt, roster=roster, extras=extras)
     if pre is None:

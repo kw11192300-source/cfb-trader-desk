@@ -91,8 +91,13 @@ def build_rows(season: int) -> list[dict]:
     models = translation_models(pv, tgt, season - 1)
 
     teams = pd.read_csv(DATA_DIR / "teams.csv").drop_duplicates("id").set_index("id")["name"]
+    names_csv = DATA_DIR / "team_names.csv"
+    school = pd.read_csv(names_csv).set_index("id")["school"].to_dict() if names_csv.exists() else {}
     roster = current_rosters(season)
     roster, extras, _ = apply_overrides(roster, ps40, teams, weights, season - 1)
+    from .recruits import recruit_extras
+
+    roster, extras, _ = recruit_extras(roster, extras, season, set(ps40[ps40["season"] == season - 1]["player_id"]))
     level = (tgt[tgt["season"] == season - 1].set_index("team_id")["off"] - tgt[tgt["season"] == season - 1].set_index("team_id")["de"]).to_dict()
     nv_o, nv_d = newcomer_values(ps40, weights, range(max(int(ps40["season"].min()) + 1, season - 4), season))
     newcomer_net = nv_o - nv_d
@@ -107,7 +112,7 @@ def build_rows(season: int) -> list[dict]:
             continue
         has = r.player_id in last.index
         base = {"season": season, "kind": "preseason", "player_id": int(r.player_id), "name": r.name, "team_id": int(r.team_id), "team": teams.get(int(r.team_id), str(r.team_id))}
-        stats: dict = {"class": getattr(r, "class_", None) if hasattr(r, "class_") else None}
+        stats: dict = {"class": getattr(r, "class_", None) if hasattr(r, "class_") else None, "school": school.get(int(r.team_id))}
         # itertuples renames the reserved word "class"; read it from the frame instead
         stats["class"] = roster.loc[r.Index, "class"] if "class" in roster.columns else None
         stats["height"] = roster.loc[r.Index, "height"] if "height" in roster.columns else None
@@ -122,7 +127,7 @@ def build_rows(season: int) -> list[dict]:
             stats.update(
                 {
                     "role": "transfer" if moved else "returner",
-                    "prev_team": teams.get(int(p["team_id"])) if moved else None,
+                    "prev_team": (school.get(int(p["team_id"])) or teams.get(int(p["team_id"]))) if moved else None,
                     "pos": p.get("pos"), "g": int(g), "mpg": round(mn / g, 1), "ppg": round(float(p["pts"]) / g, 1),
                     "rpg": round((float(p["oreb"]) + float(p["dreb"])) / g, 1), "apg": round(float(p["ast"]) / g, 1),
                     "spg": round(float(p["stl"]) / g, 1), "bpg": round(float(p["blk"]) / g, 1), "tpg": round(float(p["tov"]) / g, 1),
@@ -147,7 +152,8 @@ def build_rows(season: int) -> list[dict]:
             {
                 "season": season, "kind": "preseason", "player_id": -(int(e.team_id) * 100 + i + 1), "name": e.name, "team_id": int(e.team_id),
                 "team": teams.get(int(e.team_id), str(e.team_id)),
-                "stats": {"role": {"intl": "international", "pro": "pro", "fr": "freshman", "jc": "juco"}.get(e.kind, "newcomer"),
+                "stats": {"school": school.get(int(e.team_id)), "recruit_rank": (None if pd.isna(getattr(e, "rank", np.nan)) else int(e.rank)),
+                          "role": {"intl": "international", "pro": "pro", "fr": "freshman", "jc": "juco"}.get(e.kind, "newcomer"),
                           "proj_net": round(float(e.v_off - e.v_de), 2), "proj_floor": round(float(e.f) * 20.0, 1), "class": None, "height": None},
             }
         )
@@ -155,6 +161,7 @@ def build_rows(season: int) -> list[dict]:
     for r in rows:
         s = r["stats"]
         s["impact"] = round(float(s["proj_net"]) * float(s["proj_floor"]) / 20.0, 2)
+        s["proj_mpg"] = round(float(s["proj_floor"]) / 100.0 * 200.0, 1)  # share of the team's 200 minutes -> minutes a game
     return rows
 
 
