@@ -865,3 +865,21 @@ create policy "public read" on nhl_goalie_stats for select using (true);
 -- output with no privacy reason to lock down. If a "public read" policy
 -- named "public read" already exists on bets from an earlier setup, drop
 -- it: drop policy if exists "public read" on bets;
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- College basketball (men's D1). Games live in the shared `games` table with sport = 'cbb' (id = -(ESPN event id +
+-- 7,000,000,000)), kept current by src/lib/cbbOdds.ts. This is the timestamped line history ESPN does not keep: one row each
+-- time any posted price moved, written by the ~10-minute timer (src/app/api/cron/cbb-odds/route.ts).
+-- ---------------------------------------------------------------------------------------------------------------------
+create table if not exists cbb_odds_snapshots (
+  id bigserial primary key,
+  game_id bigint not null references games(id) on delete cascade,
+  captured_at timestamptz not null default now(),
+  provider text,
+  ml_home int, ml_away int,
+  spread_home_line numeric, spread_home_odds int, spread_away_odds int,
+  total_line numeric, over_odds int, under_odds int
+);
+create index if not exists cbb_odds_snapshots_game_idx on cbb_odds_snapshots (game_id, captured_at);
+alter table cbb_odds_snapshots enable row level security;
+create policy "public read" on cbb_odds_snapshots for select using (true);
