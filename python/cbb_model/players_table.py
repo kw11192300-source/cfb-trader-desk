@@ -18,13 +18,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import zlib
 
 import numpy as np
 import pandas as pd
 
 from .bpm import PLAYER_SEASONS_OUT, STATS, TARGETS_OUT, per40
 from .ingest import DATA_DIR
-from .overrides import apply as apply_overrides, newcomer_values
+from .overrides import apply as apply_overrides, newcomer_values, norm
 from .preseason import current_rosters, value_weights
 
 
@@ -150,13 +151,18 @@ def build_rows(season: int) -> list[dict]:
     for i, e in enumerate(extras.itertuples()):
         rows.append(
             {
-                "season": season, "kind": "preseason", "player_id": -(int(e.team_id) * 100 + i + 1), "name": e.name, "team_id": int(e.team_id),
+                # a stable placeholder id (from team + name) so republishing updates the same row instead of leaving a stale twin
+                "season": season, "kind": "preseason", "player_id": -(zlib.crc32(f"{int(e.team_id)}:{norm(e.name)}".encode()) + 1), "name": e.name, "team_id": int(e.team_id),
                 "team": teams.get(int(e.team_id), str(e.team_id)),
                 "stats": {"school": school.get(int(e.team_id)), "recruit_rank": (None if pd.isna(getattr(e, "rank", np.nan)) else int(e.rank)),
                           "role": {"intl": "international", "pro": "pro", "fr": "freshman", "jc": "juco"}.get(e.kind, "newcomer"),
                           "proj_net": round(float(e.v_off - e.v_de), 2), "proj_floor": round(float(e.f) * 20.0, 1), "class": None, "height": None},
             }
         )
+    seen: dict[int, dict] = {}
+    for r in rows:
+        seen[r["player_id"]] = r
+    rows = list(seen.values())
     # impact = projected value x projected floor share (so a great bench player does not outrank a great starter)
     for r in rows:
         s = r["stats"]
@@ -198,7 +204,19 @@ def main() -> None:
     payload = [clean(r) for r in payload]
     for i in range(0, len(payload), 300):
         client.table("cbb_player_ratings").upsert(payload[i : i + 300], on_conflict="season,player_id,kind").execute()
-    print(f"published {len(payload):,} players")
+    # drop rows from earlier runs that are no longer on any roster (a player who moved or left, or an old placeholder id)
+    keep = {r["player_id"] for r in payload}
+    stale: list[int] = []
+    start = 0
+    while True:
+        page = client.table("cbb_player_ratings").select("player_id").eq("season", a.season).eq("kind", "preseason").range(start, start + 999).execute().data
+        stale += [x["player_id"] for x in page if x["player_id"] not in keep]
+        if len(page) < 1000:
+            break
+        start += 1000
+    for i in range(0, len(stale), 200):
+        client.table("cbb_player_ratings").delete().eq("season", a.season).eq("kind", "preseason").in_("player_id", stale[i : i + 200]).execute()
+    print(f"published {len(payload):,} players, removed {len(stale)} stale rows")
 
 
 if __name__ == "__main__":
