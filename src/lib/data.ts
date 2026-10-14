@@ -22,6 +22,7 @@ import type {
   NhlGoalieCallRow,
   NhlMarket,
   CbbTeamRating,
+  CbbPlayerRating,
   NhlGoalieStatsRow,
   NhlOddsSnapshot,
   NhlSkaterRatingRow,
@@ -764,6 +765,50 @@ export async function getNhlMarkets(gameIds: number[]): Promise<Map<number, NhlM
 /** College basketball team ratings for one season and kind (empty before the table exists or is published). */
 export async function getCbbRatings(season: number, kind: string): Promise<CbbTeamRating[]> {
   const { data, error } = await supabase.from("cbb_team_ratings").select("*").eq("season", season).eq("kind", kind).limit(1000);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw new Error(error.message);
+  }
+  return (data ?? []) as CbbTeamRating[];
+}
+
+/** Players for the CBB players page: filtered and ordered in SQL (by impact, best first) so only one screenful travels. */
+export async function getCbbPlayers(opts: {
+  season: number;
+  kind?: string;
+  teamId?: number;
+  conference?: string;
+  role?: string;
+  q?: string;
+  limit?: number;
+}): Promise<CbbPlayerRating[]> {
+  let q = supabase.from("cbb_player_ratings").select("*").eq("season", opts.season).eq("kind", opts.kind ?? "preseason");
+  if (opts.teamId !== undefined) q = q.eq("team_id", opts.teamId);
+  if (opts.conference) q = q.eq("conference", opts.conference);
+  if (opts.role) q = q.eq("stats->>role", opts.role);
+  if (opts.q) q = q.ilike("name", `%${opts.q.replace(/[%_]/g, "")}%`);
+  const { data, error } = await q.order("impact", { ascending: false, nullsFirst: false }).limit(opts.limit ?? 400);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw new Error(error.message);
+  }
+  return (data ?? []) as CbbPlayerRating[];
+}
+
+/** A team's published rating rows (preseason and last season's final), newest season first. */
+export async function getCbbTeamRatings(teamId: number): Promise<CbbTeamRating[]> {
+  const { data, error } = await supabase.from("cbb_team_ratings").select("*").eq("team_id", teamId).order("season", { ascending: false });
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw new Error(error.message);
+  }
+  return (data ?? []) as CbbTeamRating[];
+}
+
+/** Ratings for a set of teams (the opponents on a schedule), one kind and season. */
+export async function getCbbRatingsFor(teamIds: number[], season: number, kind: string): Promise<CbbTeamRating[]> {
+  if (teamIds.length === 0) return [];
+  const { data, error } = await supabase.from("cbb_team_ratings").select("*").eq("season", season).eq("kind", kind).in("team_id", teamIds);
   if (error) {
     if (isMissingTable(error)) return [];
     throw new Error(error.message);

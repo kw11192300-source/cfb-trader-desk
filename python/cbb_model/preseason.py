@@ -28,8 +28,21 @@ from .bpm import PLAYER_SEASONS_OUT, STATS, TARGETS_OUT, per40, ridge, team_feat
 FEATURES = ["prior_off", "prior_de", "prior_tempo", "proj_off", "proj_de", "unfilled", "ret_share", "trans_share", "exp_w", "n_trans", "trans_lvl"]
 
 
-def value_weights(ps40: pd.DataFrame, tgt: pd.DataFrame, upto_season: int) -> dict[str, np.ndarray]:
-    """Box-score value weights (offence and defence) fit on team-seasons strictly before `upto_season`."""
+_WEIGHT_CACHE: dict = {}
+
+
+def value_weights(ps40: pd.DataFrame, tgt: pd.DataFrame, upto_season: int, mode: str = "player") -> dict[str, np.ndarray]:
+    """Box-score value weights (offence and defence) strictly before `upto_season`. mode "player" (default) uses the weights
+    learned from lineup impact at the player level (rapm.py) when a lineup season precedes `upto_season`; otherwise, and for
+    mode "team", the older team-level regression."""
+    if mode in ("player", "player_all"):
+        from .rapm import player_level_weights
+
+        key = upto_season if mode == "player" else 10_000
+        if key not in _WEIGHT_CACHE:
+            _WEIGHT_CACHE[key] = player_level_weights(key)
+        if _WEIGHT_CACHE[key] is not None:
+            return _WEIGHT_CACHE[key]
     tf = team_features(ps40[ps40["season"] < upto_season])
     d = tf.merge(tgt[tgt["games"] >= 15], on=["season", "team_id"])
     xs = [f"x_{s}" for s in STATS]
@@ -51,8 +64,11 @@ def season_table(
     xs = [f"x_{s}" for s in STATS]
     last = ps40[ps40["season"] == S - 1].copy()
     # per-player value (without the intercept: the regression intercept is the "average floor" constant)
-    last["v_off"] = last[xs].to_numpy() @ weights["off"][1:]
-    last["v_de"] = last[xs].to_numpy() @ weights["de"][1:]
+    X = last[xs].to_numpy()
+    if "mu_x" in weights:  # player-level weights were learned on standardised features
+        X = (X - weights["mu_x"]) / weights["sd_x"]
+    last["v_off"] = X @ weights["off"][1:]
+    last["v_de"] = X @ weights["de"][1:]
     # centre by the floor-time-weighted league mean so an average player is 0
     mo = np.average(last["v_off"], weights=last["f"])
     md = np.average(last["v_de"], weights=last["f"])

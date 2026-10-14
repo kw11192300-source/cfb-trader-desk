@@ -44,6 +44,8 @@ def build_rows(season: int) -> list[dict]:
     roster_n = roster.groupby("team_id").size() if not roster.empty else pd.Series(dtype=int)
     listed_n = listed
     mu = float(last["mu"].mean()) if len(last) else 106.0
+    mu_t = float(tg[tg["season"] == season - 1]["tempo"].mean()) if len(tg) else 68.5
+    hca = 2.5  # per side, per 100 possessions (ratings.Config.hca_prior)
 
     now = pd.Timestamp.now(tz="UTC").isoformat()
     rows: list[dict] = []
@@ -62,6 +64,7 @@ def build_rows(season: int) -> list[dict]:
                 "conference": conf["conference"].get(t), "updated_at": now,
                 "stats": {
                     "rank": rank_of[t], "off": round(mu + pre.off[t], 2), "def": round(mu + pre.de[t], 2), "net": round(net, 2), "tempo": round(pre.tempo[t], 2),
+                    "mu": round(mu, 2), "hca": hca, "mu_t": round(mu_t, 2),
                     "last_net": None if prior_net is None else round(prior_net, 2),
                     "last_rank": last_rank.get(t),
                     "rank_change": None if t not in last_rank else last_rank[t] - rank_of[t],  # + = moved up the rankings

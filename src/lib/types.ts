@@ -415,6 +415,20 @@ export type CbbTeamRating = {
   updated_at: string;
 };
 
+/** One player's college basketball rating line (cbb_player_ratings). */
+export type CbbPlayerRating = {
+  season: number;
+  kind: string;
+  player_id: number;
+  name: string;
+  team_id: number;
+  team: string;
+  conference: string | null;
+  impact: number | null;
+  stats: Record<string, number | string | null>;
+  updated_at: string;
+};
+
 /** A goalie marked as unable to play (nhl_goalie_unavailable). */
 export type NhlGoalieUnavailable = {
   goalie_id: number;

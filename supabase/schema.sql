@@ -898,3 +898,24 @@ create table if not exists cbb_team_ratings (
 );
 alter table cbb_team_ratings enable row level security;
 create policy "public read" on cbb_team_ratings for select using (true);
+
+-- CBB player ratings (python/cbb_model/players_table.py): every player on a D1 roster with last season's line, a lineup-based
+-- rating and a projection for the coming season. `impact` (projected rating x projected floor share) and `conference` are real
+-- columns so the page can sort and filter in SQL instead of pulling all ~5,000 rows.
+create table if not exists cbb_player_ratings (
+  season int not null,
+  kind text not null,                 -- preseason | (later) current
+  player_id bigint not null,          -- ESPN athlete id; negative = a hand-entered player with no ESPN id yet
+  name text not null,
+  team_id bigint not null,
+  team text not null,
+  conference text,
+  impact numeric,
+  stats jsonb not null,
+  updated_at timestamptz not null default now(),
+  primary key (season, player_id, kind)
+);
+create index if not exists cbb_player_ratings_team_idx on cbb_player_ratings (season, kind, team_id);
+create index if not exists cbb_player_ratings_impact_idx on cbb_player_ratings (season, kind, impact desc);
+alter table cbb_player_ratings enable row level security;
+create policy "public read" on cbb_player_ratings for select using (true);

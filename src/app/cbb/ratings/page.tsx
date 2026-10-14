@@ -20,6 +20,7 @@ export default async function CbbRatingsPage({ searchParams }: { searchParams: P
     label: r.team,
     sub: r.kind === "preseason" && r.stats.coach ? `${shortConf(r.conference)} · ${String(r.stats.coach)}` : shortConf(r.conference),
     logo: logo(r.team_id),
+    href: `/cbb/teams/${r.team_id}`,
     conference: shortConf(r.conference),
     stats: Object.fromEntries(Object.entries(r.stats).map(([k, v]) => [k, typeof v === "number" ? v : null])),
   }));
