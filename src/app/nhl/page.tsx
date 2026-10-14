@@ -1,4 +1,5 @@
 import LogParlayForm from "@/components/LogParlayForm";
+import NhlBetStrip from "@/components/NhlBetStrip";
 import NhlGameCard from "@/components/NhlGameCard";
 import NhlRefreshButton from "@/components/NhlRefreshButton";
 import NhlToday from "@/components/NhlToday";
@@ -82,6 +83,7 @@ export default async function NhlPage({ searchParams }: { searchParams: Promise<
         <NhlRefreshButton lastPublished={lastPublished} oddsUpdated={oddsUpdated} initial={refreshStatus} />
 
         <NhlToday label={todayLabel} rows={todayRows} />
+        <NhlBetStrip bets={allBets} today={today} />
 
         <div className="mb-4">
           <LogParlayForm sport="nhl" />
