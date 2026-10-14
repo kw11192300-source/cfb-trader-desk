@@ -404,6 +404,17 @@ export type NhlEdgeLogRow = {
   profit: number | null;
 };
 
+/** One team's college basketball rating line (cbb_team_ratings). */
+export type CbbTeamRating = {
+  season: number;
+  team_id: number;
+  kind: "preseason" | "final" | "current" | string;
+  team: string;
+  conference: string | null;
+  stats: Record<string, number | string | null>;
+  updated_at: string;
+};
+
 /** A goalie marked as unable to play (nhl_goalie_unavailable). */
 export type NhlGoalieUnavailable = {
   goalie_id: number;

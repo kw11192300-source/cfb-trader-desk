@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-type Sport = "cfb" | "nfl" | "nhl";
+type Sport = "cfb" | "nfl" | "nhl" | "cbb";
 
 // Each sport's nav is scoped to what it actually has - NFL/NHL have no
 // model/odds pipeline yet (see /nfl/page.tsx, /nhl/page.tsx), so they get
@@ -36,11 +36,12 @@ const NAV_ITEMS: Record<Sport, { href: string; label: string; prefetch?: boolean
     { href: "/nhl/futures", label: "Futures" },
     { href: "/nhl/bets", label: "Bets" },
   ],
+  cbb: [{ href: "/cbb/ratings", label: "Ratings" }],
 };
 
-const SPORT_LABEL: Record<Sport, string> = { cfb: "CFB", nfl: "NFL", nhl: "NHL" };
-const SPORT_HOME: Record<Sport, string> = { cfb: "/", nfl: "/nfl", nhl: "/nhl" };
-const ALL_SPORTS: Sport[] = ["cfb", "nfl", "nhl"];
+const SPORT_LABEL: Record<Sport, string> = { cfb: "CFB", nfl: "NFL", nhl: "NHL", cbb: "CBB" };
+const SPORT_HOME: Record<Sport, string> = { cfb: "/", nfl: "/nfl", nhl: "/nhl", cbb: "/cbb/ratings" };
+const ALL_SPORTS: Sport[] = ["cfb", "nfl", "nhl", "cbb"];
 
 export default function SiteHeader({ subtitle, sport = "cfb" }: { subtitle: string; sport?: Sport }) {
   const items = NAV_ITEMS[sport];

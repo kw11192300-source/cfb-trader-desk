@@ -21,6 +21,7 @@ import type {
   NhlGoalieUnavailable,
   NhlGoalieCallRow,
   NhlMarket,
+  CbbTeamRating,
   NhlGoalieStatsRow,
   NhlOddsSnapshot,
   NhlSkaterRatingRow,
@@ -758,6 +759,28 @@ export async function getNhlMarkets(gameIds: number[]): Promise<Map<number, NhlM
   const out = new Map<number, NhlMarket>();
   for (const r of (data ?? []) as unknown as { game_id: number; market: NhlMarket | null }[]) if (r.market) out.set(r.game_id, r.market);
   return out;
+}
+
+/** College basketball team ratings for one season and kind (empty before the table exists or is published). */
+export async function getCbbRatings(season: number, kind: string): Promise<CbbTeamRating[]> {
+  const { data, error } = await supabase.from("cbb_team_ratings").select("*").eq("season", season).eq("kind", kind).limit(1000);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw new Error(error.message);
+  }
+  return (data ?? []) as CbbTeamRating[];
+}
+
+/** Which (season, kind) pairs have ratings published, newest first - drives the page's toggle. */
+export async function getCbbRatingKinds(): Promise<{ season: number; kind: string }[]> {
+  const { data, error } = await supabase.from("cbb_team_ratings").select("season, kind").limit(5000);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw new Error(error.message);
+  }
+  const seen = new Map<string, { season: number; kind: string }>();
+  for (const r of (data ?? []) as { season: number; kind: string }[]) seen.set(`${r.season}-${r.kind}`, r);
+  return [...seen.values()].sort((a, b) => b.season - a.season || (a.kind === "preseason" ? -1 : 1));
 }
 
 /** The NHL team names we have games for (as stored: ESPN's full names), alphabetical. */

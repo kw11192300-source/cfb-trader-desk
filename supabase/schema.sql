@@ -883,3 +883,18 @@ create table if not exists cbb_odds_snapshots (
 create index if not exists cbb_odds_snapshots_game_idx on cbb_odds_snapshots (game_id, captured_at);
 alter table cbb_odds_snapshots enable row level security;
 create policy "public read" on cbb_odds_snapshots for select using (true);
+
+-- CBB team ratings (python/cbb_model/publish.py): one row per team per (season, kind) - 'preseason' = the roster-based
+-- projection for the coming season, 'final' = last season's end-of-season adjusted ratings. Small by design.
+create table if not exists cbb_team_ratings (
+  season int not null,
+  team_id bigint not null,
+  kind text not null,                 -- preseason | final | (later) current
+  team text not null,
+  conference text,
+  stats jsonb not null,               -- {rank, off, def, net, tempo, last_net, change, coach, wins, losses, ...}
+  updated_at timestamptz not null default now(),
+  primary key (season, team_id, kind)
+);
+alter table cbb_team_ratings enable row level security;
+create policy "public read" on cbb_team_ratings for select using (true);

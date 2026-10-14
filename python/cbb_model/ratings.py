@@ -164,7 +164,7 @@ def load() -> pd.DataFrame:
     return tg.sort_values(["start_utc", "event_id"]).reset_index(drop=True)
 
 
-def walk_forward(tg: pd.DataFrame, cfg: Config, seasons: list[int], block_days: int = 7) -> pd.DataFrame:
+def walk_forward(tg: pd.DataFrame, cfg: Config, seasons: list[int], block_days: int = 7, prior_provider=None) -> pd.DataFrame:
     """Projections for every game of each season, each made with only the games before its week."""
     out = []
     prior: Ratings | None = None
@@ -175,6 +175,15 @@ def walk_forward(tg: pd.DataFrame, cfg: Config, seasons: list[int], block_days: 
         games = tg[(tg["season"] == s) & (tg["is_home"] == 1)]
         if games.empty:
             continue
+        if prior_provider is not None and s in seasons:
+            pre = prior_provider(s)
+            if pre is not None:
+                # the roster-based preseason projection replaces last year's rating as the prior; the league averages
+                # (scoring level, tempo, home court) still come from last season's fit
+                if prior is not None:
+                    pre.mu, pre.hca, pre.mu_t = prior.mu, prior.hca, prior.mu_t
+                    pre.n_games = {t: 0 for t in pre.off}
+                prior = pre
         if s in seasons or s == min(seasons) - 1:
             start = games["start_utc"].min().normalize()
             end = games["start_utc"].max()
@@ -251,12 +260,20 @@ def main() -> None:
     ap.add_argument("--half-life", type=float, default=Config.half_life_days)
     ap.add_argument("--lam", type=float, default=Config.lam_eff)
     ap.add_argument("--keep", type=float, default=Config.prior_keep)
+    ap.add_argument("--preseason", action="store_true", help="use the roster-based preseason projection as the prior")
     a = ap.parse_args()
-    cfg = Config(half_life_days=a.half_life, lam_eff=a.lam, prior_keep=a.keep)
+    cfg = Config(half_life_days=a.half_life, lam_eff=a.lam, prior_keep=1.0 if a.preseason else a.keep)
+    provider = None
+    if a.preseason:
+        from .bpm import PLAYER_SEASONS_OUT, TARGETS_OUT, per40
+        from .preseason import preseason_ratings
+
+        ps40, tgt = per40(pd.read_csv(PLAYER_SEASONS_OUT)), pd.read_csv(TARGETS_OUT)
+        provider = lambda s: preseason_ratings(s, ps40, tgt)  # noqa: E731
     tg = load()
     odds = pd.read_csv(CLOSING_ODDS_OUT)
     seasons = list(range(a.first, a.last + 1))
-    pred = walk_forward(tg, cfg, seasons)
+    pred = walk_forward(tg, cfg, seasons, prior_provider=provider)
     for s in seasons:
         report(pred[pred["season"] == s], odds, f"season {s}")
     report(pred, odds, f"all {a.first}-{a.last}")
