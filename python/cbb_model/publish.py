@@ -18,17 +18,23 @@ import pandas as pd
 from .bpm import PLAYER_SEASONS_OUT, TARGETS_OUT, per40
 from .ingest import DATA_DIR
 from .parse import TEAM_GAMES_OUT
-from .preseason import current_rosters, preseason_ratings
+from .overrides import apply as apply_overrides
+from .preseason import current_rosters, preseason_ratings, value_weights
 
 
 def build_rows(season: int) -> list[dict]:
     ps40 = per40(pd.read_csv(PLAYER_SEASONS_OUT))
     tgt = pd.read_csv(TARGETS_OUT)
     roster = current_rosters(season)
-    pre = preseason_ratings(season, ps40, tgt, roster=roster)
+    teams = pd.read_csv(DATA_DIR / "teams.csv").drop_duplicates("id").set_index("id")["name"]
+    listed = roster.groupby("team_id").size()  # what ESPN lists, before hand-entered changes
+    roster, extras, notes = apply_overrides(roster, ps40, teams, value_weights(ps40, tgt, season), season - 1)
+    for n in notes:
+        print("  override:", n)
+    pre = preseason_ratings(season, ps40, tgt, roster=roster, extras=extras)
     if pre is None:
         raise SystemExit("not enough history for a preseason projection")
-    teams = pd.read_csv(DATA_DIR / "teams.csv").drop_duplicates("id").set_index("id")["name"]
+    manual = extras.groupby("team_id").size() if len(extras) else pd.Series(dtype=int)
     conf = pd.read_csv(DATA_DIR / "conferences.csv")
     conf = conf[conf["season"] == conf["season"].max()].set_index("team_id")
     last = tgt[tgt["season"] == season - 1].set_index("team_id")
@@ -36,6 +42,7 @@ def build_rows(season: int) -> list[dict]:
     rec = tg[tg["season"] == season - 1].assign(w=lambda d: (d["pts"] > d["opp_pts"]).astype(int)).groupby("team_id").agg(w=("w", "sum"), g=("w", "size"))
     coach = roster.drop_duplicates("team_id").set_index("team_id")["coach"] if not roster.empty else pd.Series(dtype=object)
     roster_n = roster.groupby("team_id").size() if not roster.empty else pd.Series(dtype=int)
+    listed_n = listed
     mu = float(last["mu"].mean()) if len(last) else 106.0
 
     now = pd.Timestamp.now(tz="UTC").isoformat()
@@ -59,7 +66,10 @@ def build_rows(season: int) -> list[dict]:
                     "last_rank": last_rank.get(t),
                     "rank_change": None if t not in last_rank else last_rank[t] - rank_of[t],  # + = moved up the rankings
                     "coach": coach.get(t),
-                    "roster_n": int(roster_n.get(t, 0)),
+                    "roster_n": int(roster_n.get(t, 0)) + int(manual.get(t, 0)),
+                    "roster_listed": int(listed_n.get(t, 0)),
+                    "manual_adds": int(manual.get(t, 0)),
+                    "incomplete": 1 if int(roster_n.get(t, 0)) + int(manual.get(t, 0)) < 11 else 0,
                 },
             }
         )

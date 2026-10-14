@@ -25,7 +25,7 @@ import pandas as pd
 
 from .bpm import PLAYER_SEASONS_OUT, STATS, TARGETS_OUT, per40, ridge, team_features
 
-FEATURES = ["prior_off", "prior_de", "prior_tempo", "proj_off", "proj_de", "unfilled", "ret_share", "trans_share", "exp_w", "n_trans"]
+FEATURES = ["prior_off", "prior_de", "prior_tempo", "proj_off", "proj_de", "unfilled", "ret_share", "trans_share", "exp_w", "n_trans", "trans_lvl"]
 
 
 def value_weights(ps40: pd.DataFrame, tgt: pd.DataFrame, upto_season: int) -> dict[str, np.ndarray]:
@@ -37,7 +37,17 @@ def value_weights(ps40: pd.DataFrame, tgt: pd.DataFrame, upto_season: int) -> di
     return {"off": ridge(X, d["off"].to_numpy(), 5.0), "de": ridge(X, d["de"].to_numpy(), 5.0)}
 
 
-def season_table(ps40: pd.DataFrame, tgt: pd.DataFrame, S: int, weights: dict[str, np.ndarray], roster: pd.DataFrame | None = None) -> pd.DataFrame:
+def season_table(
+    ps40: pd.DataFrame,
+    tgt: pd.DataFrame,
+    S: int,
+    weights: dict[str, np.ndarray],
+    roster: pd.DataFrame | None = None,
+    extras: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """One row per team with the preseason features for season S. `extras` adds players who are not in last season's data -
+    internationals, pros, anyone entered by hand - as (team_id, f, v_off, v_de): their floor share and value on the same
+    scale as the box-score player values."""
     xs = [f"x_{s}" for s in STATS]
     last = ps40[ps40["season"] == S - 1].copy()
     # per-player value (without the intercept: the regression intercept is the "average floor" constant)
@@ -61,21 +71,31 @@ def season_table(ps40: pd.DataFrame, tgt: pd.DataFrame, S: int, weights: dict[st
     seen = ps40[ps40["season"] < S].groupby("player_id")["season"].nunique()
     cur["n_prev"] = cur["player_id"].map(seen).fillna(0)
 
+    # a transfer's old numbers were put up in a different context: the learned weight on the quality gap between the two teams
+    # (how much better or worse the new team was last season) is what turns a mid-major line into a high-major expectation
+    last_net = (tgt[tgt["season"] == S - 1].set_index("team_id")["off"] - tgt[tgt["season"] == S - 1].set_index("team_id")["de"]).to_dict()
+    ex = extras if extras is not None else pd.DataFrame(columns=["team_id", "f", "v_off", "v_de"])
+
     rows = []
     for t, g in cur.groupby("team_id"):
         known = g[g["f"].notna()]
         ret = known[known["prev_team"] == t]
         trans = known[known["prev_team"] != t]
         f_ret, f_tr = ret["f"].sum(), trans["f"].sum()
+        ex_t = ex[ex["team_id"] == t]
+        lvl = float(sum(f * (last_net.get(t, 0.0) - last_net.get(pt, last_net.get(t, 0.0))) for f, pt in zip(trans["f"], trans["prev_team"])))
+        f_ex = float(ex_t["f"].sum())
         # floor share of last season's roster that is back / new, plus the value they bring
         rows.append(
             {
                 "season": S, "team_id": t,
-                "proj_off": float((known["f"] * known["v_off"]).sum()),
-                "proj_de": float((known["f"] * known["v_de"]).sum()),
-                "ret_share": float(f_ret / 5.0), "trans_share": float(f_tr / 5.0),
-                "unfilled": float(max(0.0, 5.0 - (f_ret + f_tr)) / 5.0),
-                "n_trans": float(len(trans)),
+                "proj_off": float((known["f"] * known["v_off"]).sum() + (ex_t["f"] * ex_t["v_off"]).sum()),
+                "proj_de": float((known["f"] * known["v_de"]).sum() + (ex_t["f"] * ex_t["v_de"]).sum()),
+                "ret_share": float(f_ret / 5.0), "trans_share": float((f_tr + f_ex) / 5.0),
+                "unfilled": float(max(0.0, 5.0 - (f_ret + f_tr + f_ex)) / 5.0),
+                "n_trans": float(len(trans) + len(ex_t)),
+                "trans_lvl": lvl,
+                "roster_listed": float(len(g) + len(ex_t)),
                 "exp_w": float(np.average(g["n_prev"], weights=g["min"].clip(lower=1))),
             }
         )
@@ -84,7 +104,13 @@ def season_table(ps40: pd.DataFrame, tgt: pd.DataFrame, S: int, weights: dict[st
     return out.merge(p, on="team_id", how="left")
 
 
-def preseason_ratings(S: int, ps40: pd.DataFrame | None = None, tgt: pd.DataFrame | None = None, roster: pd.DataFrame | None = None):
+def preseason_ratings(
+    S: int,
+    ps40: pd.DataFrame | None = None,
+    tgt: pd.DataFrame | None = None,
+    roster: pd.DataFrame | None = None,
+    extras: pd.DataFrame | None = None,
+):
     """A ratings.Ratings holding the roster-based projection of season S's end-of-season offence/defence/tempo for every team
     that played in S-1, from models trained on seasons before S. Needs at least two earlier seasons of history."""
     from .ratings import Ratings
@@ -100,8 +126,14 @@ def preseason_ratings(S: int, ps40: pd.DataFrame | None = None, tgt: pd.DataFram
     if len(train) < 2:
         return None
     d = pd.concat(train)
-    cur = season_table(ps40, tgt, S, value_weights(ps40, tgt, S), roster=roster)
+    cur = season_table(ps40, tgt, S, value_weights(ps40, tgt, S), roster=roster, extras=extras)
     cur = cur[cur["prior_off"].notna()]
+    # ESPN rosters fill in late: a team listing fewer than 11 players has not loaded its incoming transfers/signees yet, so its
+    # missing floor time is assumed to be filled by a typical newcomer class instead of read as "nobody left to play"
+    typical_unfilled = float(d["unfilled"].mean())
+    incomplete = (cur["roster_listed"] < 11) if roster is not None else pd.Series(False, index=cur.index)
+    cur.loc[incomplete, "unfilled"] = typical_unfilled
+    cur.loc[incomplete, "trans_lvl"] = 0.0
     X, Xc = d[FEATURES].to_numpy(), cur[FEATURES].to_numpy()
     out = {}
     for key in ("off", "de", "tempo"):
