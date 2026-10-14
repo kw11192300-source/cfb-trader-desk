@@ -20,6 +20,7 @@ import type {
   NhlFuturesRow,
   NhlGoalieUnavailable,
   NhlGoalieCallRow,
+  NhlMarket,
   NhlGoalieStatsRow,
   NhlOddsSnapshot,
   NhlSkaterRatingRow,
@@ -744,6 +745,19 @@ export async function getNhlGameXg(gameIds: number[]): Promise<Map<number, NhlGa
     throw new Error(error.message);
   }
   return new Map((data as NhlGameXg[]).map((x) => [x.game_id, x]));
+}
+
+/** The stored DraftKings market (last prices we saw) for each of these NHL games, by game id. */
+export async function getNhlMarkets(gameIds: number[]): Promise<Map<number, NhlMarket>> {
+  if (gameIds.length === 0) return new Map();
+  const { data, error } = await supabase.from("nhl_predictions").select("game_id, market").in("game_id", gameIds);
+  if (error) {
+    if (isMissingTable(error)) return new Map();
+    throw new Error(error.message);
+  }
+  const out = new Map<number, NhlMarket>();
+  for (const r of (data ?? []) as unknown as { game_id: number; market: NhlMarket | null }[]) if (r.market) out.set(r.game_id, r.market);
+  return out;
 }
 
 /** The NHL team names we have games for (as stored: ESPN's full names), alphabetical. */

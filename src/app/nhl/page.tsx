@@ -1,6 +1,7 @@
 import LogParlayForm from "@/components/LogParlayForm";
 import NhlGameCard from "@/components/NhlGameCard";
 import NhlRefreshButton from "@/components/NhlRefreshButton";
+import NhlToday from "@/components/NhlToday";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import WeekTabs from "@/components/WeekTabs";
@@ -9,6 +10,7 @@ import { cautions as cautionsFor } from "@/lib/nhlContext";
 import type { NhlPrediction } from "@/lib/types";
 import { getNhlContext } from "@/lib/nhlContextData";
 import { devig } from "@/lib/nhlModel";
+import { etDay } from "@/lib/nhlTeamGames";
 import { getAvailableWeeks, getBets, getBoard, getCurrentWeek, getNhlGameXg, getNhlLastPublished, getNhlPredictions, type GradedBet } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +50,17 @@ export default async function NhlPage({ searchParams }: { searchParams: Promise<
     return cautionsFor({ home: g.home_team, away: g.away_team, startIso: g.start_date, assumptions: p.assumptions, ctx, mlGapPts: gap });
   };
 
+  // today's slate (the NHL schedule day, Eastern time) - shown above the board whichever week tab is open
+  const today = etDay(new Date().toISOString());
+  const todayRows = games
+    .filter((g) => etDay(g.start_date) === today)
+    .sort((a, b) => a.start_date.localeCompare(b.start_date))
+    .map((g) => {
+      const p = predictions.get(g.id) ?? null;
+      return { game: g, prediction: p, cautionCount: cautionsForGame(g, p).length };
+    });
+  const todayLabel = new Date(`${today}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+
   const betsByGame = new Map<number, GradedBet[]>();
   for (const gb of allBets) {
     if (gb.bet.sport !== "nhl" || gb.bet.game_id === null) continue;
@@ -67,6 +80,8 @@ export default async function NhlPage({ searchParams }: { searchParams: Promise<
         </p>
 
         <NhlRefreshButton lastPublished={lastPublished} oddsUpdated={oddsUpdated} initial={refreshStatus} />
+
+        <NhlToday label={todayLabel} rows={todayRows} />
 
         <div className="mb-4">
           <LogParlayForm sport="nhl" />

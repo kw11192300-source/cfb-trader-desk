@@ -283,6 +283,9 @@ export type NhlMarket = {
   snap_at?: string | null;
   /** Fingerprint of the model state last saved with a snapshot (goalies + win probability), so an unchanged model is free. */
   model_key?: string | null;
+  /** Alerts already announced for this game (an edge crossing the threshold, a total move), so each is sent once. Absent until
+   * the first update after alerts existed, which seeds it silently instead of announcing every standing edge. */
+  alerts?: string[];
   /** DraftKings' opening prices, as ESPN reports them. */
   ml_home_open?: number | null;
   ml_away_open?: number | null;

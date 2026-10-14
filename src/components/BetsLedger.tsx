@@ -7,6 +7,7 @@ import { deleteBet, setManualResult } from "@/lib/actions";
 import { byWeek } from "@/lib/betBreakdown";
 import type { GradedBet } from "@/lib/data";
 import type { DisplayLine } from "@/lib/mergedLines";
+import type { Clv as ExternalClv } from "@/lib/nhlBetClv";
 import type { Bet, Game } from "@/lib/types";
 
 function fmtLine(n: number): string {
@@ -111,7 +112,17 @@ const SOURCE_LABEL: Record<string, string> = { model: "Model", market: "Market",
 
 type SortMode = "placed" | "kickoff";
 
-export default function BetsLedger({ bets, showSettle = false }: { bets: GradedBet[]; showSettle?: boolean }) {
+export default function BetsLedger({
+  bets,
+  showSettle = false,
+  clvByBet,
+}: {
+  bets: GradedBet[];
+  showSettle?: boolean;
+  /** Per-bet closing-line value computed by the caller (the NHL page uses DraftKings' stored prices); when a bet is present
+   * here it replaces the built-in comparison against the merged CFB/NFL lines. */
+  clvByBet?: Record<number, ExternalClv | null>;
+}) {
   const [sortMode, setSortMode] = useState<SortMode>("kickoff");
 
   const sorted = useMemo(() => {
@@ -241,7 +252,7 @@ export default function BetsLedger({ bets, showSettle = false }: { bets: GradedB
             </thead>
             <tbody>
               {sorted.map(({ bet, game, status, profit, currentLine }) => {
-                const clv = computeClv(bet, game, currentLine);
+                const clv = clvByBet && bet.id in clvByBet ? clvByBet[bet.id] : computeClv(bet, game, currentLine);
                 return (
                 <tr key={bet.id} className="border-b border-border last:border-0 odd:bg-surface/50 hover:bg-surface-raised">
                   <td className="px-4 py-2.5 whitespace-nowrap text-xs text-muted">

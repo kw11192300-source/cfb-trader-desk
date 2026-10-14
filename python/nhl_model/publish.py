@@ -417,6 +417,18 @@ def main(argv: list[str] | None = None) -> None:
         return [(g, p / tot) for g, p in fallback] if tot > 0 else []
 
     pool_ids = {t: [g for g, _ in recent_starters(games, int(t), now, k=30) if not avail.out(g, now)] for t in team_ids}
+
+    # alerts already announced per game (kept in the stored market by the odds timer): carried over so a model refresh doesn't
+    # make every standing edge look new, or silently swallow the ones the refresh creates
+    prev_alerts: dict[int, list] = {}
+    if client is not None:
+        try:
+            ids = [_nhl_game_id(ev["espn_id"]) for ev in up_map.values()]
+            for r in client.table("nhl_predictions").select("game_id, alerts:market->alerts").in_("game_id", ids).execute().data:
+                if isinstance(r.get("alerts"), list):
+                    prev_alerts[int(r["game_id"])] = r["alerts"]
+        except Exception as e:  # noqa: BLE001
+            print(f"(previous alerts not read: {str(e)[:80]})")
     for r in upcoming.sort_values("t").itertuples():
         ev = up_map.get(int(r.game_id))
         if ev is None:
@@ -489,6 +501,8 @@ def main(argv: list[str] | None = None) -> None:
                 "top_id": top["id"] if top else None, "top_name": top["name"] if top else None, "top_p": top["weight"] if top else None,
             })
         row = prediction_row(our_id, s, assumptions, sim_params, ev["market"], now)
+        if row.get("market") is not None and our_id in prev_alerts:
+            row["market"]["alerts"] = prev_alerts[our_id]
         row["_label"] = f"{r.away_abbrev} @ {r.home_abbrev}"
         row["_goalies"] = f"{assumptions_goalies['away'][0]['name'] if assumptions_goalies['away'] else '?'} ({sources['away']}) v {assumptions_goalies['home'][0]['name'] if assumptions_goalies['home'] else '?'} ({sources['home']})"
         preds.append(row)

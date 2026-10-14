@@ -108,6 +108,14 @@ export async function fetchEspnMarkets(fetchedAt: string): Promise<{ markets: Ma
   return { markets: incoming, goalies };
 }
 
+// ---------------------------------------------------------------- alerts
+
+const ALERT_EV = Number(process.env.NHL_ALERT_EV ?? "0.05"); // a side newly worth at least this much per $1
+const ALERT_TOTAL_MOVE = Number(process.env.NHL_ALERT_TOTAL_MOVE ?? "0.5"); // a total moving at least this far
+
+const nickOf = (t: string) => t.split(" ").slice(-1)[0];
+const fmtPrice = (n: number) => (n > 0 ? `+${n}` : `${n}`);
+
 // ---------------------------------------------------------------- goalie news between model refreshes
 
 async function sendTelegram(text: string): Promise<void> {
@@ -254,7 +262,7 @@ async function applyGoalieCalls(calls: Map<number, { home?: GoalieCall; away?: G
     if (!todo.home && !todo.away) continue;
 
     // full row (the simulation inputs are big, so they are only read when something actually changed)
-    const { data: full } = await supabaseAdmin.from("nhl_predictions").select("p_home, sim_params, assumptions").eq("game_id", gameId).maybeSingle();
+    const { data: full } = await supabaseAdmin.from("nhl_predictions").select("p_home, sim_params, assumptions, market").eq("game_id", gameId).maybeSingle();
     const sp = full?.sim_params as NhlPrediction["sim_params"];
     const cur = full?.assumptions as NonNullable<NhlPrediction["assumptions"]>;
     if (!sp || !cur) continue;
@@ -327,8 +335,21 @@ async function applyGoalieCalls(calls: Map<number, { home?: GoalieCall; away?: G
 
     const { data: g } = await supabaseAdmin.from("games").select("home_team, away_team").eq("id", gameId).maybeSingle();
     const before = Number((full as { p_home?: number }).p_home ?? sim.p_home);
+    // and what the news did to the best price on the board
+    let edgeLine = "";
+    const mk = (full as { market?: NhlMarket | null }).market ?? null;
+    if (mk) {
+      const best = marketEdges(
+        { p_home: sim.p_home, margin_dist: sim.margin_dist as NhlPrediction["margin_dist"], total_dist: sim.total_dist as NhlPrediction["total_dist"], market: mk },
+        g?.home_team ?? "Home",
+        g?.away_team ?? "Away",
+      )
+        .filter((e) => e.ev >= 0.03)
+        .sort((a, b) => b.ev - a.ev)[0];
+      if (best) edgeLine = `\nBest price now: ${best.market} ${best.side} ${fmtPrice(best.bookOdds)} - model ${(best.model * 100).toFixed(1)}% vs ${(best.bookImplied * 100).toFixed(1)}% needed, EV ${(best.ev * 100).toFixed(1)}%`;
+    }
     await sendTelegram(
-      `🥅 ${g?.away_team ?? "Away"} @ ${g?.home_team ?? "Home"}\n${notes.join("\n")}\nModel: ${g?.home_team ?? "Home"} win ${(before * 100).toFixed(1)}% → ${(sim.p_home * 100).toFixed(1)}%`,
+      `🥅 ${g?.away_team ?? "Away"} @ ${g?.home_team ?? "Home"}\n${notes.join("\n")}\nModel: ${g?.home_team ?? "Home"} win ${(before * 100).toFixed(1)}% → ${(sim.p_home * 100).toFixed(1)}%${edgeLine}`,
     );
   }
   return updated;
@@ -513,6 +534,7 @@ export async function updateNhlOdds(): Promise<OddsUpdateResult> {
     );
 
     const snapRows: Record<string, unknown>[] = [];
+    const alertLines: string[] = [];
     const updates = (preds ?? []).map((p) => {
       const next = incoming.get(p.game_id as number)!;
       const prev = (p.market ?? null) as NhlMarket | null;
@@ -535,7 +557,33 @@ export async function updateNhlOdds(): Promise<OddsUpdateResult> {
         }
       }
       const needSnap = priceSnap || modelChanged;
-      const market: NhlMarket = { ...(prev ?? {}), ...next, model_key: hasModelCols ? key : (prev?.model_key ?? null), snap_at: needSnap ? fetchedAt : (saved?.snap_at ?? fetchedAt) };
+
+      // alerts: a total that moved, or a side that newly clears the EV threshold. Each is announced once per game; the first
+      // run that sees a game (no `alerts` yet) records what is already there without announcing it.
+      const t = nameById.get(p.game_id as number);
+      const label = `${nickOf(t?.away_team ?? "Away")} @ ${nickOf(t?.home_team ?? "Home")}`;
+      const announced = new Set<string>(prev?.alerts ?? []);
+      const firstLook = prev?.alerts === undefined;
+      if (!firstLook && saved && saved.total_line !== null && next.total_line !== null && Math.abs(next.total_line - saved.total_line) >= ALERT_TOTAL_MOVE) {
+        const k = `total:${next.total_line}`;
+        if (!announced.has(k)) {
+          announced.add(k);
+          alertLines.push(`📈 ${label}: total ${saved.total_line} → ${next.total_line} (model expects ${Object.entries((p.total_dist ?? {}) as Record<string, number>).reduce((acc, [k, v]) => acc + Number(k) * v, 0).toFixed(1)})`);
+        }
+      }
+      for (const e of marketEdges(
+        { p_home: p.p_home as number, margin_dist: p.margin_dist as NhlPrediction["margin_dist"], total_dist: p.total_dist as NhlPrediction["total_dist"], market: next as NhlMarket },
+        t?.home_team ?? "Home",
+        t?.away_team ?? "Away",
+      )) {
+        if (e.ev < ALERT_EV) continue;
+        const k = `edge:${e.market}:${e.side}:${e.line ?? ""}`;
+        if (announced.has(k)) continue;
+        announced.add(k);
+        if (!firstLook) alertLines.push(`🎯 ${label}: ${e.market} ${e.side} ${fmtPrice(e.bookOdds)} - model ${(e.model * 100).toFixed(1)}% vs ${(e.bookImplied * 100).toFixed(1)}% needed (EV +${(e.ev * 100).toFixed(1)}%)`);
+      }
+
+      const market: NhlMarket = { ...(prev ?? {}), ...next, model_key: hasModelCols ? key : (prev?.model_key ?? null), snap_at: needSnap ? fetchedAt : (saved?.snap_at ?? fetchedAt), alerts: [...announced] };
       if (needSnap) {
         snapRows.push({
           game_id: p.game_id,
@@ -564,6 +612,11 @@ export async function updateNhlOdds(): Promise<OddsUpdateResult> {
       }),
     );
     if (failures.length > 0) return fail(`Some updates failed: ${failures[0]}`);
+
+    if (alertLines.length > 0) {
+      const shown = alertLines.slice(0, 8);
+      await sendTelegram(`${shown.join("\n")}${alertLines.length > shown.length ? `\n…and ${alertLines.length - shown.length} more` : ""}\n(baseline model - not a betting signal)`);
+    }
 
     if (snapRows.length > 0) {
       const snapErr = await insertSnapshots(snapRows);
