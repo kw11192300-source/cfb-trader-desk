@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import { sendGameAlerts } from "@/lib/nhlGameAlerts";
 import { testTelegram, updateNhlOdds, updateNhlScores } from "@/lib/nhlOdds";
 
 // Called on a timer (every ~10 minutes) by an outside scheduler - cron-job.org, or Vercel Cron on a plan that allows
@@ -23,6 +24,11 @@ export async function GET(request: Request) {
   }
   if (!authorized(request)) return Response.json({ ok: false, message: "Unauthorized." }, { status: 401 });
 
+  // `?alerts=dry` shows the puck-drop / final messages that would go out, without sending or recording anything
+  if (new URL(request.url).searchParams.get("alerts") === "dry") {
+    return Response.json(await sendGameAlerts({ dry: true }));
+  }
+
   // `?telegram=test` just sends a test message (to confirm the bot setup) and skips the update
   if (new URL(request.url).searchParams.get("telegram") === "test") {
     const t = await testTelegram();
@@ -32,11 +38,13 @@ export async function GET(request: Request) {
   // scores first, so the grading at the end of the odds update already sees anything that just went final
   const scores = await updateNhlScores();
   const result = await updateNhlOdds();
+  // puck-drop and final messages for games you have bets on (after the update, so scores and prices are fresh)
+  const gameAlerts = await sendGameAlerts().catch(() => ({ pregame: 0, final: 0 }));
   if (result.ok) {
     revalidatePath("/nhl");
     revalidatePath("/nhl/edges");
     revalidatePath("/nhl/bets");
     revalidatePath("/nhl/performance");
   }
-  return Response.json({ ...result, scores }, { status: result.ok ? 200 : 502 });
+  return Response.json({ ...result, scores, gameAlerts }, { status: result.ok ? 200 : 502 });
 }

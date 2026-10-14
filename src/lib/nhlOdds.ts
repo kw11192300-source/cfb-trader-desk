@@ -139,7 +139,7 @@ const fmtPrice = (n: number) => (n > 0 ? `+${n}` : `${n}`);
 
 // ---------------------------------------------------------------- goalie news between model refreshes
 
-async function sendTelegram(text: string): Promise<void> {
+export async function sendTelegram(text: string): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chat = process.env.TELEGRAM_CHAT_ID;
   if (!token || !chat) return;
