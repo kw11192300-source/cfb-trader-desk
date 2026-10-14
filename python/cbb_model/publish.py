@@ -42,6 +42,10 @@ def build_rows(season: int) -> list[dict]:
     rows: list[dict] = []
     ranked = sorted(pre.off, key=lambda t: -(pre.off[t] - pre.de[t]))
     rank_of = {t: i + 1 for i, t in enumerate(ranked)}
+    # last season's rank among the same D1 teams (ranks compare across seasons; the nets are on different scales because a
+    # projection is compressed toward average)
+    last_order = sorted((t for t in last.index if t in conf.index), key=lambda t: -(last.loc[t, "off"] - last.loc[t, "de"]))
+    last_rank = {t: i + 1 for i, t in enumerate(last_order)}
     for t in ranked:
         net = pre.off[t] - pre.de[t]
         prior_net = float(last.loc[t, "off"] - last.loc[t, "de"]) if t in last.index else None
@@ -52,14 +56,15 @@ def build_rows(season: int) -> list[dict]:
                 "stats": {
                     "rank": rank_of[t], "off": round(mu + pre.off[t], 2), "def": round(mu + pre.de[t], 2), "net": round(net, 2), "tempo": round(pre.tempo[t], 2),
                     "last_net": None if prior_net is None else round(prior_net, 2),
-                    "change": None if prior_net is None else round(net - prior_net, 2),
+                    "last_rank": last_rank.get(t),
+                    "rank_change": None if t not in last_rank else last_rank[t] - rank_of[t],  # + = moved up the rankings
                     "coach": coach.get(t),
                     "roster_n": int(roster_n.get(t, 0)),
                 },
             }
         )
     # last season's final ratings
-    fr = sorted(last.index, key=lambda t: -(last.loc[t, "off"] - last.loc[t, "de"]))
+    fr = sorted((t for t in last.index if t in conf.index), key=lambda t: -(last.loc[t, "off"] - last.loc[t, "de"]))  # D1 teams only
     for i, t in enumerate(fr):
         w = rec.loc[t, "w"] if t in rec.index else None
         g = rec.loc[t, "g"] if t in rec.index else None

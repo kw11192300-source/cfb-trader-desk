@@ -17,8 +17,8 @@ function colsFor(kind: string): StatCol[] {
   ];
   if (kind === "preseason") {
     base.push(
-      col("last_net", "Last yr", "Last season's end-of-season net rating", 1),
-      col("change", "Change", "Preseason net minus last season's net - roster turnover and regression to the mean", 1, true),
+      col("last_rank", "Last yr", "Where the team finished last season's adjusted-efficiency rankings", 0),
+      col("rank_change", "Move", "Places gained (+) or lost (-) against last season's final ranking - roster turnover, transfers and regression to the mean", 0, true),
     );
   } else {
     base.push(col("wins", "W", "Wins last season", 0), col("losses", "L", "Losses last season", 0));
