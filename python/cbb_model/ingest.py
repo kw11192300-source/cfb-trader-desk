@@ -363,11 +363,31 @@ def ingest_rosters() -> None:
     _run_pool("rosters", jobs, one)
 
 
+# ------------------------------------------------------------------ conferences
+
+CONFERENCES_CSV = DATA_DIR / "conferences.csv"
+
+
+def ingest_conferences(first: int, last: int) -> None:
+    """Which conference each team was in, season by season (realignment moves teams), from ESPN's standings feed. The feed
+    labels a season by the year it ends, so the season starting in `s` is asked for as s + 1."""
+    rows = []
+    for s in range(first, last + 1):
+        j = _get_json("https://site.api.espn.com/apis/v2/sports/basketball/mens-college-basketball/standings", {"level": 3, "season": s + 1})
+        for conf in (j or {}).get("children", []):
+            for e in conf.get("standings", {}).get("entries", []):
+                t = e.get("team", {})
+                rows.append({"season": s, "conference": conf.get("name"), "conf_abbrev": conf.get("abbreviation"), "team_id": int(t["id"]), "team": t.get("displayName")})
+    df = pd.DataFrame(rows).drop_duplicates(["season", "team_id"])
+    df.to_csv(CONFERENCES_CSV, index=False)
+    print(f"conferences: {len(df):,} team-seasons, {df.groupby('season')['team_id'].nunique().to_dict()}", flush=True)
+
+
 # ------------------------------------------------------------------ cli
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("what", choices=["schedule", "games", "odds", "rosters", "all"])
+    ap.add_argument("what", choices=["schedule", "games", "odds", "rosters", "conferences", "all"])
     ap.add_argument("--first", type=int, default=2018)
     ap.add_argument("--last", type=int, default=season_of(dt.date.today()))
     a = ap.parse_args()
@@ -375,6 +395,8 @@ def main() -> None:
         ingest_schedule(a.first, a.last)
     if a.what in ("rosters", "all"):
         ingest_rosters()
+    if a.what in ("conferences", "all"):
+        ingest_conferences(a.first, a.last)
     if a.what in ("odds", "all"):
         ingest_odds(max(a.first, 2022), a.last)
     if a.what in ("games", "all"):
