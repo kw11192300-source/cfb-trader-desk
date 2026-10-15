@@ -69,6 +69,32 @@ function parseMarket(o: EspnOdds): CbbMarket {
   };
 }
 
+/** ESPN's own "open" line for the game (the first number its provider posted). Kept apart from the snapshot rows: the snapshot
+ * table logs every change we observe, this is the single opening number, and a failure to save it must never stop logging. */
+export type CbbOpen = {
+  spread_home_open: number | null;
+  total_open: number | null;
+  ml_home_open: number | null;
+  ml_away_open: number | null;
+  spread_home_odds_open: number | null;
+  total_odds_open: number | null;
+};
+
+function parseOpen(o: EspnOdds): CbbOpen | null {
+  const ml = o.moneyline ?? {};
+  const ps = o.pointSpread ?? {};
+  const tot = o.total ?? {};
+  const open: CbbOpen = {
+    spread_home_open: num(ps.home?.open?.line),
+    total_open: num(tot.over?.open?.line),
+    ml_home_open: price(ml.home?.open?.odds),
+    ml_away_open: price(ml.away?.open?.odds),
+    spread_home_odds_open: price(ps.home?.open?.odds),
+    total_odds_open: price(tot.over?.open?.odds),
+  };
+  return Object.values(open).some((v) => v !== null) ? open : null;
+}
+
 type EspnEvent = {
   id: string;
   date: string;
@@ -163,12 +189,43 @@ export async function updateCbbOdds(): Promise<CbbUpdateResult> {
 
   // ---- odds: every not-yet-started game with a posted line; a snapshot whenever any price moved
   const incoming = new Map<number, CbbMarket>();
+  const opens: Record<string, unknown>[] = [];
   for (const e of events) {
     if (e.status?.type?.state !== "pre") continue;
     const o = e.competitions![0].odds?.[0];
     if (!o) continue;
     const m = parseMarket(o);
-    if (PRICE_FIELDS.some((k) => m[k] !== null)) incoming.set(-(Number(e.id) + CBB_GAME_ID_OFFSET), m);
+    const gid = -(Number(e.id) + CBB_GAME_ID_OFFSET);
+    if (PRICE_FIELDS.some((k) => m[k] !== null)) incoming.set(gid, m);
+    const op = parseOpen(o);
+    if (op) opens.push({ game_id: gid, provider: m.provider, first_seen_at: fetchedAt, ...op });
+  }
+  // finished games: save ESPN's closing numbers once (the movement model's form features need each team's results vs the close)
+  const closes: Record<string, unknown>[] = [];
+  for (const e of events) {
+    if (!e.status?.type?.completed) continue;
+    const o = e.competitions![0].odds?.[0];
+    if (!o) continue;
+    const m = parseMarket(o);
+    if (m.spread_home_line === null && m.total_line === null) continue;
+    closes.push({ game_id: -(Number(e.id) + CBB_GAME_ID_OFFSET), spread_home_close: m.spread_home_line, total_close: m.total_line, ml_home_close: m.ml_home, ml_away_close: m.ml_away });
+  }
+  if (closes.length > 0) {
+    try {
+      for (let i = 0; i < closes.length; i += 400) await supabaseAdmin.from("cbb_game_opens").upsert(closes.slice(i, i + 400), { onConflict: "game_id" });
+    } catch {
+      /* ignore */
+    }
+  }
+  if (opens.length > 0) {
+    // first one wins (ESPN's open does not change); never let this stop the logger (the table may not exist yet)
+    try {
+      for (let i = 0; i < opens.length; i += 400) {
+        await supabaseAdmin.from("cbb_game_opens").upsert(opens.slice(i, i + 400), { onConflict: "game_id", ignoreDuplicates: true });
+      }
+    } catch {
+      /* ignore */
+    }
   }
   if (incoming.size === 0) {
     return { ok: true, message: `${events.length} games synced; no lines posted yet.`, games: events.length, priced: 0, moved: 0, snapshots: 0, live, final };

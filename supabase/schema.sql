@@ -919,3 +919,38 @@ create index if not exists cbb_player_ratings_team_idx on cbb_player_ratings (se
 create index if not exists cbb_player_ratings_impact_idx on cbb_player_ratings (season, kind, impact desc);
 alter table cbb_player_ratings enable row level security;
 create policy "public read" on cbb_player_ratings for select using (true);
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- CBB game board. cbb_game_opens: ESPN's own opening numbers per game (first seen by src/lib/cbbOdds.ts; one row, never changed).
+-- cbb_game_board: the model's read on every upcoming game, rewritten by python/cbb_model/board.py - projection, fair prices,
+-- where we expect each line to close, and the side that earns closing-line value at the open.
+-- ---------------------------------------------------------------------------------------------------------------------
+create table if not exists cbb_game_opens (
+  game_id bigint primary key references games(id) on delete cascade,
+  provider text,
+  first_seen_at timestamptz not null default now(),
+  spread_home_open numeric, total_open numeric,
+  ml_home_open int, ml_away_open int,
+  spread_home_odds_open int, total_odds_open int,
+  -- ESPN's closing numbers, saved when the game is final (feeds each team's results-vs-the-market form)
+  spread_home_close numeric, total_close numeric, ml_home_close int, ml_away_close int
+);
+alter table cbb_game_opens enable row level security;
+create policy "public read" on cbb_game_opens for select using (true);
+
+create table if not exists cbb_game_board (
+  game_id bigint primary key references games(id) on delete cascade,
+  start_date timestamptz not null,
+  season int not null,
+  home_team_id bigint, away_team_id bigint,
+  home_team text not null, away_team text not null,
+  spread_clv numeric,               -- expected closing-line value (points) of the best spread side at the open
+  total_clv numeric,                -- same for the total (over or under)
+  spread_move numeric,              -- predicted close - open of the home margin (+ = line moves toward home)
+  total_move numeric,               -- predicted close - open of the total
+  payload jsonb not null,           -- model, market, expected close, fair moneylines, bets, drivers
+  updated_at timestamptz not null default now()
+);
+create index if not exists cbb_game_board_start_idx on cbb_game_board (start_date);
+alter table cbb_game_board enable row level security;
+create policy "public read" on cbb_game_board for select using (true);

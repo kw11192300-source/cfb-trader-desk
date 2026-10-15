@@ -6,3 +6,6 @@ __pycache__/
 *.pkl
 preseason_calibration.*
 *.log
+
+# the small movement model the GitHub Actions board job loads
+!models/*.pkl
