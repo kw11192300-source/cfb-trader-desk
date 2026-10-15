@@ -28,7 +28,7 @@ def _season_of(ts: pd.Timestamp) -> int:
     return t.year if t.month >= 8 else t.year - 1
 
 
-def load_ratings(client, season: int) -> tuple[Ratings, dict, dict, dict]:
+def load_ratings(client, season: int) -> tuple[Ratings, dict, dict, dict, dict]:
     """(Ratings, team name -> id, id -> conference, id -> name) from the published rows."""
     for kind in ("current", "preseason"):
         rows = _all(client.table("cbb_team_ratings").select("team_id,team,conference,stats").eq("season", season).eq("kind", kind))
@@ -45,7 +45,8 @@ def load_ratings(client, season: int) -> tuple[Ratings, dict, dict, dict]:
     name_to_id = {r["team"]: int(r["team_id"]) for r in rows}
     conf = {int(r["team_id"]): r.get("conference") for r in rows}
     id_to_name = {int(r["team_id"]): r["team"] for r in rows}
-    return ratings, name_to_id, conf, id_to_name
+    school = {int(r["team_id"]): r["stats"].get("school") or r["team"] for r in rows}
+    return ratings, name_to_id, conf, id_to_name, school
 
 
 def team_games_frame(finals: pd.DataFrame) -> pd.DataFrame:
@@ -93,7 +94,7 @@ def refresh(days: int = 3, dry_run: bool = False) -> None:
     up = pd.DataFrame(up)
     up["start"] = pd.to_datetime(up["start_date"], utc=True)
     season = _season_of(up["start"].min())
-    ratings, name_to_id, conf, id_to_name = load_ratings(client, season)
+    ratings, name_to_id, conf, id_to_name, school = load_ratings(client, season)
     up["home_id"] = up["home_team"].map(name_to_id)
     up["away_id"] = up["away_team"].map(name_to_id)
     miss = up[up["home_id"].isna() | up["away_id"].isna()]
@@ -177,6 +178,7 @@ def refresh(days: int = 3, dry_run: bool = False) -> None:
             {
                 "game_id": gid, "start_utc": g.start, "season": int(g.season), "home_id": int(g.home_id), "away_id": int(g.away_id),
                 "home_team": g.home_team, "away_team": g.away_team,
+                "home_school": school.get(int(g.home_id)), "away_school": school.get(int(g.away_id)),
                 "spread": p["spread"], "total": p["total"], "poss": p["poss"], "neutral": float(bool(g.neutral_site)), "conf_game": float(same_conf),
                 "n_h": float(len(ph)), "n_a": float(len(pa)),
                 "mo": -open_spread if open_spread is not None else np.nan, "total_open": open_total if open_total is not None else np.nan,
@@ -220,6 +222,13 @@ def refresh(days: int = 3, dry_run: bool = False) -> None:
     ]
     print(f"{len(out)} games scored ({int((~nolines).sum())} with lines)")
     if dry_run:
+        import os
+
+        if os.environ.get("BOARD_DUMP"):
+            import json
+
+            with open(os.environ["BOARD_DUMP"], "w", encoding="utf-8") as fh:
+                json.dump(out, fh)
         for r in out[:8]:
             print(" ", r["away_team"], "@", r["home_team"], "| spread clv", r["spread_clv"], "total clv", r["total_clv"], "| move", r["spread_move"], r["total_move"])
         return

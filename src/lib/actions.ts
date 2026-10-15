@@ -173,6 +173,24 @@ export async function triggerNhlRefresh(): Promise<{ ok: boolean; message: strin
   return { ok: false, message: `GitHub returned ${res.status}.` };
 }
 
+/** Starts the CBB board job (.github/workflows/cbb-board.yml): rescores every upcoming game against the lines logged so far. Light
+ * (~1-2 minutes, no history cache); overlapping runs queue behind each other, so calling it often is safe. */
+export async function triggerCbbBoard(): Promise<{ ok: boolean; message: string }> {
+  if (!process.env.GITHUB_DISPATCH_TOKEN) {
+    return { ok: false, message: "Board refresh isn't set up yet: GITHUB_DISPATCH_TOKEN is missing." };
+  }
+  const res = await github("/actions/workflows/cbb-board.yml/dispatches", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ref: "main" }),
+  });
+  if (res.status === 204) return { ok: true, message: "Board refresh started." };
+  if (res.status === 404 || res.status === 403 || res.status === 401) {
+    return { ok: false, message: "GitHub refused the request - check the token has Actions read & write on the repo." };
+  }
+  return { ok: false, message: `GitHub returned ${res.status}.` };
+}
+
 /** Odds-only refresh behind the "Update DK odds" button: re-reads ESPN's DraftKings lines for upcoming games in a few
  * seconds, no model refit (the model's own numbers are untouched, so compare against it only until the next full refresh
  * changes lineups or ratings). The same update runs on a timer - see src/lib/nhlOdds.ts. */

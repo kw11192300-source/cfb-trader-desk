@@ -98,6 +98,7 @@ def score(df: pd.DataFrame, bundle: dict) -> pd.DataFrame:
 def row_payload(r: pd.Series) -> dict:
     f = lambda v, n=2: None if v is None or (isinstance(v, float) and np.isnan(v)) else round(float(v), n)  # noqa: E731
     return {
+        "teams": {"home": r.get("home_school"), "away": r.get("away_school")},
         "model": {
             "spread": f(r["spread"]), "total": f(r["total"]), "home_win": f(r["model_win_home"], 4), "poss": f(r.get("poss"), 1),
             "fair_ml_home": american(float(r["model_win_home"])), "fair_ml_away": american(1 - float(r["model_win_home"])),

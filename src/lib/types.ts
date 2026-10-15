@@ -429,6 +429,42 @@ export type CbbPlayerRating = {
   updated_at: string;
 };
 
+/** What the model says about one upcoming college basketball game (cbb_game_board, written by python/cbb_model/board.py). */
+export type CbbBoardPayload = {
+  teams?: { home: string | null; away: string | null };
+  model: { spread: number | null; total: number | null; home_win: number | null; poss: number | null; fair_ml_home: number | null; fair_ml_away: number | null; home_pts: number | null; away_pts: number | null };
+  market: {
+    open_margin: number | null; open_total: number | null; cur_margin: number | null; cur_total: number | null;
+    ml_home: number | null; ml_away: number | null; spread_odds: number | null; over_odds: number | null; under_odds: number | null;
+  };
+  move: {
+    spread: number | null; total: number | null; exp_close_margin: number | null; exp_close_total: number | null;
+    remaining_spread: number | null; remaining_total: number | null; mover_rank: number | null;
+  };
+  bets: {
+    spread: { side: "home" | "away" | null; clv: number | null; p_cover_home: number | null };
+    total: { side: "over" | "under" | null; clv: number | null; p_over: number | null };
+    ml: { side: "home" | "away" | null; clv_p: number | null; exp_close_p_home: number | null; cur_p_home: number | null };
+  };
+  drivers: Record<string, number | null>;
+};
+
+export type CbbBoardRow = {
+  game_id: number;
+  start_date: string;
+  season: number;
+  home_team_id: number | null;
+  away_team_id: number | null;
+  home_team: string;
+  away_team: string;
+  spread_clv: number | null;
+  total_clv: number | null;
+  spread_move: number | null;
+  total_move: number | null;
+  payload: CbbBoardPayload;
+  updated_at: string;
+};
+
 /** A goalie marked as unable to play (nhl_goalie_unavailable). */
 export type NhlGoalieUnavailable = {
   goalie_id: number;

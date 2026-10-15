@@ -1,0 +1,31 @@
+name: CBB board
+
+# Rescores every upcoming college basketball game: our projection, where each line should close and the side that earns
+# closing-line value now (python -m cbb_model.board refresh). Everything it needs is in Supabase (published ratings, the
+# game list, the logged lines, ESPN's opens/closes), so there is no history cache and a run takes a minute or two.
+# Dispatched on a timer by /api/cron/cbb-board (cron-job.org) or by hand from the Actions tab.
+on:
+  workflow_dispatch: {}
+
+# one at a time; a second trigger while one is running just queues
+concurrency:
+  group: cbb-board
+  cancel-in-progress: false
+
+jobs:
+  board:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r python/requirements.txt
+      - name: Score the board
+        working-directory: python
+        env:
+          PYTHONUNBUFFERED: "1"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: python -m cbb_model.board refresh --days 3

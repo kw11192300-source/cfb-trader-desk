@@ -27,6 +27,7 @@ def build_rows(season: int) -> list[dict]:
     tgt = pd.read_csv(TARGETS_OUT)
     roster = current_rosters(season)
     teams = pd.read_csv(DATA_DIR / "teams.csv").drop_duplicates("id").set_index("id")["name"]
+    school = pd.read_csv(DATA_DIR / "team_names.csv").drop_duplicates("id").set_index("id")["school"].to_dict()
     listed = roster.groupby("team_id").size()  # what ESPN lists, before hand-entered changes
     roster, extras, notes = apply_overrides(roster, ps40, teams, value_weights(ps40, tgt, season), season - 1)
     from .recruits import recruit_extras
@@ -71,6 +72,7 @@ def build_rows(season: int) -> list[dict]:
                 "season": season, "team_id": int(t), "kind": "preseason", "team": teams.get(t, str(t)),
                 "conference": conf["conference"].get(t), "updated_at": now,
                 "stats": {
+                    "school": school.get(int(t)),
                     "rank": rank_of[t], "off": round(mu + pre.off[t], 2), "def": round(mu + pre.de[t], 2), "net": round(net, 2), "tempo": round(pre.tempo[t], 2),
                     "mu": round(mu, 2), "hca": hca, "mu_t": round(mu_t, 2),
                     "last_net": None if prior_net is None else round(prior_net, 2),

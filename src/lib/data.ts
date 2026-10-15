@@ -23,6 +23,7 @@ import type {
   NhlMarket,
   CbbTeamRating,
   CbbPlayerRating,
+  CbbBoardRow,
   NhlGoalieStatsRow,
   NhlOddsSnapshot,
   NhlSkaterRatingRow,
@@ -826,6 +827,42 @@ export async function getCbbRatingKinds(): Promise<{ season: number; kind: strin
   const seen = new Map<string, { season: number; kind: string }>();
   for (const r of (data ?? []) as { season: number; kind: string }[]) seen.set(`${r.season}-${r.kind}`, r);
   return [...seen.values()].sort((a, b) => b.season - a.season || (a.kind === "preseason" ? -1 : 1));
+}
+
+/** The CBB board for a time window (games the model has scored), soonest first. */
+export async function getCbbBoard(fromIso: string, toIso: string): Promise<CbbBoardRow[]> {
+  const { data, error } = await supabase.from("cbb_game_board").select("*").gte("start_date", fromIso).lte("start_date", toIso).order("start_date", { ascending: true }).limit(1500);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw new Error(error.message);
+  }
+  return (data ?? []) as CbbBoardRow[];
+}
+
+export async function getCbbBoardGame(gameId: number): Promise<CbbBoardRow | null> {
+  const { data, error } = await supabase.from("cbb_game_board").select("*").eq("game_id", gameId).maybeSingle();
+  if (error) {
+    if (isMissingTable(error)) return null;
+    throw new Error(error.message);
+  }
+  return (data as CbbBoardRow | null) ?? null;
+}
+
+export type CbbSnapshot = { captured_at: string; spread_home_line: number | null; total_line: number | null; ml_home: number | null; ml_away: number | null };
+
+/** Every line change we logged for one game (cbb_odds_snapshots), oldest first. */
+export async function getCbbSnapshots(gameId: number): Promise<CbbSnapshot[]> {
+  const { data, error } = await supabase
+    .from("cbb_odds_snapshots")
+    .select("captured_at, spread_home_line, total_line, ml_home, ml_away")
+    .eq("game_id", gameId)
+    .order("captured_at", { ascending: true })
+    .limit(2000);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw new Error(error.message);
+  }
+  return (data ?? []) as CbbSnapshot[];
 }
 
 /** The NHL team names we have games for (as stored: ESPN's full names), alphabetical. */

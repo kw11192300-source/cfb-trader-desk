@@ -37,13 +37,15 @@ const NAV_ITEMS: Record<Sport, { href: string; label: string; prefetch?: boolean
     { href: "/nhl/bets", label: "Bets" },
   ],
   cbb: [
+    { href: "/cbb", label: "Board" },
+    { href: "/cbb/movers", label: "Movers" },
     { href: "/cbb/ratings", label: "Ratings" },
     { href: "/cbb/players", label: "Players" },
   ],
 };
 
 const SPORT_LABEL: Record<Sport, string> = { cfb: "CFB", nfl: "NFL", nhl: "NHL", cbb: "CBB" };
-const SPORT_HOME: Record<Sport, string> = { cfb: "/", nfl: "/nfl", nhl: "/nhl", cbb: "/cbb/ratings" };
+const SPORT_HOME: Record<Sport, string> = { cfb: "/", nfl: "/nfl", nhl: "/nhl", cbb: "/cbb" };
 const ALL_SPORTS: Sport[] = ["cfb", "nfl", "nhl", "cbb"];
 
 export default function SiteHeader({ subtitle, sport = "cfb" }: { subtitle: string; sport?: Sport }) {

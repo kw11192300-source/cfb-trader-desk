@@ -26,7 +26,7 @@ function phi(x: number): number {
   return x > 0 ? 1 - p : p;
 }
 
-const MARGIN_SD = 10.5; // standard deviation of a D1 game's final margin around the projection
+const MARGIN_SD = 11.3; // standard deviation of a D1 game's final margin around the line (measured 11.27 vs closing lines, 2022-25; the market's moneylines imply 11.8)
 
 export function project(home: TeamLine, away: TeamLine, neutral: boolean): Projection {
   const mu = (home.mu + away.mu) / 2;
