@@ -78,12 +78,13 @@ def add_features(m: pd.DataFrame) -> pd.DataFrame:
 def build(first: int = 2022, last: int = 2025) -> pd.DataFrame:
     from .bpm import PLAYER_SEASONS_OUT, TARGETS_OUT, per40
     from .preseason import preseason_ratings
-    from .ratings import Config, load, walk_forward
+    from .inseason import CONFIG  # the exact setting the live ratings job uses, so training and live features match
+    from .ratings import load, walk_forward
 
     ps40, tgt = per40(pd.read_csv(PLAYER_SEASONS_OUT)), pd.read_csv(TARGETS_OUT)
     tg = load()
     odds = pd.read_csv(CLOSING_ODDS_OUT)
-    pred = walk_forward(tg, Config(prior_keep=1.0), list(range(first, last + 1)), prior_provider=lambda s: preseason_ratings(s, ps40, tgt))
+    pred = walk_forward(tg, CONFIG, list(range(first, last + 1)), prior_provider=lambda s: preseason_ratings(s, ps40, tgt))
     g = tg[tg["is_home"] == 1][["event_id", "neutral", "conf_game"]].drop_duplicates("event_id")
     o = odds.drop_duplicates("event_id")[["event_id", "total_open", "spread_home_open", "total_close", "spread_home_close"]]
     m = pred.drop(columns=["neutral"], errors="ignore").merge(g, on="event_id", how="left").merge(o, on="event_id", how="left")

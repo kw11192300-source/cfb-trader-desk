@@ -23,14 +23,17 @@ import pandas as pd
 from . import ingest
 from .ratings import Config, Ratings, fit
 
-# how fast results take over from the preseason projection (grid-tuned against the 2022-25 closing lines, see tune_inseason)
-CONFIG = Config(half_life_days=120.0, lam_eff=0.5, prior_keep=1.0)
+# how fast results take over from the preseason projection: the projection counts as lam_eff games of evidence (so ~50% weight
+# after 6 games, ~25% after 20). Grid-tuned on 2022-25 against the closing lines: 0.5 -> 6 cut early-season distance from the close
+# from 5.1 to 3.9 points; 15+ is worse, half-life barely matters.
+CONFIG = Config(half_life_days=120.0, lam_eff=6.0, prior_keep=1.0)
 MIN_GAMES = 50  # ratings.fit needs this many team-games before it will fit anything
 
 
 def refresh_data(season: int) -> None:
     """Fetch the season's scoreboard days and box scores that are not on disk yet. The last few days are always refetched: a
     cached day keeps the 'not finished' flags it had when it was first read."""
+    ingest.DATA_DIR.mkdir(parents=True, exist_ok=True)  # a clean runner has no data folder yet
     today = dt.date.today()
     for back in range(0, 4):
         p = ingest.RAW_SB / f"{today - dt.timedelta(days=back):%Y%m%d}.json.gz"
