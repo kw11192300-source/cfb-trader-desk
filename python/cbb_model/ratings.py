@@ -146,6 +146,14 @@ def fit(tg: pd.DataFrame, as_of: pd.Timestamp, cfg: Config, prior: Ratings | Non
     )
 
 
+# Totals calibration, fitted on 2022-25 walk-forward games against actual results (leave-one-season-out, total MAE 13.66 -> 13.48):
+# the model's totals are over-spread (actual totals move 0.76 per predicted point away from the league level) and run ~2.3 low
+# on average (the league's scoring level has been rising ~3 points a year, so last season's level is always a little behind).
+# Applied to the total only; the margin (and so every spread and moneyline) is untouched.
+TOTAL_SCALE = 0.763
+TOTAL_BIAS = 2.25
+
+
 def project(r: Ratings, home_id: int, away_id: int, neutral: bool = False) -> dict | None:
     if home_id not in r.off or away_id not in r.off:
         return None
@@ -153,7 +161,11 @@ def project(r: Ratings, home_id: int, away_id: int, neutral: bool = False) -> di
     hca = 0.0 if neutral else r.hca
     ph = (r.mu + hca + r.off[home_id] + r.de[away_id]) * poss / 100.0
     pa = (r.mu - hca + r.off[away_id] + r.de[home_id]) * poss / 100.0
-    return {"home_pts": ph, "away_pts": pa, "spread": ph - pa, "total": ph + pa, "poss": poss}
+    league = 2.0 * r.mu * r.mu_t / 100.0
+    total = league + TOTAL_BIAS + TOTAL_SCALE * ((ph + pa) - league)
+    margin = ph - pa
+    ph, pa = (total + margin) / 2.0, (total - margin) / 2.0
+    return {"home_pts": ph, "away_pts": pa, "spread": margin, "total": total, "poss": poss}
 
 
 # ------------------------------------------------------------------ walk-forward backtest

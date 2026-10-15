@@ -41,9 +41,14 @@ def build_rows(season: int) -> list[dict]:
     conf = pd.read_csv(DATA_DIR / "conferences.csv")
     conf = conf[conf["season"] == conf["season"].max()].set_index("team_id")
     last = tgt[tgt["season"] == season - 1].set_index("team_id")
-    tg = pd.read_csv(TEAM_GAMES_OUT)
+    # the rating pool includes non-D1 opponents (all far weaker), so D1 teams average well above zero; centre on D1 so
+    # last season's numbers read on the same scale as the preseason projection and as KenPom-style ratings
+    d1 = last[last.index.isin(conf.index)]
+    last = last.assign(off=last["off"] - d1["off"].mean(), de=last["de"] - d1["de"].mean())
+    tg =pd.read_csv(TEAM_GAMES_OUT)
     rec = tg[tg["season"] == season - 1].assign(w=lambda d: (d["pts"] > d["opp_pts"]).astype(int)).groupby("team_id").agg(w=("w", "sum"), g=("w", "size"))
-    coach = roster.drop_duplicates("team_id").set_index("team_id")["coach"] if not roster.empty else pd.Series(dtype=object)
+    # hand-added roster rows carry no coach: take each team's first listed one
+    coach = roster.dropna(subset=["coach"]).drop_duplicates("team_id").set_index("team_id")["coach"] if not roster.empty else pd.Series(dtype=object)
     roster_n = roster.groupby("team_id").size() if not roster.empty else pd.Series(dtype=int)
     listed_n = listed
     mu = float(last["mu"].mean()) if len(last) else 106.0
@@ -116,6 +121,14 @@ def main() -> None:
         return
     from cfbd_ingest.supabase_client import get_client
 
+    def clean(v):  # JSON has no NaN: a missing value goes in as null
+        if isinstance(v, dict):
+            return {k: clean(x) for k, x in v.items()}
+        if isinstance(v, float) and v != v:
+            return None
+        return v
+
+    rows = [clean(r) for r in rows]
     client = get_client()
     for i in range(0, len(rows), 300):
         client.table("cbb_team_ratings").upsert(rows[i : i + 300], on_conflict="season,team_id,kind").execute()

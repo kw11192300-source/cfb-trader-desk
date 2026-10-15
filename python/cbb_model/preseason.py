@@ -25,10 +25,11 @@ import pandas as pd
 
 from .bpm import PLAYER_SEASONS_OUT, STATS, TARGETS_OUT, per40, ridge, team_features
 
-FEATURES = ["prior_off", "prior_de", "prior_tempo", "proj_off", "proj_de", "unfilled", "ret_share", "trans_share", "exp_w", "n_trans", "trans_lvl"]
+FEATURES = ["prior_off", "prior_de", "prior_tempo", "proj_off", "proj_de", "unfilled", "ret_share", "trans_share", "exp_w", "n_trans", "trans_lvl", "hist_gap_off", "hist_gap_de", "coach_tempo_gap"]
 
 
 _WEIGHT_CACHE: dict = {}
+ALLOC = True  # hand out the team's 5.0 of floor share by player value (season_table); False = sum every player's old share
 
 
 def value_weights(ps40: pd.DataFrame, tgt: pd.DataFrame, upto_season: int, mode: str = "player") -> dict[str, np.ndarray]:
@@ -50,6 +51,32 @@ def value_weights(ps40: pd.DataFrame, tgt: pd.DataFrame, upto_season: int, mode:
     return {"off": ridge(X, d["off"].to_numpy(), 5.0), "de": ridge(X, d["de"].to_numpy(), 5.0)}
 
 
+def _coach_tempo_gap(out: pd.DataFrame, tgt: pd.DataFrame, S: int, roster: pd.DataFrame | None) -> pd.Series:
+    from .ingest import DATA_DIR
+
+    path = DATA_DIR / "coaches.csv"
+    if not path.exists():
+        return pd.Series(0.0, index=out.index)
+    co = pd.read_csv(path).drop_duplicates(["season", "team_id"])
+    name_to_id = co.drop_duplicates("coach").set_index("coach")["coach_id"].to_dict()
+    now = co[co["season"] == S].set_index("team_id")["coach_id"].to_dict()
+    if roster is not None and "coach" in roster.columns:  # the coming season: the coach ESPN lists on the roster
+        for t, name in roster.dropna(subset=["coach"]).drop_duplicates("team_id").set_index("team_id")["coach"].items():
+            if name in name_to_id:
+                now[int(t)] = name_to_id[name]
+    last = co[co["season"] == S - 1].set_index("team_id")["coach_id"].to_dict()
+    ts = tgt[(tgt["games"] >= 15) & (tgt["season"] < S)][["season", "team_id", "tempo"]].merge(co[["season", "team_id", "coach_id"]], on=["season", "team_id"])
+    hist = ts.groupby("coach_id")["tempo"].mean().to_dict()
+    gap = []
+    for t, prior in zip(out["team_id"], out["prior_tempo"]):
+        c, p = now.get(int(t)), last.get(int(t))
+        if c is None or p is None or pd.isna(c) or pd.isna(p) or c == p or c not in hist or pd.isna(prior):
+            gap.append(0.0)
+        else:
+            gap.append(float(hist[c] - prior))
+    return pd.Series(gap, index=out.index)
+
+
 def season_table(
     ps40: pd.DataFrame,
     tgt: pd.DataFrame,
@@ -57,11 +84,13 @@ def season_table(
     weights: dict[str, np.ndarray],
     roster: pd.DataFrame | None = None,
     extras: pd.DataFrame | None = None,
+    alloc: bool | None = None,
 ) -> pd.DataFrame:
     """One row per team with the preseason features for season S. `extras` adds players who are not in last season's data -
     internationals, pros, anyone entered by hand - as (team_id, f, v_off, v_de): their floor share and value on the same
     scale as the box-score player values."""
     xs = [f"x_{s}" for s in STATS]
+    alloc = ALLOC if alloc is None else alloc
     last = ps40[ps40["season"] == S - 1].copy()
     # per-player value (without the intercept: the regression intercept is the "average floor" constant)
     X = last[xs].to_numpy()
@@ -95,18 +124,35 @@ def season_table(
     rows = []
     for t, g in cur.groupby("team_id"):
         known = g[g["f"].notna()]
-        ret = known[known["prev_team"] == t]
-        trans = known[known["prev_team"] != t]
-        f_ret, f_tr = ret["f"].sum(), trans["f"].sum()
         ex_t = ex[ex["team_id"] == t]
+        if alloc:
+            # five players are on the floor: hand the team's 5.0 of floor share out best player first, each at no more than his
+            # last-season share, so a deep roster of old starters is not counted as eight players' worth of minutes
+            pool = pd.concat(
+                [
+                    known[["f", "v_off", "v_de", "prev_team"]],
+                    pd.DataFrame({"f": ex_t["f"].to_numpy(), "v_off": ex_t["v_off"].to_numpy(), "v_de": ex_t["v_de"].to_numpy(), "prev_team": -1}),
+                ],
+                ignore_index=True,
+            )
+            pool = pool.assign(f=pool["f"].clip(upper=1.0), v_net=pool["v_off"] - pool["v_de"]).sort_values("v_net", ascending=False)
+            before = pool["f"].cumsum() - pool["f"]
+            pool["f"] = np.clip(5.0 - before, 0.0, pool["f"])
+            known_a = pool[pool["prev_team"] != -1]
+            ex_a = pool[pool["prev_team"] == -1]
+        else:
+            known_a, ex_a = known, ex_t
+        ret = known_a[known_a["prev_team"] == t]
+        trans = known_a[known_a["prev_team"] != t]
+        f_ret, f_tr = ret["f"].sum(), trans["f"].sum()
         lvl = float(sum(f * (last_net.get(t, 0.0) - last_net.get(pt, last_net.get(t, 0.0))) for f, pt in zip(trans["f"], trans["prev_team"])))
-        f_ex = float(ex_t["f"].sum())
+        f_ex = float(ex_a["f"].sum())
         # floor share of last season's roster that is back / new, plus the value they bring
         rows.append(
             {
                 "season": S, "team_id": t,
-                "proj_off": float((known["f"] * known["v_off"]).sum() + (ex_t["f"] * ex_t["v_off"]).sum()),
-                "proj_de": float((known["f"] * known["v_de"]).sum() + (ex_t["f"] * ex_t["v_de"]).sum()),
+                "proj_off": float((known_a["f"] * known_a["v_off"]).sum() + (ex_a["f"] * ex_a["v_off"]).sum()),
+                "proj_de": float((known_a["f"] * known_a["v_de"]).sum() + (ex_a["f"] * ex_a["v_de"]).sum()),
                 "ret_share": float(f_ret / 5.0), "trans_share": float((f_tr + f_ex) / 5.0),
                 "unfilled": float(max(0.0, 5.0 - (f_ret + f_tr + f_ex)) / 5.0),
                 "n_trans": float(len(trans) + len(ex_t)),
@@ -117,7 +163,20 @@ def season_table(
         )
     out = pd.DataFrame(rows)
     p = tgt[tgt["season"] == S - 1][["team_id", "off", "de", "tempo"]].rename(columns={"off": "prior_off", "de": "prior_de", "tempo": "prior_tempo"})
-    return out.merge(p, on="team_id", how="left")
+    out = out.merge(p, on="team_id", how="left")
+    # program level: how far the team's own multi-year average (2-3 seasons back) sits from last season. A program with a long
+    # defensive identity regresses toward its own level, not the league's. Missing history = no gap.
+    for c in ("off", "de"):
+        older = [tgt[tgt["season"] == S - k].set_index("team_id")[c] for k in (2, 3)]
+        hist = pd.concat(older, axis=1).mean(axis=1, skipna=True)
+        out[f"hist_gap_{c}"] = (out["team_id"].map(hist) - out[f"prior_{c}"]).fillna(0.0)
+    # pace is largely a coach's system: when the head coach changed, his own past tempo (any school, seasons before S) is
+    # informative about the new team's pace. Feature = how far his history sits from the team's last tempo, only for new coaches.
+    out["coach_tempo_gap"] = _coach_tempo_gap(out, tgt, S, roster)
+    # the level-gap penalty saturates (a rotation of mid-major transfers is not penalised linearly without limit; a straight line
+    # over-penalised the largest gaps by ~0.7 net in backtests)
+    out["trans_lvl"] = np.sign(out["trans_lvl"]) * np.sqrt(out["trans_lvl"].abs())
+    return out
 
 
 def preseason_ratings(

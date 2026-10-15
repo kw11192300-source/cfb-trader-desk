@@ -43,6 +43,7 @@ def norm(name: str) -> str:
 
 
 TRANSFERS_CSV = Path(__file__).resolve().parent / "transfers_2026.csv"
+GAP_CSV = Path(__file__).resolve().parent / "roster_gap.csv"
 
 
 def load() -> pd.DataFrame:
@@ -57,6 +58,13 @@ def load() -> pd.DataFrame:
              "floor_share": np.nan, "note": "portal move", "source": t["source"]}
         )
         ov = pd.concat([add, ov], ignore_index=True)  # hand entries come last so they win
+    if GAP_CSV.exists():
+        # roster completeness check against an outside list: only fills players neither ESPN's feed nor a published portal list has,
+        # so it goes in FIRST and anything above overrides it
+        g = pd.read_csv(GAP_CSV)
+        known = set(zip(ov["team"].astype(str).str.lower(), ov["player"].map(norm)))
+        g = g[[(t.lower(), norm(p)) not in known for t, p in zip(g["team"], g["player"])]]
+        ov = pd.concat([g[cols], ov], ignore_index=True)
     return ov
 
 
@@ -116,6 +124,19 @@ def apply(roster: pd.DataFrame, ps40: pd.DataFrame, teams: pd.Series, weights: d
                 notes.append(f"removed {r.player} from {r.team}")
             continue
         kind = str(r.kind).lower() if isinstance(r.kind, str) else "intl"
+        listed = (roster["team_id"] == team_id) & (roster["name"].map(norm) == key)
+        if kind == "newcomer" and listed.any():
+            continue  # ESPN already lists him
+        if kind == "newcomer":
+            # on the roster but nothing is known about him: listed like an ESPN freshman with no history (no floor share of his own -
+            # the model's "unfilled" term already stands for a typical incoming class)
+            import zlib
+
+            roster = pd.concat(
+                [roster, pd.DataFrame([{"team_id": team_id, "player_id": -(zlib.crc32(f"{team_id}:{key}".encode()) + 1), "name": r.player}])], ignore_index=True
+            )
+            notes.append(f"listed newcomer {r.player} -> {r.team}")
+            continue
         share = float(r.floor_share) if pd.notna(getattr(r, "floor_share", np.nan)) else DEFAULT_SHARE.get(kind, 0.45)
         found = by_name[by_name["key"] == key].sort_values("season", ascending=False).head(1)
         if kind == "transfer" and len(found):
@@ -126,6 +147,8 @@ def apply(roster: pd.DataFrame, ps40: pd.DataFrame, teams: pd.Series, weights: d
             roster = pd.concat([roster, pd.DataFrame([{"team_id": team_id, "player_id": pid, "name": r.player}])], ignore_index=True)
             notes.append(f"added transfer {r.player} -> {r.team}")
         else:
+            if listed.any():
+                roster = roster[~listed]  # a priced entry replaces ESPN's bare listing of the same player
             net = float(r.net_value) if pd.notna(getattr(r, "net_value", np.nan)) else None
             half = (nv_o + nv_d) / 2.0 + KIND_BONUS.get(kind, 0.0) / 2.0 if net is None else net / 2.0
             extras.append({"team_id": team_id, "f": share, "v_off": half if net is not None else nv_o + KIND_BONUS.get(kind, 0.0) / 2.0,
