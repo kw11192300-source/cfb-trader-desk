@@ -1,14 +1,14 @@
 import CbbBoardTable from "@/components/CbbBoardTable";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
-import { getCbbBoard } from "@/lib/data";
+import { getCbbAvailability, getCbbBoard } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export default async function CbbBoardPage() {
   const from = new Date(Date.now() - 6 * 3_600_000).toISOString();
   const to = new Date(Date.now() + 5 * 86_400_000).toISOString();
-  const rows = await getCbbBoard(from, to);
+  const [rows, avail] = await Promise.all([getCbbBoard(from, to), getCbbAvailability(2026)]);
   const flagged = rows.filter((r) => Math.max(r.spread_clv ?? 0, r.total_clv ?? 0) >= 1).length;
   const updated = rows.reduce((m, r) => (r.updated_at > m ? r.updated_at : m), "");
 
@@ -31,7 +31,7 @@ export default async function CbbBoardPage() {
             </p>
           )}
         </div>
-        <CbbBoardTable rows={rows} />
+        <CbbBoardTable rows={rows} avail={avail} />
       </main>
       <SiteFooter />
     </div>

@@ -465,6 +465,22 @@ export type CbbBoardRow = {
   updated_at: string;
 };
 
+/** A college basketball player marked as out / doubtful / questionable (cbb_availability). */
+export type CbbAvailability = {
+  id: number;
+  season: number;
+  team_id: number;
+  team: string | null;
+  player_id: number;
+  player_name: string;
+  status: "out" | "doubtful" | "questionable" | "probable" | string;
+  f: number;
+  v: number;
+  note: string | null;
+  until: string | null;
+  created_at: string;
+};
+
 /** A goalie marked as unable to play (nhl_goalie_unavailable). */
 export type NhlGoalieUnavailable = {
   goalie_id: number;

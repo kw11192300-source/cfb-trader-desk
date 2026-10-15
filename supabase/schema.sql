@@ -954,3 +954,27 @@ create table if not exists cbb_game_board (
 create index if not exists cbb_game_board_start_idx on cbb_game_board (start_date);
 alter table cbb_game_board enable row level security;
 create policy "public read" on cbb_game_board for select using (true);
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- CBB availability: players you know are out (or doubtful/questionable). The site applies the effect on the spot
+-- (src/lib/cbbAvailability.ts): margin = -(0.41 * f * v + 1.16 * f) per missing player, total -0.6 * f, scaled by the status
+-- probability. f = share of the game he plays (mpg / 40), v = his projected rating - both copied from the player table when
+-- the row is saved so the adjustment never depends on a join.
+-- ---------------------------------------------------------------------------------------------------------------------
+create table if not exists cbb_availability (
+  id bigserial primary key,
+  season int not null,
+  team_id bigint not null,
+  team text,
+  player_id bigint not null,
+  player_name text not null,
+  status text not null default 'out',   -- out | doubtful | questionable | probable
+  f numeric not null,                   -- share of the game he plays (0-1)
+  v numeric not null,                   -- rating, points per 100 possessions vs an average player
+  note text,
+  until date,                           -- null = until you reinstate him
+  created_at timestamptz not null default now(),
+  unique (season, player_id)
+);
+alter table cbb_availability enable row level security;
+create policy "public read" on cbb_availability for select using (true);

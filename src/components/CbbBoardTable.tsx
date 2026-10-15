@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import CbbLogo from "./CbbLogo";
-import type { CbbBoardRow } from "@/lib/types";
+import { adjustRow } from "@/lib/cbbAvailability";
+import type { CbbAvailability, CbbBoardRow } from "@/lib/types";
 
 type SortKey = "time" | "spread" | "total" | "mover";
 
@@ -32,7 +33,17 @@ function Play({ label, clv, strong }: { label: string | null; clv: number | null
 
 /** The CBB board: one row per upcoming game with the model's number, where the line should close and the side that earns
  * closing-line value now. Day tabs, sortable by start time, spread CLV, total CLV, or how far the line should still move. */
-export default function CbbBoardTable({ rows, initialSort = "time", showDays = true }: { rows: CbbBoardRow[]; initialSort?: SortKey; showDays?: boolean }) {
+export default function CbbBoardTable({
+  rows,
+  initialSort = "time",
+  showDays = true,
+  avail = [],
+}: {
+  rows: CbbBoardRow[];
+  initialSort?: SortKey;
+  showDays?: boolean;
+  avail?: CbbAvailability[];
+}) {
   const todayKey = dayKey(new Date().toISOString());
   const days = useMemo(() => [...new Set(rows.map((r) => dayKey(r.start_date)))].sort(), [rows]);
   const [day, setDay] = useState<string>(days.includes(todayKey) ? todayKey : (days[0] ?? "all"));
@@ -132,11 +143,17 @@ export default function CbbBoardTable({ rows, initialSort = "time", showDays = t
                 <th className="px-2 py-2.5 text-right font-medium" title="Where we expect the total to close">Exp. close</th>
                 <th className="px-3 py-2.5 font-medium" title="Over or under, and the expected points of closing-line value">Total play (CLV)</th>
                 <th className="px-3 py-2.5 font-medium" title="Moneyline: the side whose price should shorten, with the expected change in implied win probability">ML play</th>
+                <th className="px-3 py-2.5 font-medium" title="Our own price: our spread (with anyone you have marked out) against the number up now. Informational: the CLV plays are the validated signal">Spread edge now</th>
+                <th className="px-3 py-2.5 font-medium" title="Our own price: our total against the number up now">Total edge now</th>
               </tr>
             </thead>
             <tbody>
               {shown.map((r) => {
                 const p = r.payload;
+                const adj = adjustRow(r, avail);
+                const hasOut = adj.home.length + adj.away.length > 0;
+                const mSpread = adj.spread ?? p.model.spread;
+                const mTotal = adj.total ?? p.model.total;
                 const home = p.teams?.home ?? r.home_team;
                 const away = p.teams?.away ?? r.away_team;
                 const sp = p.bets.spread;
@@ -154,11 +171,16 @@ export default function CbbBoardTable({ rows, initialSort = "time", showDays = t
                         <CbbLogo teamId={r.home_team_id} size={18} />
                         <span className="font-medium">{home}</span>
                       </Link>
+                      {hasOut && (
+                        <div className="mt-0.5 text-[11px] text-warn">
+                          Out: {[...adj.away.map((e) => `${e.name} (${away})`), ...adj.home.map((e) => `${e.name} (${home})`)].join(", ")}
+                        </div>
+                      )}
                     </td>
                     <td className="whitespace-nowrap px-2 py-2 text-right font-mono text-xs">
                       {line(p.market.open_margin)} → <span className="text-foreground">{line(p.market.cur_margin)}</span>
                     </td>
-                    <td className="px-2 py-2 text-right font-mono text-xs">{line(p.model.spread)}</td>
+                    <td className="px-2 py-2 text-right font-mono text-xs">{line(mSpread)}{hasOut ? "*" : ""}</td>
                     <td className="px-2 py-2 text-right font-mono text-xs">{line(p.move.exp_close_margin)}</td>
                     <td className="whitespace-nowrap px-3 py-2">
                       <Play label={spreadLabel ? `${spreadLabel}` : null} clv={sp.clv} strong={(sp.clv ?? 0) >= 1} />
@@ -166,7 +188,7 @@ export default function CbbBoardTable({ rows, initialSort = "time", showDays = t
                     <td className="whitespace-nowrap px-2 py-2 text-right font-mono text-xs">
                       {f1(p.market.open_total)} → <span className="text-foreground">{f1(p.market.cur_total)}</span>
                     </td>
-                    <td className="px-2 py-2 text-right font-mono text-xs">{f1(p.model.total)}</td>
+                    <td className="px-2 py-2 text-right font-mono text-xs">{f1(mTotal)}{hasOut ? "*" : ""}</td>
                     <td className="px-2 py-2 text-right font-mono text-xs">{f1(p.move.exp_close_total)}</td>
                     <td className="whitespace-nowrap px-3 py-2">
                       <Play label={tt.side ? tt.side.toUpperCase() : null} clv={tt.clv} strong={(tt.clv ?? 0) >= 1} />
@@ -182,6 +204,28 @@ export default function CbbBoardTable({ rows, initialSort = "time", showDays = t
                       ) : (
                         <span className="text-muted">—</span>
                       )}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-xs">
+                      {(() => {
+                        const d = mSpread !== null && p.market.cur_margin !== null ? mSpread - p.market.cur_margin : null;
+                        if (d === null || Math.abs(d) < 1) return <span className="text-muted">—</span>;
+                        return (
+                          <span className="text-foreground">
+                            {d > 0 ? home : away} <span className="font-mono text-muted">+{Math.abs(d).toFixed(1)}</span>
+                          </span>
+                        );
+                      })()}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-xs">
+                      {(() => {
+                        const d = mTotal !== null && p.market.cur_total !== null ? mTotal - p.market.cur_total : null;
+                        if (d === null || Math.abs(d) < 1.5) return <span className="text-muted">—</span>;
+                        return (
+                          <span className="text-foreground">
+                            {d > 0 ? "OVER" : "UNDER"} <span className="font-mono text-muted">+{Math.abs(d).toFixed(1)}</span>
+                          </span>
+                        );
+                      })()}
                     </td>
                   </tr>
                 );

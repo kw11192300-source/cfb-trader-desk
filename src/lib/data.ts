@@ -24,6 +24,7 @@ import type {
   CbbTeamRating,
   CbbPlayerRating,
   CbbBoardRow,
+  CbbAvailability,
   NhlGoalieStatsRow,
   NhlOddsSnapshot,
   NhlSkaterRatingRow,
@@ -827,6 +828,17 @@ export async function getCbbRatingKinds(): Promise<{ season: number; kind: strin
   const seen = new Map<string, { season: number; kind: string }>();
   for (const r of (data ?? []) as { season: number; kind: string }[]) seen.set(`${r.season}-${r.kind}`, r);
   return [...seen.values()].sort((a, b) => b.season - a.season || (a.kind === "preseason" ? -1 : 1));
+}
+
+/** Players marked as out/doubtful/questionable that are still in effect (no end date, or the date has not passed). */
+export async function getCbbAvailability(season: number): Promise<CbbAvailability[]> {
+  const { data, error } = await supabase.from("cbb_availability").select("*").eq("season", season).order("created_at", { ascending: false }).limit(500);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw new Error(error.message);
+  }
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  return ((data ?? []) as CbbAvailability[]).filter((r) => !r.until || r.until >= today);
 }
 
 /** The CBB board for a time window (games the model has scored), soonest first. */

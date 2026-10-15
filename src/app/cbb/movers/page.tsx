@@ -1,12 +1,15 @@
 import CbbBoardTable from "@/components/CbbBoardTable";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
-import { getCbbBoard } from "@/lib/data";
+import { getCbbAvailability, getCbbBoard } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export default async function CbbMoversPage() {
-  const rows = await getCbbBoard(new Date(Date.now() - 6 * 3_600_000).toISOString(), new Date(Date.now() + 5 * 86_400_000).toISOString());
+  const [rows, avail] = await Promise.all([
+    getCbbBoard(new Date(Date.now() - 6 * 3_600_000).toISOString(), new Date(Date.now() + 5 * 86_400_000).toISOString()),
+    getCbbAvailability(2026),
+  ]);
   const bySpread = [...rows].sort((a, b) => Math.abs(b.payload.move.remaining_spread ?? 0) - Math.abs(a.payload.move.remaining_spread ?? 0)).slice(0, 25);
   const byTotal = [...rows].sort((a, b) => Math.abs(b.payload.move.remaining_total ?? 0) - Math.abs(a.payload.move.remaining_total ?? 0)).slice(0, 25);
 
@@ -20,11 +23,11 @@ export default async function CbbMoversPage() {
         </div>
         <section>
           <h2 className="mb-2 text-sm font-semibold">Spreads - biggest expected moves</h2>
-          <CbbBoardTable rows={bySpread} initialSort="mover" showDays={false} />
+          <CbbBoardTable rows={bySpread} initialSort="mover" showDays={false} avail={avail} />
         </section>
         <section>
           <h2 className="mb-2 text-sm font-semibold">Totals - biggest expected moves</h2>
-          <CbbBoardTable rows={byTotal} initialSort="total" showDays={false} />
+          <CbbBoardTable rows={byTotal} initialSort="total" showDays={false} avail={avail} />
         </section>
       </main>
       <SiteFooter />

@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import CbbLogo from "@/components/CbbLogo";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
-import { getCbbBoardGame, getCbbSnapshots } from "@/lib/data";
+import { adjustRow } from "@/lib/cbbAvailability";
+import { getCbbAvailability, getCbbBoardGame, getCbbSnapshots } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
@@ -63,9 +64,14 @@ export default async function CbbGamePage({ params }: { params: Promise<{ id: st
   const { id } = await params;
   const gameId = Number(id);
   if (!Number.isFinite(gameId)) notFound();
-  const [game, snaps] = await Promise.all([getCbbBoardGame(gameId), getCbbSnapshots(gameId)]);
+  const [game, snaps, avail] = await Promise.all([getCbbBoardGame(gameId), getCbbSnapshots(gameId), getCbbAvailability(2026)]);
   if (!game) notFound();
   const p = game.payload;
+  const adj = adjustRow(game, avail);
+  const outCount = adj.home.length + adj.away.length;
+  const mSpread = adj.spread ?? p.model.spread;
+  const mTotal = adj.total ?? p.model.total;
+  const mWin = adj.homeWin ?? p.model.home_win;
   const home = p.teams?.home ?? game.home_team;
   const away = p.teams?.away ?? game.away_team;
   const spreadPts = snaps.filter((s) => s.spread_home_line !== null).map((s) => ({ t: new Date(s.captured_at).getTime(), v: -(s.spread_home_line as number) }));
@@ -98,14 +104,19 @@ export default async function CbbGamePage({ params }: { params: Promise<{ id: st
           <div className="rounded-lg border border-border bg-surface p-4">
             <div className="mb-2 text-[11px] uppercase tracking-wide text-muted">Our projection</div>
             <div className="text-2xl font-semibold">
-              {home} {line(p.model.spread)}
+              {home} {line(mSpread)}{outCount > 0 ? "*" : ""}
             </div>
             <div className="mt-1 text-sm text-muted">
-              Total {f1(p.model.total)} · {away} {f1(p.model.away_pts)} - {home} {f1(p.model.home_pts)}
+              Total {f1(mTotal)}{outCount > 0 ? "*" : ""} · {away} {f1(((mTotal ?? 0) - (mSpread ?? 0)) / 2)} - {home} {f1(((mTotal ?? 0) + (mSpread ?? 0)) / 2)}
             </div>
             <div className="mt-2 text-xs text-muted">
-              {home} win {pct(p.model.home_win)} · fair ML {amer(p.model.fair_ml_home)} / {amer(p.model.fair_ml_away)} · pace {f1(p.model.poss)}
+              {home} win {pct(mWin)} · fair ML {amer(p.model.fair_ml_home)} / {amer(p.model.fair_ml_away)} (before availability) · pace {f1(p.model.poss)}
             </div>
+            {outCount > 0 && (
+              <div className="mt-2 text-[11px] text-warn">
+                * adjusted for {outCount} player{outCount === 1 ? "" : "s"} out: {sg(adj.dMargin)} margin, {sg(adj.dTotal)} total vs the base model ({line(p.model.spread)} / {f1(p.model.total)})
+              </div>
+            )}
           </div>
           <div className="rounded-lg border border-border bg-surface p-4">
             <div className="mb-2 text-[11px] uppercase tracking-wide text-muted">Market</div>
@@ -176,6 +187,34 @@ export default async function CbbGamePage({ params }: { params: Promise<{ id: st
         <div className="grid gap-4 md:grid-cols-2">
           <Series pts={spreadPts} expClose={p.move.exp_close_margin} label="Home spread" unit="line" />
           <Series pts={totalPts} expClose={p.move.exp_close_total} label="Total" unit="total" />
+        </div>
+
+        <div className="rounded-lg border border-border bg-surface p-4 text-xs">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[11px] uppercase tracking-wide text-muted">Availability</span>
+            <span className="flex gap-3">
+              <Link href={`/cbb/availability?team=${game.away_team_id ?? ""}`} className="text-accent hover:underline">
+                Mark {away} player
+              </Link>
+              <Link href={`/cbb/availability?team=${game.home_team_id ?? ""}`} className="text-accent hover:underline">
+                Mark {home} player
+              </Link>
+            </span>
+          </div>
+          {outCount === 0 ? (
+            <p className="text-muted">Nobody marked out for either team. A missing rotation player is worth roughly 1-3 points of margin.</p>
+          ) : (
+            <ul className="space-y-1">
+              {[...adj.away.map((e) => ({ ...e, team: away })), ...adj.home.map((e) => ({ ...e, team: home }))].map((e) => (
+                <li key={e.id} className="text-foreground">
+                  {e.name} <span className="text-muted">({e.team})</span> <span className="text-warn">{e.status}</span>{" "}
+                  <span className="font-mono text-muted">
+                    -{e.margin.toFixed(1)} margin · {e.total.toFixed(1)} total
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         <div className="rounded-lg border border-border bg-surface p-4 text-xs text-muted">

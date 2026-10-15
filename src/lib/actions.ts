@@ -231,6 +231,52 @@ export async function ruleOutGoalie(goalieId: number, name: string, team: string
   return { ok: true, message: `${name} is out${until ? ` until ${until}` : " for the season"}. ${n} upcoming game${n === 1 ? "" : "s"} re-simulated; the full refresh updates the season odds and everything else.` };
 }
 
+/** Marks a college basketball player as out / doubtful / questionable. The pages apply the adjustment on the spot
+ * (src/lib/cbbAvailability.ts); f and v are saved with the row so it never depends on the player table again. */
+export async function ruleOutCbbPlayer(input: {
+  season: number;
+  teamId: number;
+  team: string | null;
+  playerId: number;
+  playerName: string;
+  status: string;
+  f: number;
+  v: number;
+  note: string | null;
+  until: string | null;
+}): Promise<{ ok: boolean; message: string }> {
+  if (!Number.isFinite(input.playerId) || !Number.isFinite(input.f) || !Number.isFinite(input.v)) return { ok: false, message: "Pick a player." };
+  const { error } = await supabaseAdmin.from("cbb_availability").upsert(
+    {
+      season: input.season,
+      team_id: input.teamId,
+      team: input.team,
+      player_id: input.playerId,
+      player_name: input.playerName,
+      status: input.status,
+      f: input.f,
+      v: input.v,
+      note: input.note?.trim() || null,
+      until: input.until || null,
+    },
+    { onConflict: "season,player_id" },
+  );
+  if (error) return { ok: false, message: error.message };
+  revalidatePath("/cbb");
+  revalidatePath("/cbb/movers");
+  revalidatePath("/cbb/availability");
+  return { ok: true, message: `${input.playerName} is ${input.status}. Every game page already reflects it.` };
+}
+
+export async function reinstateCbbPlayer(id: number): Promise<{ ok: boolean; message: string }> {
+  const { error } = await supabaseAdmin.from("cbb_availability").delete().eq("id", id);
+  if (error) return { ok: false, message: error.message };
+  revalidatePath("/cbb");
+  revalidatePath("/cbb/movers");
+  revalidatePath("/cbb/availability");
+  return { ok: true, message: "Back in play." };
+}
+
 /** Puts a goalie back in play. Games already re-simulated return to normal on the next model refresh. */
 export async function reinstateGoalie(goalieId: number): Promise<{ ok: boolean; message: string }> {
   const { error } = await supabaseAdmin.from("nhl_goalie_unavailable").delete().eq("goalie_id", goalieId);
