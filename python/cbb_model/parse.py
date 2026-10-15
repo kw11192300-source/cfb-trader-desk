@@ -53,9 +53,11 @@ def overtimes(detail: str | None) -> int:
     return int(m.group(1)) if m.group(1) else 1
 
 
-def build_team_and_player_games() -> tuple[pd.DataFrame, pd.DataFrame]:
+def build_team_and_player_games(season: int | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     sched = pd.read_csv(SCHEDULE_CSV)
     sched = sched[sched["completed"] & sched["home_score"].notna() & sched["away_score"].notna()]
+    if season is not None:
+        sched = sched[sched["season"] == season]
     trows, prows = [], []
     for r in sched.itertuples():
         path = RAW_GAMES / str(int(r.season)) / f"{int(r.event_id)}.json.gz"

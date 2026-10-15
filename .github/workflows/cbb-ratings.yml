@@ -1,0 +1,48 @@
+name: CBB in-season ratings
+
+# Pulls what finished (ESPN box scores for this season only), refits every team's rating from the season's results on top of the
+# published preseason projection, publishes them as kind 'current', then rescores the game board with them.
+# Dispatched a few times a day by /api/cron/cbb-ratings (cron-job.org) or by hand from the Actions tab.
+#
+# The season's box scores are cached between runs (a few tens of MB), so a run only downloads the games played since the last
+# one. The first run of a season has an empty cache and fetches everything finished so far.
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: cbb-ratings
+  cancel-in-progress: false
+
+jobs:
+  ratings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r python/requirements.txt
+      - name: Restore this season's box scores
+        uses: actions/cache@v4
+        with:
+          path: |
+            python/data/cbb/raw/scoreboard
+            python/data/cbb/raw/games
+            python/data/cbb/schedule.csv
+          key: cbb-season-${{ github.run_id }}
+          restore-keys: cbb-season-
+      - name: Refit ratings from results
+        working-directory: python
+        env:
+          PYTHONUNBUFFERED: "1"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: python -m cbb_model.inseason
+      - name: Rescore the board with the new ratings
+        working-directory: python
+        env:
+          PYTHONUNBUFFERED: "1"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: python -m cbb_model.board refresh --days 3

@@ -827,7 +827,8 @@ export async function getCbbRatingKinds(): Promise<{ season: number; kind: strin
   }
   const seen = new Map<string, { season: number; kind: string }>();
   for (const r of (data ?? []) as { season: number; kind: string }[]) seen.set(`${r.season}-${r.kind}`, r);
-  return [...seen.values()].sort((a, b) => b.season - a.season || (a.kind === "preseason" ? -1 : 1));
+  const order = (k: string) => (k === "current" ? 0 : k === "preseason" ? 1 : 2);
+  return [...seen.values()].sort((a, b) => b.season - a.season || order(a.kind) - order(b.kind));
 }
 
 /** Players marked as out/doubtful/questionable that are still in effect (no end date, or the date has not passed). */

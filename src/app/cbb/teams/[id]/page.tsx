@@ -69,14 +69,16 @@ export default async function CbbTeamPage({ params }: { params: Promise<{ id: st
 
   const [ratings, roster, schedule] = await Promise.all([getCbbTeamRatings(teamId), getCbbPlayers({ season: SEASON, teamId, limit: 40 }), loadSchedule(teamId)]);
   const pre = ratings.find((r) => r.kind === "preseason" && r.season === SEASON);
+  const cur = ratings.find((r) => r.kind === "current" && r.season === SEASON);
   const fin = ratings.find((r) => r.kind === "final");
   if (!pre && !fin && roster.length === 0) notFound();
   const name = (pre ?? fin)?.team ?? "Team";
   const ps = pre?.stats ?? {};
-  const us = teamLine(pre?.stats);
+  const us = teamLine((cur ?? pre)?.stats);
 
-  const opps = await getCbbRatingsFor([...new Set(schedule.map((e) => e.opp.id))], SEASON, "preseason");
-  const oppBy = new Map(opps.map((o) => [o.team_id, o]));
+  const oppIds = [...new Set(schedule.map((e) => e.opp.id))];
+  const [oppPre, oppCur] = await Promise.all([getCbbRatingsFor(oppIds, SEASON, "preseason"), getCbbRatingsFor(oppIds, SEASON, "current")]);
+  const oppBy = new Map([...oppPre, ...oppCur].map((o) => [o.team_id, o])); // current replaces preseason where it exists
   const upcoming = schedule.filter((e) => !e.completed);
   const played = schedule.filter((e) => e.completed);
   const wins = played.filter((e) => e.us !== null && e.them !== null && e.us > e.them).length;
@@ -197,7 +199,7 @@ export default async function CbbTeamPage({ params }: { params: Promise<{ id: st
 
         <section>
           <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-            Schedule{played.length > 0 ? ` · ${wins}-${played.length - wins}` : ""} <span className="font-normal normal-case text-muted">(projections from the preseason ratings)</span>
+            Schedule{played.length > 0 ? ` · ${wins}-${played.length - wins}` : ""} <span className="font-normal normal-case text-muted">({cur ? "projections from the in-season ratings" : "projections from the preseason ratings"})</span>
           </h2>
           {schedule.length === 0 ? (
             <div className="rounded-lg border border-border bg-surface p-5 text-sm text-muted">ESPN has not published this team&apos;s schedule yet.</div>

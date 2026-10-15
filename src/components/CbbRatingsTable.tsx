@@ -20,6 +20,13 @@ function colsFor(kind: string): StatCol[] {
       col("last_rank", "Last yr", "Where the team finished last season's adjusted-efficiency rankings", 0),
       col("rank_change", "Move", "Places gained (+) or lost (-) against last season's final ranking - roster turnover, transfers and regression to the mean", 0, true),
     );
+  } else if (kind === "current") {
+    base.push(
+      col("wins", "W", "Wins so far this season", 0),
+      col("losses", "L", "Losses so far this season", 0),
+      col("last_rank", "Pre", "Where the team ranked in our preseason projection", 0),
+      col("rank_change", "Move", "Places gained (+) or lost (-) since the preseason projection, from results", 0, true),
+    );
   } else {
     base.push(col("wins", "W", "Wins last season", 0), col("losses", "L", "Losses last season", 0));
   }

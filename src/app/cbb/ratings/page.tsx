@@ -25,7 +25,8 @@ export default async function CbbRatingsPage({ searchParams }: { searchParams: P
     stats: Object.fromEntries(Object.entries(r.stats).map(([k, v]) => [k, typeof v === "number" ? v : null])),
   }));
   const conferences = [...new Set(rows.map((r) => r.conference).filter(Boolean))].sort();
-  const label = (k: { season: number; kind: string }) => (k.kind === "preseason" ? `${k.season}-${String((k.season + 1) % 100).padStart(2, "0")} preseason` : `${k.season}-${String((k.season + 1) % 100).padStart(2, "0")} final`);
+  const label = (k: { season: number; kind: string }) =>
+    `${k.season}-${String((k.season + 1) % 100).padStart(2, "0")} ${k.kind === "preseason" ? "preseason" : k.kind === "current" ? "current" : "final"}`;
 
   return (
     <div className="flex min-h-screen flex-col">
