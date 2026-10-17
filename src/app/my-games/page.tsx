@@ -1,3 +1,4 @@
+import CfbScoresButton from "@/components/CfbScoresButton";
 import MyGameCard from "@/components/MyGameCard";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
@@ -39,6 +40,7 @@ export default async function MyGamesPage() {
       <SiteHeader subtitle="My Games" />
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
+        <CfbScoresButton />
         {rows.length === 0 ? (
           <div className="rounded-lg border border-border bg-surface p-8 text-center text-muted">
             No upcoming or live games with a logged pick right now — see <span className="text-foreground">Bets</span> for the full history.

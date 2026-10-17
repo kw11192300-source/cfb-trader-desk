@@ -1,3 +1,4 @@
+import CfbScoresButton from "@/components/CfbScoresButton";
 import FreshnessBanner from "@/components/FreshnessBanner";
 import LogParlayForm from "@/components/LogParlayForm";
 import SiteHeader from "@/components/SiteHeader";
@@ -37,6 +38,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ w
       <SiteHeader subtitle={board ? `${board.season} · Week ${board.week} · ${seasonTypeLabel(board.seasonType)}` : "No active week"} />
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
+        <CfbScoresButton />
         <div className="mb-4">
           <LogParlayForm sport="cfb" />
         </div>

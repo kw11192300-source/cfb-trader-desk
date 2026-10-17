@@ -209,6 +209,45 @@ export async function triggerCbbRatings(): Promise<{ ok: boolean; message: strin
   return { ok: false, message: `GitHub returned ${res.status}.` };
 }
 
+// --- CFB scores ----------------------------------------------------------------
+// College football scores come from the ESPN sync job (.github/workflows/sync-results-espn.yml -> cfbd_ingest.sync_results_espn),
+// which already runs every 5 minutes. The "Update scores" button runs that same job right now, so there is still exactly one
+// place that decides which ESPN game is which of ours (its team-name matcher), and the button can never disagree with the timer.
+const CFB_SCORES_WORKFLOW = "sync-results-espn.yml";
+
+/** The newest run of the CFB score sync (scheduled or started by the button). Never throws. */
+export async function getCfbScoresStatus(): Promise<NhlRefreshStatus> {
+  const none: NhlRefreshStatus = { state: "none", createdAt: null, updatedAt: null, url: null };
+  try {
+    const res = await github(`/actions/workflows/${CFB_SCORES_WORKFLOW}/runs?per_page=1`);
+    if (!res.ok) return none;
+    const run = (await res.json()).workflow_runs?.[0];
+    if (!run) return none;
+    const state: NhlRefreshStatus["state"] =
+      run.status === "completed" ? (run.conclusion === "success" ? "success" : "failed") : run.status === "in_progress" ? "running" : "queued";
+    return { state, createdAt: run.created_at, updatedAt: run.updated_at, url: run.html_url };
+  } catch {
+    return none;
+  }
+}
+
+/** Starts a score sync now (about a minute: GitHub queues the run, then ESPN is read and the games table updated). */
+export async function triggerCfbScores(): Promise<{ ok: boolean; message: string }> {
+  if (!process.env.GITHUB_DISPATCH_TOKEN) {
+    return { ok: false, message: "Score refresh isn't set up yet: GITHUB_DISPATCH_TOKEN is missing." };
+  }
+  const res = await github(`/actions/workflows/${CFB_SCORES_WORKFLOW}/dispatches`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ref: "main" }),
+  });
+  if (res.status === 204) return { ok: true, message: "Updating scores from ESPN…" };
+  if (res.status === 404 || res.status === 403 || res.status === 401) {
+    return { ok: false, message: "GitHub refused the request - check the token has Actions read & write on the repo." };
+  }
+  return { ok: false, message: `GitHub returned ${res.status}.` };
+}
+
 /** Odds-only refresh behind the "Update DK odds" button: re-reads ESPN's DraftKings lines for upcoming games in a few
  * seconds, no model refit (the model's own numbers are untouched, so compare against it only until the next full refresh
  * changes lineups or ratings). The same update runs on a timer - see src/lib/nhlOdds.ts. */
