@@ -842,6 +842,27 @@ export async function getNbaPlayers(season: number): Promise<NbaPlayerRating[]> 
   return (data ?? []) as NbaPlayerRating[];
 }
 
+export type NbaInjury = {
+  game_date: string;
+  team: string;
+  player: string;
+  matchup: string | null;
+  status: string;
+  reason_cat: string | null;
+  reason_detail: string | null;
+  report_time: string;
+};
+
+/** The official injury report's latest status for every player listed for games on one Eastern date (nba_injury_status). */
+export async function getNbaInjuries(day: string): Promise<NbaInjury[]> {
+  const { data, error } = await supabase.from("nba_injury_status").select("game_date, team, player, matchup, status, reason_cat, reason_detail, report_time").eq("game_date", day).limit(2000);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw new Error(error.message);
+  }
+  return (data ?? []) as NbaInjury[];
+}
+
 /** NBA games in a time window (the `games` table, sport = nba), soonest first. */
 export async function getNbaGames(fromIso: string, toIso: string): Promise<Game[]> {
   const { data, error } = await supabase.from("games").select("*").eq("sport", "nba").gte("start_date", fromIso).lte("start_date", toIso).order("start_date", { ascending: true }).limit(200);

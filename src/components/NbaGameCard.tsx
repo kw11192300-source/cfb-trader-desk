@@ -1,7 +1,7 @@
 import Image from "next/image";
 import LogBetForm from "./LogBetForm";
 import LogPropBetForm from "./LogPropBetForm";
-import type { GradedBet, NbaSnapshot } from "@/lib/data";
+import type { GradedBet, NbaInjury, NbaSnapshot } from "@/lib/data";
 import { nbaLogo, nbaShort } from "@/lib/nbaTeams";
 import type { Bet, Game } from "@/lib/types";
 
@@ -24,7 +24,48 @@ function Logo({ team }: { team: string }) {
 
 /** One NBA game: score or tip time, the current lines (and where they opened), buttons to log a spread / moneyline / total / prop bet,
  * and the bets you already have on it. */
-export default function NbaGameCard({ game, snaps, bets }: { game: Game; snaps: NbaSnapshot[]; bets: GradedBet[] }) {
+const nameKey = (s: string) => s.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z ]/g, "").replace(/\b(jr|sr|ii|iii|iv)\b/g, "").replace(/\s+/g, " ").trim();
+
+/** One team's line on the injury report: who is out / doubtful / questionable, each with his rating (net points per 100 he adds) so the
+ * size of the news is visible at a glance. */
+function InjuryLine({ team, rows, ratings }: { team: string; rows: NbaInjury[]; ratings: Record<string, number> }) {
+  const mine = rows.filter((r) => r.team === team);
+  if (mine.length === 0) return null;
+  if (mine.every((r) => r.player === "")) return <div className="text-[11px] text-muted">{nbaShort(team)}: report not submitted yet</div>;
+  const show = (statuses: string[]) =>
+    mine
+      .filter((r) => r.player && statuses.includes(r.status) && !/g league|two-way/i.test(`${r.reason_cat ?? ""} ${r.reason_detail ?? ""}`))
+      .map((r) => {
+        const net = ratings[nameKey(r.player)];
+        return { r, net };
+      })
+      .sort((a, b) => (b.net ?? -99) - (a.net ?? -99));
+  const out = show(["Out", "Doubtful"]);
+  const q = show(["Questionable", "Probable"]);
+  if (out.length === 0 && q.length === 0) return null;
+  const fmt = (x: { r: NbaInjury; net: number | undefined }) => (
+    <span key={x.r.player}>
+      {x.r.player}
+      {x.net !== undefined && <span className="font-mono text-muted"> ({x.net > 0 ? "+" : ""}{x.net.toFixed(1)})</span>}
+      {x.r.reason_detail ? <span className="text-muted"> {x.r.reason_detail}</span> : null}
+    </span>
+  );
+  const join = (xs: { r: NbaInjury; net: number | undefined }[]) => xs.map((x, i) => <span key={x.r.player}>{i > 0 ? ", " : ""}{fmt(x)}</span>);
+  return (
+    <div className="text-[11px] leading-snug">
+      <span className="text-muted">{nbaShort(team)}: </span>
+      {out.length > 0 && (
+        <span className="text-down">
+          Out {join(out)}
+        </span>
+      )}
+      {out.length > 0 && q.length > 0 && <span className="text-muted"> · </span>}
+      {q.length > 0 && <span className="text-warn">Q {join(q)}</span>}
+    </div>
+  );
+}
+
+export default function NbaGameCard({ game, snaps, bets, injuries = [], ratings = {} }: { game: Game; snaps: NbaSnapshot[]; bets: GradedBet[]; injuries?: NbaInjury[]; ratings?: Record<string, number> }) {
   const cur = snaps.length ? snaps[snaps.length - 1] : null;
   const first = snaps.length ? snaps[0] : null;
   const live = game.live_status;
@@ -83,6 +124,12 @@ export default function NbaGameCard({ game, snaps, bets }: { game: Game; snaps: 
           </div>
         )}
         {!cur && !started && <div className="mt-2 text-[11px] text-muted">No line posted yet.</div>}
+        {!game.completed && injuries.length > 0 && (
+          <div className="mt-2 space-y-0.5 border-t border-border/60 pt-2">
+            <InjuryLine team={game.away_team} rows={injuries} ratings={ratings} />
+            <InjuryLine team={game.home_team} rows={injuries} ratings={ratings} />
+          </div>
+        )}
       </div>
 
       {!game.completed && (

@@ -1017,3 +1017,40 @@ create table if not exists nba_player_ratings (
 create index if not exists nba_player_ratings_net_idx on nba_player_ratings (season, kind, net desc);
 alter table nba_player_ratings enable row level security;
 create policy "public read" on nba_player_ratings for select using (true);
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- NBA injury report (official report PDF, every 15 minutes; src/lib/nbaInjuries.ts). nba_injury_status = the latest status of each
+-- player listed for each game; nba_injury_log = every CHANGE with the time we saw it (the history for studying how fast the market
+-- reacts). player = '' marks a team that has not submitted its report yet.
+-- ---------------------------------------------------------------------------------------------------------------------
+create table if not exists nba_injury_status (
+  game_date date not null,            -- Eastern date of the game
+  team text not null,                 -- ESPN display name, e.g. 'Boston Celtics'
+  player text not null default '',
+  matchup text,                       -- AWAY@HOME
+  game_time_et text,
+  status text not null,               -- Out | Doubtful | Questionable | Probable | Available | NOT YET SUBMITTED
+  reason_cat text,                    -- Injury/Illness | G League | Personal Reasons | Rest | ...
+  reason_detail text,                 -- Left Ankle Sprain, Two-Way, ...
+  report_time timestamptz not null,
+  updated_at timestamptz not null default now(),
+  primary key (game_date, team, player)
+);
+alter table nba_injury_status enable row level security;
+create policy "public read" on nba_injury_status for select using (true);
+
+create table if not exists nba_injury_log (
+  id bigserial primary key,
+  seen_at timestamptz not null default now(),
+  report_time timestamptz not null,
+  game_date date not null,
+  team text not null,
+  player text not null default '',
+  old_status text,
+  new_status text not null,
+  reason_cat text,
+  reason_detail text
+);
+create index if not exists nba_injury_log_idx on nba_injury_log (game_date, team, player, seen_at);
+alter table nba_injury_log enable row level security;
+create policy "public read" on nba_injury_log for select using (true);

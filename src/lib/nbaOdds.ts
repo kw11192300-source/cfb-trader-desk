@@ -2,6 +2,7 @@ import { supabaseAdmin } from "./supabase-admin";
 import { type CbbMarket, type EspnOdds, parseMarket, PRICE_FIELDS, samePrices } from "./cbbOdds";
 import { NBA_GAME_ID_OFFSET } from "./nbaTeams";
 import { gradeNbaProps, type GradeResult } from "./nbaProps";
+import { updateNbaInjuries } from "./nbaInjuries";
 
 // Server-only. NBA: keeps the `games` table current (schedule, live status, finals) straight from ESPN's scoreboard and logs every
 // change in the posted lines (spread, total, moneyline) to nba_odds_snapshots - the history that lets a bet be compared with where
@@ -72,7 +73,8 @@ export async function updateNba(opts: { grade?: boolean } = {}): Promise<NbaUpda
   }
   if (events.length === 0) {
     const graded = opts.grade ? await gradeNbaProps().catch(() => null) : null;
-    return { ok: true, message: "No NBA games on the board right now.", ...blank, graded };
+    const inj0 = await updateNbaInjuries().catch(() => null);
+    return { ok: true, message: `No NBA games on the board right now.${inj0?.message ? ` ${inj0.message}` : ""}`, ...blank, graded };
   }
 
   // ---- games table: schedule, live status, finals
@@ -159,10 +161,11 @@ export async function updateNba(opts: { grade?: boolean } = {}): Promise<NbaUpda
   }
 
   const graded = opts.grade ? await gradeNbaProps().catch(() => null) : null;
+  const inj = await updateNbaInjuries().catch(() => null); // never let the injury report stop the scores and lines
   const gradeMsg = graded && graded.graded + graded.voided > 0 ? ` ${graded.graded} prop${graded.graded === 1 ? "" : "s"} graded${graded.voided ? ` (${graded.voided} voided)` : ""}.` : "";
   return {
     ok: true,
-    message: `${events.length} games synced (${live} live, ${final} final), ${incoming.size} priced, ${moved} moved, ${saved} snapshot${saved === 1 ? "" : "s"} saved.${gradeMsg}${oddsNote}`,
+    message: `${events.length} games synced (${live} live, ${final} final), ${incoming.size} priced, ${moved} moved, ${saved} snapshot${saved === 1 ? "" : "s"} saved.${gradeMsg}${oddsNote}${inj?.message ? ` ${inj.message}` : ""}`,
     games: events.length,
     priced: incoming.size,
     moved,
