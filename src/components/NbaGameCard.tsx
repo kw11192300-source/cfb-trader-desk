@@ -1,7 +1,8 @@
 import Image from "next/image";
 import LogBetForm from "./LogBetForm";
 import LogPropBetForm from "./LogPropBetForm";
-import type { GradedBet, NbaInjury, NbaSnapshot } from "@/lib/data";
+import NbaProjectionPanel from "./NbaProjectionPanel";
+import type { GradedBet, NbaGameProjection, NbaInjury, NbaPlayerProjection, NbaSnapshot } from "@/lib/data";
 import { nbaLogo, nbaShort } from "@/lib/nbaTeams";
 import type { Bet, Game } from "@/lib/types";
 
@@ -65,7 +66,7 @@ function InjuryLine({ team, rows, ratings }: { team: string; rows: NbaInjury[]; 
   );
 }
 
-export default function NbaGameCard({ game, snaps, bets, injuries = [], ratings = {} }: { game: Game; snaps: NbaSnapshot[]; bets: GradedBet[]; injuries?: NbaInjury[]; ratings?: Record<string, number> }) {
+export default function NbaGameCard({ game, snaps, bets, injuries = [], ratings = {}, projection, projPlayers = [] }: { game: Game; snaps: NbaSnapshot[]; bets: GradedBet[]; injuries?: NbaInjury[]; ratings?: Record<string, number>; projection?: NbaGameProjection; projPlayers?: NbaPlayerProjection[] }) {
   const cur = snaps.length ? snaps[snaps.length - 1] : null;
   const first = snaps.length ? snaps[0] : null;
   const live = game.live_status;
@@ -130,6 +131,7 @@ export default function NbaGameCard({ game, snaps, bets, injuries = [], ratings 
             <InjuryLine team={game.home_team} rows={injuries} ratings={ratings} />
           </div>
         )}
+        {!game.completed && !live && <NbaProjectionPanel proj={projection} players={projPlayers} homeTeam={game.home_team} awayTeam={game.away_team} />}
       </div>
 
       {!game.completed && (

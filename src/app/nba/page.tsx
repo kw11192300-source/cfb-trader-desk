@@ -5,7 +5,7 @@ import NbaScoresButton from "@/components/NbaScoresButton";
 import NhlBetStrip from "@/components/NhlBetStrip";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
-import { getBets, getNbaGames, getNbaInjuries, getNbaPlayers, getNbaSnapshots } from "@/lib/data";
+import { getBets, getNbaGames, getNbaInjuries, getNbaPlayers, getNbaProjections, getNbaSnapshots } from "@/lib/data";
 import { PROPS } from "@/lib/nbaPropCatalog";
 import { etDay } from "@/lib/nhlTeamGames";
 
@@ -23,7 +23,7 @@ export default async function NbaPage({ searchParams }: { searchParams: Promise<
   const to = new Date(new Date(`${day}T00:00:00Z`).getTime() + 31 * 3_600_000).toISOString();
   const [rawGames, allBets] = await Promise.all([getNbaGames(from, to), getBets()]);
   const games = rawGames.filter((g) => etDay(g.start_date) === day);
-  const [snaps, injuries, players] = await Promise.all([getNbaSnapshots(games.map((g) => g.id)), getNbaInjuries(day), getNbaPlayers(2026)]);
+  const [snaps, injuries, players, projections] = await Promise.all([getNbaSnapshots(games.map((g) => g.id)), getNbaInjuries(day), getNbaPlayers(2026), getNbaProjections(games.map((g) => g.id))]);
   const nameKey = (s: string) => s.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z ]/g, "").replace(/\b(jr|sr|ii|iii|iv)\b/g, "").replace(/\s+/g, " ").trim();
   const ratings: Record<string, number> = {};
   for (const p of players) if (p.net !== null) ratings[nameKey(p.name)] = p.net;
@@ -70,7 +70,7 @@ export default async function NbaPage({ searchParams }: { searchParams: Promise<
         ) : (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {games.map((g) => (
-              <NbaGameCard key={g.id} game={g} snaps={snaps.get(g.id) ?? []} bets={nbaBets} injuries={injuries.filter((i) => i.team === g.home_team || i.team === g.away_team)} ratings={ratings} />
+              <NbaGameCard key={g.id} game={g} snaps={snaps.get(g.id) ?? []} bets={nbaBets} injuries={injuries.filter((i) => i.team === g.home_team || i.team === g.away_team)} ratings={ratings} projection={projections.games.get(g.id)} projPlayers={projections.players.get(g.id) ?? []} />
             ))}
           </div>
         )}

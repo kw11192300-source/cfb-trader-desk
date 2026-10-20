@@ -36,7 +36,9 @@ A_TEAM = 0.10
 COLD = 12.0  # minutes assumed for a player with no history yet
 
 
-def build() -> pd.DataFrame:
+def build(emit: bool = True, stop_at: int | None = None):
+    """The feature table (emit=True, written to FEATURES_OUT) or, with emit=False, just the rolling state after the last game before
+    `stop_at` (or after every game): what the live projections start from. The state carries every player's minutes / rate baselines."""
     gm = pd.read_csv(GAMES_OUT)
     gm["start_utc"] = pd.to_datetime(gm["start_utc"], utc=True)
     pg = pd.read_csv(PLAYER_GAMES_OUT)
@@ -61,6 +63,8 @@ def build() -> pd.DataFrame:
     pace: dict[int, float] = {}
     rows = []
     for gi in gm.itertuples():
+        if stop_at is not None and gi.event_id == stop_at:
+            break
         box = by_event.get(gi.event_id)
         if box is None:
             continue
@@ -83,6 +87,8 @@ def build() -> pd.DataFrame:
             avail_rot = sum(1 for p in played if base.get(p, COLD) >= 8.0)
             n_out_rot = sum(1 for p in members if p not in played and base[p] >= 8.0)
             vac_stats = {k: sum(pstate[p]["rs"][k] for p in members if p not in played and p in pstate and base[p] >= 8.0) for k in ("pts", "reb", "ast", "tpm", "fga")}
+            if not emit:
+                continue
             for p in members:
                 st = pstate.get(p)
                 pm = played.get(p, 0.0)
@@ -157,6 +163,7 @@ def build() -> pd.DataFrame:
                 s_["start"] = 0.8 * s_["start"] + 0.2 * (1.0 if st else 0.0)
                 s_["n"] += 1
                 s_["team_games_since"] = 0
+                s_["team"], s_["last_t"] = int(team), gi.start_utc
             # players of this team who did not play this game: their "games since" ticks up
             for p, (a, b) in pool_by_season.get((int(gi.season), int(team)), {}).items():
                 if p in pstate and p not in playing and a <= gi.start_utc <= b:
@@ -176,6 +183,8 @@ def build() -> pd.DataFrame:
         margin = gi.home_pts - gi.away_pts
         for tm, mg in ((gi.home_id, margin), (gi.away_id, -margin)):
             strength[tm] = 0.9 * strength.get(tm, 0.0) + 0.1 * mg
+    if not emit:
+        return {"pstate": pstate, "last_game": last_game, "team_hist": team_hist, "allowed": allowed, "pace": pace, "strength": strength}
     df = pd.DataFrame(rows)
     df.to_csv(FEATURES_OUT, index=False)
     print(f"{len(df):,} player-game rows ({int(df.played.sum()):,} played) -> {FEATURES_OUT}")

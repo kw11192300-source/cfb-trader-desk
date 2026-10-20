@@ -1054,3 +1054,49 @@ create table if not exists nba_injury_log (
 create index if not exists nba_injury_log_idx on nba_injury_log (game_date, team, player, seen_at);
 alter table nba_injury_log enable row level security;
 create policy "public read" on nba_injury_log for select using (true);
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- NBA live projections (python/nba_model/live_run.py, rerun whenever the injury report changes). nba_game_projections = what the
+-- report's FRESH news is worth to the spread (news_move, home margin points) next to how far the line has moved since it first
+-- appeared (moved) and what is left (gap). nba_player_projections = every rostered player's chance to play, projected minutes
+-- (mean and 10th / 90th percentile) and a stat distribution for each prop market, averaged over the in/out scenarios.
+-- ---------------------------------------------------------------------------------------------------------------------
+create table if not exists nba_game_projections (
+  game_id bigint primary key,
+  start_date timestamptz not null,
+  home_team text not null,
+  away_team text not null,
+  news_move numeric,
+  line_open numeric,
+  line_now numeric,
+  moved numeric,
+  gap numeric,
+  pending_home boolean not null default false,
+  pending_away boolean not null default false,
+  detail jsonb,
+  computed_at timestamptz not null default now()
+);
+alter table nba_game_projections enable row level security;
+create policy "public read" on nba_game_projections for select using (true);
+
+create table if not exists nba_player_projections (
+  game_id bigint not null,
+  player_id bigint not null,
+  name text not null,
+  team text not null,
+  side text not null,
+  p_play numeric not null,
+  status text,
+  reason text,
+  base_min numeric,
+  n_prior integer,
+  min_mean numeric,
+  min_q10 numeric,
+  min_q90 numeric,
+  exp_min numeric,
+  stats jsonb,
+  computed_at timestamptz not null default now(),
+  primary key (game_id, player_id)
+);
+alter table nba_player_projections enable row level security;
+create policy "public read" on nba_player_projections for select using (true);

@@ -905,6 +905,64 @@ export async function getNbaSnapshots(gameIds: number[]): Promise<Map<number, Nb
   return out;
 }
 
+export type NbaNewsContrib = { player_id: number; name: string | null; p_play: number; share: number; net: number; effect: number };
+export type NbaGameProjection = {
+  game_id: number;
+  start_date: string;
+  home_team: string;
+  away_team: string;
+  news_move: number | null; // what the report's FRESH news is worth to the home margin (+ = favours home)
+  line_open: number | null; // the home team's own number when we first saw a line
+  line_now: number | null;
+  moved: number | null; // how far the line has moved toward home since then
+  gap: number | null; // news_move - moved: what the line has not yet absorbed
+  pending_home: boolean;
+  pending_away: boolean;
+  detail: { contrib?: { home: NbaNewsContrib[]; away: NbaNewsContrib[] }; state_through?: string; hours_to_tip?: number } | null;
+  computed_at: string;
+};
+/** One stat's outcome distribution: ge[i] = P(stat >= k0 + i). */
+export type NbaStatDist = { mean: number; median: number; k0: number; ge: number[] };
+export type NbaPlayerProjection = {
+  game_id: number;
+  player_id: number;
+  name: string;
+  team: string;
+  side: "home" | "away";
+  p_play: number;
+  status: string | null;
+  reason: string | null;
+  base_min: number | null;
+  n_prior: number | null;
+  min_mean: number | null;
+  min_q10: number | null;
+  min_q90: number | null;
+  exp_min: number | null;
+  stats: Record<string, NbaStatDist> | null;
+  computed_at: string;
+};
+
+/** The live projections (nba_game_projections / nba_player_projections) for the given games; empty until the first live run. */
+export async function getNbaProjections(gameIds: number[]): Promise<{ games: Map<number, NbaGameProjection>; players: Map<number, NbaPlayerProjection[]> }> {
+  const games = new Map<number, NbaGameProjection>();
+  const players = new Map<number, NbaPlayerProjection[]>();
+  if (gameIds.length === 0) return { games, players };
+  const [g, p] = await Promise.all([
+    supabase.from("nba_game_projections").select("*").in("game_id", gameIds).limit(200),
+    supabase.from("nba_player_projections").select("*").in("game_id", gameIds).order("exp_min", { ascending: false }).limit(5000),
+  ]);
+  for (const r of [g, p]) {
+    if (r.error && !isMissingTable(r.error)) throw new Error(r.error.message);
+  }
+  for (const r of (g.data ?? []) as NbaGameProjection[]) games.set(r.game_id, r);
+  for (const r of (p.data ?? []) as NbaPlayerProjection[]) {
+    const list = players.get(r.game_id) ?? [];
+    list.push(r);
+    players.set(r.game_id, list);
+  }
+  return { games, players };
+}
+
 /** Players marked as out/doubtful/questionable that are still in effect (no end date, or the date has not passed). */
 export async function getCbbAvailability(season: number): Promise<CbbAvailability[]> {
   const { data, error } = await supabase.from("cbb_availability").select("*").eq("season", season).order("created_at", { ascending: false }).limit(500);

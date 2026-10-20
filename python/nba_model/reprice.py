@@ -20,6 +20,7 @@ import argparse
 import json
 import re
 import unicodedata
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -131,11 +132,22 @@ def backtest() -> None:
     L.to_pickle(DATA_DIR / "reprice_eval.pkl")
 
 
+def calibrate() -> None:
+    """Fit the fresh-news coefficients live.py uses:  move = c1 * (S1_away - S1_home) + c0 * (S0_away - S0_home)  on the backtest games."""
+    L = pd.read_pickle(DATA_DIR / "reprice_eval.pkl")
+    X = np.column_stack([np.ones(len(L)), L["dS1n"], L["dS0n"]])
+    beta, *_ = np.linalg.lstsq(X, L["move"].to_numpy(), rcond=None)
+    out = {"c1": float(beta[1]), "c0": float(beta[2]), "n": int(len(L)), "fit": "open->close move on fresh-news swing, Jan-Apr 2026"}
+    path = Path(__file__).resolve().parents[1] / "models" / "nba_reprice.json"
+    path.write_text(json.dumps(out, indent=1))
+    print(out, "->", path)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("what", choices=["backtest"])
-    ap.parse_args()
-    backtest()
+    ap.add_argument("what", choices=["backtest", "calibrate"])
+    a = ap.parse_args()
+    backtest() if a.what == "backtest" else calibrate()
 
 
 if __name__ == "__main__":
