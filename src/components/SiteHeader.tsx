@@ -38,6 +38,7 @@ const NAV_ITEMS: Record<Sport, { href: string; label: string; prefetch?: boolean
   ],
   nba: [
     { href: "/nba", label: "Board" },
+    { href: "/nba/players", label: "Players" },
     { href: "/nba/bets", label: "Bets" },
   ],
   cbb: [

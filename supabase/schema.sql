@@ -996,3 +996,24 @@ create table if not exists nba_odds_snapshots (
 create index if not exists nba_odds_snapshots_game_idx on nba_odds_snapshots (game_id, captured_at);
 alter table nba_odds_snapshots enable row level security;
 create policy "public read" on nba_odds_snapshots for select using (true);
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- NBA player ratings (python/nba_model/players_table.py): every player on a current roster with a lineup-based offence /
+-- defence rating (points per 100 possessions he adds vs an average player), last season's box line, and what his absence has
+-- cost his team. `net` is a real column so the page can order by it; everything else is in stats.
+-- ---------------------------------------------------------------------------------------------------------------------
+create table if not exists nba_player_ratings (
+  season int not null,                -- the season published for (2026 = 2026-27)
+  kind text not null,                 -- current
+  player_id bigint not null,          -- ESPN athlete id
+  name text not null,
+  team_id bigint,
+  team text,
+  net numeric,
+  stats jsonb not null,
+  updated_at timestamptz not null default now(),
+  primary key (season, kind, player_id)
+);
+create index if not exists nba_player_ratings_net_idx on nba_player_ratings (season, kind, net desc);
+alter table nba_player_ratings enable row level security;
+create policy "public read" on nba_player_ratings for select using (true);

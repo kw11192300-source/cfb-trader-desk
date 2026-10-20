@@ -25,6 +25,7 @@ import type {
   CbbPlayerRating,
   CbbBoardRow,
   CbbAvailability,
+  NbaPlayerRating,
   NhlGoalieStatsRow,
   NhlOddsSnapshot,
   NhlSkaterRatingRow,
@@ -829,6 +830,16 @@ export async function getCbbRatingKinds(): Promise<{ season: number; kind: strin
   for (const r of (data ?? []) as { season: number; kind: string }[]) seen.set(`${r.season}-${r.kind}`, r);
   const order = (k: string) => (k === "current" ? 0 : k === "preseason" ? 1 : 2);
   return [...seen.values()].sort((a, b) => b.season - a.season || order(a.kind) - order(b.kind));
+}
+
+/** Every NBA player with a rating for a season (nba_player_ratings), best net rating first. */
+export async function getNbaPlayers(season: number): Promise<NbaPlayerRating[]> {
+  const { data, error } = await supabase.from("nba_player_ratings").select("*").eq("season", season).eq("kind", "current").order("net", { ascending: false, nullsFirst: false }).limit(1000);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw new Error(error.message);
+  }
+  return (data ?? []) as NbaPlayerRating[];
 }
 
 /** NBA games in a time window (the `games` table, sport = nba), soonest first. */

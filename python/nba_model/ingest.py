@@ -26,6 +26,7 @@ DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "nba"
 RAW_SB = DATA_DIR / "raw" / "scoreboard"
 RAW_GAMES = DATA_DIR / "raw" / "games"
 RAW_ODDS = DATA_DIR / "raw" / "odds"
+RAW_PBP = DATA_DIR / "raw" / "pbp"
 SCHEDULE_CSV = DATA_DIR / "schedule.csv"
 TEAMS_CSV = DATA_DIR / "teams.csv"
 
@@ -178,9 +179,62 @@ def ingest_odds(first: int, last: int) -> None:
     _run_pool("odds", jobs, fetch_odds)
 
 
+
+# ------------------------------------------------------------------ play-by-play (lineups, shots)
+
+def _clock_secs(s: str | None) -> float | None:
+    try:
+        m, sec = str(s).split(":")
+        return int(m) * 60 + float(sec)
+    except (ValueError, AttributeError):
+        return None
+
+
+def _trim_plays(j: dict) -> list[dict]:
+    out = []
+    for p in j.get("plays", []) or []:
+        typ = (p.get("type") or {}).get("text") or ""
+        shoot = bool(p.get("shootingPlay"))
+        coord = p.get("coordinate") or {}
+        out.append(
+            {
+                "t": " ".join(typ.split()),
+                "per": (p.get("period") or {}).get("number"),
+                "clk": _clock_secs((p.get("clock") or {}).get("displayValue")),
+                "as": p.get("awayScore"),
+                "hs": p.get("homeScore"),
+                "sc": 1 if p.get("scoringPlay") else 0,
+                "sv": p.get("scoreValue"),
+                "pa": p.get("pointsAttempted"),
+                "tm": (p.get("team") or {}).get("id"),
+                "who": [(x.get("athlete") or {}).get("id") for x in p.get("participants", []) or []],
+                # the text is kept only where it carries information the fields do not (assists, shot descriptions, substitutions)
+                "txt": p.get("text") if (shoot or typ == "Substitution") else None,
+                "x": coord.get("x") if shoot else None,
+                "y": coord.get("y") if shoot else None,
+            }
+        )
+    return out
+
+
+def fetch_pbp(season: int, event_id: int) -> bool:
+    path = RAW_PBP / str(season) / f"{event_id}.json.gz"
+    if path.exists():
+        return False
+    j = _get_json(f"{SITE}/summary", {"event": event_id})
+    _write_gz(path, {"missing": True} if j is None else {"plays": _trim_plays(j)})
+    return True
+
+
+def ingest_pbp(first: int, last: int) -> None:
+    sched = _wanted(first, last)
+    jobs = [(int(r.season), int(r.event_id)) for r in sched.itertuples() if not (RAW_PBP / str(int(r.season)) / f"{int(r.event_id)}.json.gz").exists()]
+    _run_pool("play-by-play", jobs, fetch_pbp)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("what", choices=["schedule", "games", "odds", "all"])
+    ap.add_argument("what", choices=["schedule", "games", "odds", "pbp", "all"])
     ap.add_argument("--first", type=int, default=2021)
     ap.add_argument("--last", type=int, default=season_of(dt.date.today()))
     a = ap.parse_args()
@@ -190,6 +244,8 @@ def main() -> None:
         ingest_games(a.first, a.last)
     if a.what in ("odds", "all"):
         ingest_odds(a.first, a.last)
+    if a.what in ("pbp", "all"):
+        ingest_pbp(a.first, a.last)
 
 
 if __name__ == "__main__":

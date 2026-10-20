@@ -481,6 +481,19 @@ export type CbbAvailability = {
   created_at: string;
 };
 
+/** One NBA player's rating line (nba_player_ratings). */
+export type NbaPlayerRating = {
+  season: number;
+  kind: string;
+  player_id: number;
+  name: string;
+  team_id: number | null;
+  team: string | null;
+  net: number | null;
+  stats: Record<string, number | string | null>;
+  updated_at: string;
+};
+
 /** A goalie marked as unable to play (nhl_goalie_unavailable). */
 export type NhlGoalieUnavailable = {
   goalie_id: number;
