@@ -53,12 +53,20 @@ def minutes_forecasts(df: pd.DataFrame, holdout: int | None) -> pd.DataFrame:
     return out
 
 
-def feature_frame(df: pd.DataFrame, comps: list[str], target: str) -> pd.DataFrame:
+USE_LONG = False  # add the ~40-game per-minute rates (features_version 2)
+
+
+def feature_frame(df: pd.DataFrame, comps: list[str], target: str, use_long: bool | None = None) -> pd.DataFrame:
+    use_long = USE_LONG if use_long is None else use_long
     X = pd.DataFrame(index=df.index)
     for k in ("pm_mean", "pm_q10", "pm_q50", "pm_q90"):
         X[k] = df[k]
     for tag in ("rf", "rs", "rsea"):
         X[f"rate_{tag}"] = sum(df[f"{tag}_{c}"] for c in comps)
+    if use_long:
+        X["rate_rl"] = sum(df[f"rl_{c}"] for c in comps)
+        X["exp_long"] = X["pm_mean"] * X["rate_rl"]
+        X["tgno"] = df["tgno"].clip(upper=30)  # how far into the season: early on, stars outscore what last spring's rates say
     X["exp_slow"] = X["pm_mean"] * X["rate_rs"]
     X["exp_fast"] = X["pm_mean"] * X["rate_rf"]
     X["exp_sea"] = X["pm_mean"] * X["rate_rsea"]
@@ -183,14 +191,17 @@ def train() -> None:
         models[name] = _q(None).fit(X[keep], y[keep])
         print(f"  trained {name}", flush=True)
     with open(MODELS_OUT, "wb") as f:
-        pickle.dump({"targets": TARGETS, "models": models, "dists": dists, "rows": len(played), "features_version": 1}, f)
+        pickle.dump({"targets": TARGETS, "models": models, "dists": dists, "rows": len(played), "features_version": 2 if USE_LONG else 1}, f)
     print(f"-> {MODELS_OUT}")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("what", choices=["evaluate", "train"])
+    ap.add_argument("--long", action="store_true", help="use the long-run per-minute rates (features_version 2)")
     a = ap.parse_args()
+    global USE_LONG
+    USE_LONG = a.long
     evaluate() if a.what == "evaluate" else train()
 
 

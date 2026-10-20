@@ -2,7 +2,7 @@ import { supabaseAdmin } from "./supabase-admin";
 
 // Server-only. Starts the NBA live-projection job (.github/workflows/nba-live.yml: projected minutes, stat lines and the injury news
 // move for the games coming up) when the injury report CHANGED, and as a fallback when the last projections are over 90 minutes old
-// and a game is within ~20 hours. Called from the ~10-minute NBA timer (nbaOdds.ts), so the projections follow the report without
+// and a game is within ~36 hours. Called from the ~10-minute NBA timer (nbaOdds.ts), so the projections follow the report without
 // anyone pressing a button. A run takes a few minutes; runs never overlap (the workflow queues at most one behind the current one).
 
 const GITHUB_REPO = "kw11192300-source/cfb-trader-desk";
@@ -17,7 +17,7 @@ export async function maybeRunNbaLive(injuryChanges: number): Promise<string> {
     .eq("sport", "nba")
     .eq("completed", false)
     .gt("start_date", new Date(now).toISOString())
-    .lt("start_date", new Date(now + 20 * 3_600_000).toISOString())
+    .lt("start_date", new Date(now + 36 * 3_600_000).toISOString())
     .limit(1);
   if (error || !soon?.length) return "";
   const { data: last, error: lastErr } = await supabaseAdmin.from("nba_game_projections").select("computed_at").order("computed_at", { ascending: false }).limit(1);

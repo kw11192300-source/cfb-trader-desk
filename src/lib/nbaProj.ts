@@ -22,8 +22,8 @@ export function dist(p: NbaPlayerProjection, key: string): NbaStatDist | undefin
   const d = p.stats?.[key] as NbaStatDist | undefined;
   return d && Array.isArray(d.ge) ? d : undefined;
 }
-export function joint(p: NbaPlayerProjection): { dd: number; td: number } | undefined {
-  return p.stats?._joint as { dd: number; td: number } | undefined;
+export function joint(p: NbaPlayerProjection): { dd: number; td: number; rot?: number } | undefined {
+  return p.stats?._joint as { dd: number; td: number; rot?: number } | undefined;
 }
 
 /** P(stat >= k). Below the stored range it is ~1, above it ~0. */
@@ -86,7 +86,7 @@ export function normCdf(z: number): number {
 }
 
 /** How far a final margin / total typically lands from the model's number (about the closing line's own error). */
-export const MARGIN_SD = 14.2;
+export const MARGIN_SD = 12.9; // the market's own spread-to-moneyline conversion, so the same spread gives the same moneyline
 export const TOTAL_SD = 18;
 
 /** Chances that a normally distributed integer outcome lands above / below / on a line. `above` = outcome > line. */

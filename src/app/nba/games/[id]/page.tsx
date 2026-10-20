@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import NbaBetButtons from "@/components/NbaBetButtons";
+import NbaModelBuild from "@/components/NbaModelBuild";
 import NbaModelButton from "@/components/NbaModelButton";
 import NbaModelVsOdds from "@/components/NbaModelVsOdds";
 import NbaPlayerTable from "@/components/NbaPlayerTable";
@@ -100,6 +101,12 @@ export default async function NbaGamePage({ params }: { params: Promise<{ id: st
   const leanHome = (gap ?? 0) > 0;
   const contrib = gp?.detail?.contrib;
   const updated = gp ? new Date(gp.computed_at).toLocaleTimeString("en-US", { timeZone: ET, hour: "numeric", minute: "2-digit" }) : null;
+  const lastYear: Record<string, { ppg: number; mpg: number }> = {};
+  for (const r of rated) {
+    const mpg = typeof r.stats.mpg === "number" ? r.stats.mpg : null;
+    const p36 = typeof r.stats.pts36 === "number" ? r.stats.pts36 : null;
+    if (mpg !== null && p36 !== null) lastYear[nameKey(r.name)] = { ppg: (p36 * mpg) / 36, mpg };
+  }
   const homeP = players.filter((p) => p.side === "home");
   const awayP = players.filter((p) => p.side === "away");
 
@@ -247,6 +254,7 @@ export default async function NbaGamePage({ params }: { params: Promise<{ id: st
         </div>
 
         {model && <NbaModelVsOdds away={game.away_team} home={game.home_team} model={model} cur={cur} />}
+        {model && players.length > 0 && <NbaModelBuild away={game.away_team} home={game.home_team} model={model} players={players} rated={rated} />}
 
         {/* bets */}
         {!game.completed && (
@@ -275,12 +283,12 @@ export default async function NbaGamePage({ params }: { params: Promise<{ id: st
         {players.length > 0 ? (
           <>
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              <NbaPlayerTable team={game.away_team} players={awayP} />
-              <NbaPlayerTable team={game.home_team} players={homeP} />
+              <NbaPlayerTable team={game.away_team} players={awayP} lastYear={lastYear} />
+              <NbaPlayerTable team={game.home_team} players={homeP} lastYear={lastYear} />
             </div>
             <p className="text-[11px] text-muted">
-              Averages are for a player who plays; a name with a percentage is uncertain on the injury report. The small +/− beside minutes is the change from his usual minutes (who is out, rest, matchup). Players marked
-              &ldquo;new&rdquo; have no NBA history, so their numbers are generic.
+              These are expected values for the game - the chance he plays and his place in the rotation are built in - so each column adds up to the team: 240 minutes and the points of the game projection above. A name with a percentage is
+              uncertain on the injury report (hover for his line if he plays). The small +/− beside minutes is the change from his usual minutes. Players marked &ldquo;new&rdquo; have no NBA history, so their numbers are generic.
             </p>
             <NbaPropsExplorer players={players} awayTeam={game.away_team} homeTeam={game.home_team} />
           </>

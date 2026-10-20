@@ -32,6 +32,7 @@ MODEL_OUT = DATA_DIR / "minutes_model.pkl"
 A_FAST, A_SLOW = 0.35, 0.10
 STATS = ["pts", "reb", "ast", "tpm", "stl", "blk", "tov", "fga", "fta"]  # stats whose per-minute rates and team context feed the projections
 R_FAST, R_SLOW = 0.25, 0.07
+R_LONG = 0.025  # a ~40-game memory: his real talent level, so a cold or hot stretch (or an injured playoff run) does not set his projection
 A_TEAM = 0.10
 COLD = 12.0  # minutes assumed for a player with no history yet
 
@@ -59,6 +60,7 @@ def build(emit: bool = True, stop_at: int | None = None):
         w = g.groupby("player_id")["start_utc"].agg(["min", "max"])
         pool_by_season[(int(s), int(t))] = {int(p): (r["min"], r["max"]) for p, r in w.iterrows()}
 
+    tgcount: dict[tuple, int] = {}  # (team, season) -> games played so far
     allowed: dict[int, dict] = {}  # team -> EWMA of what its opponents produced per game (defence context)
     pace: dict[int, float] = {}
     rows = []
@@ -104,10 +106,11 @@ def build(emit: bool = True, stop_at: int | None = None):
                 rates = {}
                 for k in STATS:
                     if st is None:
-                        rates[f"rf_{k}"] = rates[f"rs_{k}"] = rates[f"rsea_{k}"] = np.nan
+                        rates[f"rf_{k}"] = rates[f"rs_{k}"] = rates[f"rsea_{k}"] = rates[f"rl_{k}"] = np.nan
                     else:
                         rates[f"rf_{k}"] = st["rf"][k] / max(st["rfm"], 1e-6)
                         rates[f"rs_{k}"] = st["rs"][k] / max(st["rsm"], 1e-6)
+                        rates[f"rl_{k}"] = st["rl"][k] / max(st["rlm"], 1e-6)
                         rates[f"rsea_{k}"] = (st["ssum"][k] / max(st["smin"], 1e-6)) if st["season"] == gi.season and st["smin"] > 60 else rates[f"rs_{k}"]
                 opp_a = allowed.get(opp, {})
                 own_pace, opp_pace = pace.get(team), pace.get(opp)
@@ -116,7 +119,7 @@ def build(emit: bool = True, stop_at: int | None = None):
                         "event_id": gi.event_id, "season": gi.season, "start_utc": gi.start_utc, "team_id": team, "player_id": p, "is_home": is_home,
                         "played": 1 if p in played else 0, "min": pm, "started": 1 if p in started else 0,
                         **feats, "vacated": vacated - (base[p] if (p not in played and base[p] >= 8.0) else 0.0), "avail_rot": avail_rot, "n_out_rot": n_out_rot, "rank_today": rank,
-                        "rest": rest, "b2b": 1 if rest < 1.5 else 0, "games_4d": len(recent), "exp_margin": exp_margin, "abs_margin": abs(exp_margin),
+                        "tgno": tgcount.get((int(team), int(gi.season)), 0) + 1, "rest": rest, "b2b": 1 if rest < 1.5 else 0, "games_4d": len(recent), "exp_margin": exp_margin, "abs_margin": abs(exp_margin),
                         **rates, **{f"vac_{k}": vac_stats[k] - (pstate[p]["rs"][k] if (p not in played and p in pstate and base[p] >= 8.0) else 0.0) for k in ("pts", "reb", "ast", "tpm", "fga")},
                         **{f"opp_{k}": opp_a.get(k, np.nan) for k in STATS}, "own_pace": own_pace if own_pace is not None else np.nan, "opp_pace": opp_pace if opp_pace is not None else np.nan,
                         **(stat_of.get((int(team), int(p))) or {k: np.nan for k in STATS}),
@@ -132,7 +135,7 @@ def build(emit: bool = True, stop_at: int | None = None):
                 s_ = pstate.get(p)
                 if s_ is None:
                     s_ = {"fast": m, "slow": m, "recent": [], "start": 0.0, "n": 0, "season": gi.season, "season_sum": 0.0, "season_n": 0, "team_games_since": 0,
-                          "rf": {k: 0.0 for k in STATS}, "rs": {k: 0.0 for k in STATS}, "rfm": 0.0, "rsm": 0.0, "ssum": {k: 0.0 for k in STATS}, "smin": 0.0, "seen": False}
+                          "rf": {k: 0.0 for k in STATS}, "rs": {k: 0.0 for k in STATS}, "rfm": 0.0, "rsm": 0.0, "rl": {k: 0.0 for k in STATS}, "rlm": 0.0, "ssum": {k: 0.0 for k in STATS}, "smin": 0.0, "seen": False}
                     pstate[p] = s_
                     s_["fast"] = s_["slow"] = COLD * 0.5 + m * 0.5
                 else:
@@ -145,12 +148,15 @@ def build(emit: bool = True, stop_at: int | None = None):
                 if not s_["seen"]:
                     s_["rf"] = {k: sv.get(k, 0.0) for k in STATS}
                     s_["rs"] = {k: sv.get(k, 0.0) for k in STATS}
-                    s_["rfm"] = s_["rsm"] = m
+                    s_["rl"] = {k: sv.get(k, 0.0) for k in STATS}
+                    s_["rfm"] = s_["rsm"] = s_["rlm"] = m
                     s_["seen"] = True
                 else:
                     for k in STATS:
                         s_["rf"][k] = R_FAST * sv.get(k, 0.0) + (1 - R_FAST) * s_["rf"][k]
                         s_["rs"][k] = R_SLOW * sv.get(k, 0.0) + (1 - R_SLOW) * s_["rs"][k]
+                        s_["rl"][k] = R_LONG * sv.get(k, 0.0) + (1 - R_LONG) * s_["rl"][k]
+                    s_["rlm"] = R_LONG * m + (1 - R_LONG) * s_["rlm"]
                     s_["rfm"] = R_FAST * m + (1 - R_FAST) * s_["rfm"]
                     s_["rsm"] = R_SLOW * m + (1 - R_SLOW) * s_["rsm"]
                 for k in STATS:
@@ -169,6 +175,7 @@ def build(emit: bool = True, stop_at: int | None = None):
                 if p in pstate and p not in playing and a <= gi.start_utc <= b:
                     pstate[p]["team_games_since"] += 1
             last_game[team] = gi.start_utc
+            tgcount[(int(team), int(gi.season))] = tgcount.get((int(team), int(gi.season)), 0) + 1
             th = team_hist.setdefault(team, [])
             th.append(gi.start_utc)
             if len(th) > 6:
@@ -184,7 +191,7 @@ def build(emit: bool = True, stop_at: int | None = None):
         for tm, mg in ((gi.home_id, margin), (gi.away_id, -margin)):
             strength[tm] = 0.9 * strength.get(tm, 0.0) + 0.1 * mg
     if not emit:
-        return {"pstate": pstate, "last_game": last_game, "team_hist": team_hist, "allowed": allowed, "pace": pace, "strength": strength}
+        return {"pstate": pstate, "last_game": last_game, "team_hist": team_hist, "allowed": allowed, "pace": pace, "strength": strength, "tgcount": tgcount}
     df = pd.DataFrame(rows)
     df.to_csv(FEATURES_OUT, index=False)
     print(f"{len(df):,} player-game rows ({int(df.played.sum()):,} played) -> {FEATURES_OUT}")

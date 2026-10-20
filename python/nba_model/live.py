@@ -62,10 +62,11 @@ def _rates(st: dict | None, season: int) -> dict:
     out = {}
     for k in STATS:
         if st is None:
-            out[f"rf_{k}"] = out[f"rs_{k}"] = out[f"rsea_{k}"] = np.nan
+            out[f"rf_{k}"] = out[f"rs_{k}"] = out[f"rsea_{k}"] = out[f"rl_{k}"] = np.nan
         else:
             out[f"rf_{k}"] = st["rf"][k] / max(st["rfm"], 1e-6)
             out[f"rs_{k}"] = st["rs"][k] / max(st["rsm"], 1e-6)
+            out[f"rl_{k}"] = st["rl"][k] / max(st["rlm"], 1e-6)
             out[f"rsea_{k}"] = (st["ssum"][k] / max(st["smin"], 1e-6)) if st["season"] == season and st["smin"] > 60 else out[f"rs_{k}"]
     return out
 
@@ -89,7 +90,7 @@ def team_rows(state: dict, members: list[int], team: int, opp: int, is_home: int
                 "player_id": p, "is_home": is_home, **_base_feats(st, season),
                 "vacated": sum(base[q] for q in out if base[q] >= ROT), "avail_rot": sum(1 for q in avail if base[q] >= ROT),
                 "n_out_rot": sum(1 for q in out if base[q] >= ROT), "rank_today": 1 + sum(1 for q in avail if q != p and base[q] > base[p]),
-                "rest": rest, "b2b": 1 if rest < 1.5 else 0, "games_4d": len(recent), "exp_margin": exp_margin, "abs_margin": abs(exp_margin),
+                "tgno": state["tgcount"].get((team, season), 0) + 1, "rest": rest, "b2b": 1 if rest < 1.5 else 0, "games_4d": len(recent), "exp_margin": exp_margin, "abs_margin": abs(exp_margin),
                 **_rates(st, season),
                 **{f"vac_{k}": sum(ps[q]["rs"][k] for q in out if q in ps and base[q] >= ROT) for k in VAC_KEYS},
                 **{f"opp_{k}": opp_a.get(k, np.nan) for k in STATS},
@@ -149,9 +150,45 @@ def joint_milestones(mixes: dict[str, np.ndarray], n: int, rng: np.random.Genera
     return dd, td
 
 
-def project_team(state: dict, mbundle: dict, pbundle: dict, members: list[int], p_play: dict[int, float], ctx: dict, rng: np.random.Generator, rating: dict[int, tuple[float, float]] | None = None) -> tuple[pd.DataFrame, dict]:
-    """Per-player projections (scenario-blended) and, if `rating` (player -> (off, points-allowed rating)) is given, the team's strength under
-    each scenario: {"w": scenario weights, "off": ..., "de": ...} where each is the minutes-weighted sum of the five on the floor."""
+def rotation_minutes(m: np.ndarray, avail: np.ndarray, total: float = 240.0) -> np.ndarray:
+    """Expected minutes actually played by each player (0 if unavailable) so that the team's expected minutes are exactly `total`.
+
+    The minutes model predicts minutes GIVEN a player gets into the game, so a roster's predictions add up to more than a game has: the
+    deep bench each look like ten minutes when in truth only a few of them play at all. The rotation is stretched out the way a coach
+    does it: players above a cut-off minutes level play as predicted, and below it the chance of playing falls off quickly
+    (weight = (minutes / cut-off)^2, capped at 1), with the cut-off set so everything sums to 240. If the roster is so thin that even
+    everyone playing falls short, the available players' minutes are scaled up instead."""
+    e = np.zeros(len(m))
+    a = np.where(avail)[0]
+    if len(a) == 0:
+        return e
+    ma = np.maximum(m[a], 0.5)
+    if ma.sum() <= total:
+        e[a] = ma * (total / ma.sum())
+        return e
+    lo, hi = 0.5, 60.0
+    for _ in range(50):
+        mid = (lo + hi) / 2
+        f = (np.minimum(1.0, (ma / mid) ** 2) * ma).sum()
+        lo, hi = (mid, hi) if f > total else (lo, mid)
+    cut = (lo + hi) / 2
+    e[a] = np.minimum(1.0, (ma / cut) ** 2) * ma
+    return e
+
+
+BASE_STATS = ["pts", "reb", "ast", "tpm", "stl", "blk", "tov"]
+
+
+def project_team(
+    state: dict, mbundle: dict, pbundle: dict, members: list[int], p_play: dict[int, float], ctx: dict, rng: np.random.Generator,
+    rating: dict[int, tuple[float, float]] | None = None, stats: bool = True, targets: dict[str, float] | None = None,
+) -> tuple[pd.DataFrame, dict]:
+    """Per-player projections (scenario-blended) and the team's strength under each scenario.
+
+    `rating` (player -> (offence, points-allowed) per 100) gives strength = {"w": scenario weights, "off", "de"}: the minutes-weighted
+    sums of the five on the floor. With stats=False only minutes and strength are computed (the first pass, before the game model
+    exists). `targets` ({"pts": team points, "reb": ..}) rescale each stat's player means so a team's expected stat line adds up to
+    its game projection (the factor is returned in strength["scale"])."""
     base = {p: state["pstate"][p]["slow"] if p in state["pstate"] else COLD for p in members}
     scs = scenarios(p_play, base, rng)
     frames, weights = [], []
@@ -161,44 +198,74 @@ def project_team(state: dict, mbundle: dict, pbundle: dict, members: list[int], 
         frames.append(df)
         weights.append(w)
     big = pd.concat(frames, ignore_index=True)
-    wt = np.array(weights)[big["sc"].to_numpy()]
     m = mbundle["models"]
     for col, key in (("pm_mean", "mean"), ("pm_q10", "q10"), ("pm_q50", "q50"), ("pm_q90", "q90")):
         big[col] = m[key].predict(big[XCOLS])
-    n = len(members)
+    S, n = len(scs), len(members)
+    W = np.array(weights)
+    wsum = W.sum()
+    Wn = W / wsum
+    avail = np.array([[p not in out_set for p in members] for out_set, _ in scs])  # (S, n)
+    pm = big["pm_mean"].to_numpy().reshape(S, n)
+    emin = np.vstack([rotation_minutes(pm[k], avail[k]) for k in range(S)])  # expected minutes actually played, per scenario
+    ratio = np.where(avail & (pm > 0), emin / np.maximum(pm, 1e-6), 0.0)  # his share of the minutes the model gave him
     out = pd.DataFrame({"player_id": members})
-    wsum = np.array(weights).sum()
-    strength = {"w": np.array(weights) / wsum, "off": np.zeros(len(scs)), "de": np.zeros(len(scs))}
+    strength = {"w": Wn, "off": np.zeros(S), "de": np.zeros(S), "scale": {}}
     if rating is not None:
-        pm = big["pm_mean"].to_numpy().reshape(len(scs), n)
         offv = np.array([rating.get(p, (0.0, 0.0))[0] for p in members])
         dev = np.array([rating.get(p, (0.0, 0.0))[1] for p in members])
-        for k, (out_set, _) in enumerate(scs):
-            on = np.array([p not in out_set for p in members])
-            mins = pm[k] * on
-            w5 = mins / max(mins.sum(), 1e-6) * 5.0
+        for k in range(S):
+            w5 = emin[k] / max(emin[k].sum(), 1e-6) * 5.0
             strength["off"][k], strength["de"][k] = float((w5 * offv).sum()), float((w5 * dev).sum())
 
-    def avg(col):  # scenario-weighted mean per player
-        v = big[col].to_numpy().reshape(len(scs), n)
-        return (v * np.array(weights)[:, None]).sum(0) / wsum
+    def avg(v):  # scenario-weighted mean per player of an (S, n) array
+        return (v * Wn[:, None]).sum(0)
 
-    out["min_mean"], out["min_q10"], out["min_q90"] = avg("pm_mean"), avg("pm_q10"), avg("pm_q90")
+    out["min_mean"] = avg(pm)
+    out["min_q10"] = avg(big["pm_q10"].to_numpy().reshape(S, n))
+    out["min_q90"] = avg(big["pm_q90"].to_numpy().reshape(S, n))
+    out["exp_min"] = avg(emin)
+    avail_p = avg(avail.astype(float))
+    out["p_rot"] = np.where(avail_p > 1e-6, avg(np.minimum(ratio, 1.0) * avail) / np.maximum(avail_p, 1e-6), 0.0)  # chance he gets into the game when healthy
     out["base_min"] = [base[p] for p in members]
     out["n_prior"] = [int(state["pstate"][p]["n"]) if p in state["pstate"] else 0 for p in members]  # NBA games behind his baseline (0 = no history: a rookie or newcomer)
-    # stat projections: model mean per scenario -> outcome distribution (calibrated tables) -> scenario mixture
+    if not stats:
+        out["stats"] = [{} for _ in range(n)]
+        return out, strength
+
+    # stat projections: model mean per scenario -> (team reconciliation) -> outcome distribution (calibrated tables) -> scenario mixture
     ks = np.arange(0, 61)
-    stats: dict[str, list] = {}
+    mu_all: dict[str, np.ndarray] = {}
+    for name in BASE_STATS:
+        X = feature_frame(big, pbundle["targets"][name], name)
+        mu_all[name] = pbundle["models"][name].predict(X).reshape(S, n)
+    shift = {name: np.zeros((S, n)) for name in pbundle["targets"]}
+    for name in BASE_STATS:
+        exp_i = avg(mu_all[name] * ratio)
+        total = float(exp_i.sum())
+        c = 1.0
+        if targets and name in targets and total > 1e-6:
+            lim = (0.85, 1.15) if name == "pts" else (0.88, 1.12)
+            c = float(np.clip(targets[name] / total, *lim))
+        strength["scale"][name] = round(c, 3)
+        for combo, comps in pbundle["targets"].items():
+            if len(comps) > 1 and name in comps:
+                shift[combo] += mu_all[name] * (c - 1.0)
+        mu_all[name] = mu_all[name] * c
+    stat_out: dict[str, list] = {}
     mixes: dict[str, np.ndarray] = {}
     for name, comps in pbundle["targets"].items():
-        X = feature_frame(big, comps, name)
-        mu = pbundle["models"][name].predict(X)
+        if name in BASE_STATS:
+            mu2 = mu_all[name]
+        else:
+            X = feature_frame(big, comps, name)
+            mu2 = pbundle["models"][name].predict(X).reshape(S, n) + shift[name]
         dist = pbundle["dists"][name]
         kk = np.clip(ks, 0, len(dist.vals) - 1)
-        cdf = dist.cdf_at(mu[:, None], kk[None, :])  # (rows, K): P(stat <= k)
-        cdf = cdf.reshape(len(scs), n, -1)
-        mix = (cdf * np.array(weights)[:, None, None]).sum(0) / wsum  # (n, K)
-        mean = (mu.reshape(len(scs), n) * np.array(weights)[:, None]).sum(0) / wsum
+        cdf = dist.cdf_at(mu2.reshape(-1)[:, None], kk[None, :]).reshape(S, n, -1)  # P(stat <= k)
+        mix = (cdf * Wn[:, None, None]).sum(0)  # (n, K)
+        mean = avg(mu2)
+        exp_i = avg(mu2 * ratio)  # unconditional: weighted by whether he is available and in the rotation
         mixes[name] = mix
         res = []
         for i in range(n):
@@ -209,10 +276,10 @@ def project_team(state: dict, mbundle: dict, pbundle: dict, members: list[int], 
             hi_idx = np.where(ge >= 0.015)[0]
             hi = int(hi_idx.max()) if len(hi_idx) else lo
             hi = min(hi, lo + 45)
-            res.append({"mean": round(float(mean[i]), 2), "median": med, "k0": lo, "ge": [round(float(x), 3) for x in ge[lo : hi + 1]]})
-        stats[name] = res
+            res.append({"mean": round(float(mean[i]), 2), "e": round(float(exp_i[i]), 2), "median": med, "k0": lo, "ge": [round(float(x), 3) for x in ge[lo : hi + 1]]})
+        stat_out[name] = res
     dd, td = joint_milestones(mixes, n, rng)
-    out["stats"] = [{**{k: stats[k][i] for k in stats}, "_joint": {"dd": round(float(dd[i]), 3), "td": round(float(td[i]), 3)}} for i in range(n)]
+    out["stats"] = [{**{k: stat_out[k][i] for k in stat_out}, "_joint": {"dd": round(float(dd[i]), 3), "td": round(float(td[i]), 3)}} for i in range(n)]
     return out, strength
 
 

@@ -40,7 +40,7 @@ def load_models() -> tuple[dict, dict, dict, dict]:
     return mb, pb, probs, coef
 
 
-SIGMA = 14.2  # the game-to-game spread of margins around the model's number (the closing line's own error is about 13.9)
+SIGMA = 12.9  # margin -> win probability: the market's own spread-to-moneyline conversion (fitted on 3,900 closes), so the same spread gives the same moneyline
 
 
 def fair_ml(p: float) -> int:
@@ -55,6 +55,35 @@ def league_constants(now: dt.datetime) -> dict:
     tg = tg[tg["start_utc"] >= pd.Timestamp(now) - pd.Timedelta(days=365)]
     home = tg[tg["is_home"] == 1]
     return {"L": float((tg["pts"] / tg["poss"] * 100).mean()), "hca": float((home["pts"] - home["opp_pts"]).mean()), "pace": float(tg["pace"].mean())}
+
+
+def league_stat_means(now: dt.datetime) -> dict:
+    """Trailing-year average of what a team produces per game (rebounds, assists ...): the reference a team's player lines must add up to."""
+    tg = pd.read_csv(DATA_DIR / "team_games.csv.gz", usecols=["start_utc", "oreb", "dreb", "ast", "tpm", "stl", "blk", "tov"])
+    tg["start_utc"] = pd.to_datetime(tg["start_utc"], utc=True)
+    tg = tg[tg["start_utc"] >= pd.Timestamp(now) - pd.Timedelta(days=365)]
+    return {"reb": float((tg["oreb"] + tg["dreb"]).mean()), "ast": float(tg["ast"].mean()), "tpm": float(tg["tpm"].mean()), "stl": float(tg["stl"].mean()), "blk": float(tg["blk"].mean()), "tov": float(tg["tov"].mean())}
+
+
+def espn_injuries() -> dict[str, dict[str, str]]:
+    """ESPN's injury feed: team name -> {player name key: status}. Used for a team whose official report is not in yet (the NBA posts
+    each day's report late, and until then everyone would look healthy - including players out for months)."""
+    import requests
+
+    try:
+        r = requests.get("https://site.api.espn.com/apis/site/v2/sports/basketball/nba/injuries", headers={"User-Agent": "Mozilla/5.0"}, timeout=30).json()
+    except Exception:  # noqa: BLE001 - the fallback must never stop the projections
+        return {}
+    out: dict[str, dict[str, str]] = {}
+    for t in r.get("injuries", []):
+        for i in t.get("injuries", []):
+            nm = (i.get("athlete") or {}).get("displayName")
+            if nm and i.get("status"):
+                out.setdefault(t.get("displayName", ""), {})[_key(nm)] = i["status"]
+    return out
+
+
+ESPN_P = {"out": 0.03, "out for season": 0.0, "day-to-day": 0.8}
 
 
 def game_model(sh: dict, sa: dict, pace: float, lg: dict) -> dict:
@@ -76,7 +105,7 @@ def game_model(sh: dict, sa: dict, pace: float, lg: dict) -> dict:
     }
 
 
-def run(dry_run: bool = False, horizon_h: float = 40.0) -> None:
+def run(dry_run: bool = False, horizon_h: float = 60.0) -> None:
     from cfbd_ingest.supabase_client import get_client
 
     from . import inseason
@@ -123,9 +152,11 @@ def run(dry_run: bool = False, horizon_h: float = 40.0) -> None:
         first.setdefault(sn["game_id"], sn)
         lastsn[sn["game_id"]] = sn
 
-    from .reprice import p_play as status_p  # noqa: F811 - imported above for clarity
+    espn = espn_injuries()
+    lstat = league_stat_means(now)
 
-    game_rows, player_rows = [], []
+    # ---- pass 1: who is in / out, minutes and each team's strength -> the game model (spread, total, moneyline) for every game
+    prep = []
     for g in games:
         start = pd.Timestamp(g["start_date"])
         day = start.tz_convert("America/New_York").strftime("%Y-%m-%d")
@@ -134,18 +165,17 @@ def run(dry_run: bool = False, horizon_h: float = 40.0) -> None:
         line_now = cur["spread_home_line"] if cur else None  # the home team's own number (negative = favoured)
         line_open = op["spread_home_line"] if op else None
         em_home = -line_now if line_now is not None else 0.0
-        per_team, swings, pend = {}, {}, {}
+        teams, ok = {}, True
         for side, name, opp_name in (("home", g["home_team"], g["away_team"]), ("away", g["away_team"], g["home_team"])):
             tid, oid = team_id.get(name), team_id.get(opp_name)
             if tid is None or oid is None or tid not in roster:
                 print(f"  skip {name}: no roster", flush=True)
-                per_team = {}
+                ok = False
                 break
-            members = [p for p, _ in roster[tid]]
-            keymap = {_key(n): p for p, n in roster[tid]}
-            names = dict(roster[tid])
+            members = [pid for pid, _ in roster[tid]]
+            keymap = {_key(n): pid for pid, n in roster[tid]}
             rows = [r for r in inj if r["game_date"] == day and r["team"] == name]
-            pend[side] = bool(rows) and all(r["player"] == "" for r in rows)
+            submitted = any(r["player"] for r in rows)
             pp, meta = {}, {}
             for r in rows:
                 if not r["player"]:
@@ -155,20 +185,53 @@ def run(dry_run: bool = False, horizon_h: float = 40.0) -> None:
                     continue
                 pp[pid] = status_p(r["status"], hours, probs)
                 meta[pid] = (r["status"], " ".join(x for x in (r["reason_cat"], r["reason_detail"]) if x))
+            if not submitted:  # the official report is not in yet: ESPN's feed is the best available read (long-term injuries, mostly)
+                for k, st in espn.get(name, {}).items():
+                    pid = keymap.get(k)
+                    if pid is not None and st.lower() in ESPN_P:
+                        pp[pid] = ESPN_P[st.lower()]
+                        meta[pid] = (st, "per ESPN - official report not in yet")
             ctx = {"team": tid, "opp": oid, "is_home": 1 if side == "home" else 0, "start": start, "season": season, "exp_margin": em_home if side == "home" else -em_home}
-            proj, stren = project_team(state, mb, pb, members, pp, ctx, rng, rating=rating)
-            proj["p_play"] = [pp.get(p, 1.0) for p in members]
-            proj["status"] = [meta.get(p, (None, None))[0] for p in members]
-            proj["reason"] = [meta.get(p, (None, None))[1] for p in members]
-            proj["name"] = [names[p] for p in members]
-            proj["exp_min"] = proj["p_play"] * proj["min_mean"]
-            per_team[side] = (proj, tid, names, stren)
-            swings[side] = news_swing(state, members, pp, net, coef)
-        if len(per_team) < 2:
+            _, stren = project_team(state, mb, pb, members, pp, ctx, rng, rating=rating, stats=False)
+            teams[side] = {"tid": tid, "members": members, "names": dict(roster[tid]), "pp": pp, "meta": meta, "ctx": ctx, "stren": stren, "pending": not submitted}
+        if not ok:
             continue
-        nm = news_move(swings["home"][:2], swings["away"][:2], coef)
         ph, pa = state["pace"].get(team_id[g["home_team"]]), state["pace"].get(team_id[g["away_team"]])
-        model = game_model(per_team["home"][3], per_team["away"][3], (ph + pa) / 2 if ph and pa else lg["pace"], lg)
+        pace = (ph + pa) / 2 if ph and pa else lg["pace"]
+        model = game_model(teams["home"]["stren"], teams["away"]["stren"], pace, lg)
+        prep.append({"g": g, "start": start, "hours": hours, "cur": cur, "line_now": line_now, "line_open": line_open, "teams": teams, "model": model, "pace": pace})
+
+    # The league's scoring level moves faster than a trailing average can follow (the market's totals open higher than last season's
+    # scoring), so the model total is level-matched to the posted totals: only game-to-game differences are the model's claim.
+    tots = [(x, x["cur"]["total_line"]) for x in prep if x["cur"] and x["cur"].get("total_line")]
+    if len(tots) >= 3:
+        shift = float(np.mean([t - x["model"]["total"] for x, t in tots]))
+        for x in prep:
+            m = x["model"]
+            m["total_raw"], m["level_shift"] = m["total"], round(shift, 1)
+            m["total"] = round(m["total"] + shift, 1)
+        print(f"model totals level-matched to the market: {shift:+.1f}", flush=True)
+
+    # ---- pass 2: player projections, reconciled so each team's players add up to the game projection
+    game_rows, player_rows = [], []
+    for x in prep:
+        g, teams, model, cur = x["g"], x["teams"], x["model"], x["cur"]
+        pts_t = {"home": (model["total"] + model["margin"]) / 2, "away": (model["total"] - model["margin"]) / 2}
+        per_team, swings = {}, {}
+        for side in ("home", "away"):
+            t = teams[side]
+            targets = {"pts": pts_t[side], **{k: v * x["pace"] / lg["pace"] for k, v in lstat.items()}}
+            proj, stren = project_team(state, mb, pb, t["members"], t["pp"], t["ctx"], rng, rating=rating, stats=True, targets=targets)
+            proj["p_play"] = [t["pp"].get(pid, 1.0) for pid in t["members"]]
+            proj["status"] = [t["meta"].get(pid, (None, None))[0] for pid in t["members"]]
+            proj["reason"] = [t["meta"].get(pid, (None, None))[1] for pid in t["members"]]
+            proj["name"] = [t["names"][pid] for pid in t["members"]]
+            per_team[side] = (proj, t["tid"], t["names"], stren)
+            swings[side] = news_swing(state, t["members"], t["pp"], net, coef)
+        model["pts"] = {"home": round(pts_t["home"], 1), "away": round(pts_t["away"], 1)}
+        model["scale"] = {s_: per_team[s_][3]["scale"] for s_ in per_team}
+        nm = news_move(swings["home"][:2], swings["away"][:2], coef)
+        line_now, line_open = x["line_now"], x["line_open"]
         moved = (line_open - line_now) if (line_open is not None and line_now is not None) else None  # + = the line has moved toward home
         gap = None if moved is None else round(nm - moved, 2)
         contrib = {side: [{**w, "name": per_team[side][2].get(w["player_id"])} for w in swings[side][2]] for side in swings}
@@ -176,34 +239,26 @@ def run(dry_run: bool = False, horizon_h: float = 40.0) -> None:
             {
                 "game_id": g["id"], "start_date": g["start_date"], "home_team": g["home_team"], "away_team": g["away_team"], "computed_at": now.isoformat(),
                 "news_move": round(nm, 2), "line_open": line_open, "line_now": line_now, "moved": None if moved is None else round(moved, 2), "gap": gap,
-                "pending_home": pend.get("home", False), "pending_away": pend.get("away", False),
-                "detail": {"contrib": contrib, "state_through": str(last_t), "hours_to_tip": round(hours, 1), "model": model},
+                "pending_home": teams["home"]["pending"], "pending_away": teams["away"]["pending"],
+                "detail": {"contrib": contrib, "state_through": str(last_t), "hours_to_tip": round(x["hours"], 1), "model": model},
             }
         )
         for side, (proj, tid, _, _) in per_team.items():
             for r in proj.itertuples():
-                if r.base_min < 3.0 and r.exp_min < 2.0:
+                if r.base_min < 3.0 and r.exp_min < 1.0:
                     continue
                 down = r.p_play <= 0.03
+                st = None if down else {**r.stats, "_joint": {**r.stats["_joint"], "rot": round(float(r.p_rot), 3)}}
                 player_rows.append(
                     {
                         "game_id": g["id"], "player_id": int(r.player_id), "name": r.name, "team": g["home_team"] if side == "home" else g["away_team"], "side": side,
                         "p_play": round(float(r.p_play), 3), "status": r.status, "reason": r.reason, "base_min": round(float(r.base_min), 1), "n_prior": int(r.n_prior),
                         "min_mean": None if down else round(float(r.min_mean), 1), "min_q10": None if down else round(float(r.min_q10), 1), "min_q90": None if down else round(float(r.min_q90), 1),
-                        "exp_min": round(float(r.exp_min), 1), "stats": None if down else r.stats, "computed_at": now.isoformat(),
+                        "exp_min": round(float(r.exp_min), 1), "stats": st, "computed_at": now.isoformat(),
                     }
                 )
-        print(f"  {g['away_team']} @ {g['home_team']}: model {model['margin']:+.1f} / {model['total']} (line {line_now} / {cur['total_line'] if cur else None}); news move {nm:+.2f} (line moved {moved if moved is None else round(moved, 2)}) gap {gap}", flush=True)
-    # The league's scoring level moves faster than a trailing average can follow (the market's totals open higher than last season's
-    # scoring), so the model total is level-matched to today's posted totals: only game-to-game differences are the model's claim.
-    tots = [(r, lastsn[r["game_id"]]["total_line"]) for r in game_rows if lastsn.get(r["game_id"]) and lastsn[r["game_id"]].get("total_line")]
-    if len(tots) >= 3:
-        shift = float(np.mean([t - r["detail"]["model"]["total"] for r, t in tots]))
-        for r in game_rows:
-            m = r["detail"]["model"]
-            m["total_raw"], m["level_shift"] = m["total"], round(shift, 1)
-            m["total"] = round(m["total"] + shift, 1)
-        print(f"model totals level-matched to the market: {shift:+.1f}", flush=True)
+        sc = model["scale"]
+        print(f"  {g['away_team']} @ {g['home_team']}: model {model['margin']:+.1f} / {model['total']} (line {line_now} / {cur['total_line'] if cur else None}); news {nm:+.2f}; pts scale {sc['home']['pts']}/{sc['away']['pts']}", flush=True)
     if dry_run:
         (DATA_DIR / "live_preview.json").write_text(json.dumps({"games": game_rows, "players": player_rows}, default=str))
         print(f"dry run: {len(game_rows)} games, {len(player_rows)} players -> live_preview.json")

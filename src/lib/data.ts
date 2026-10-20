@@ -928,6 +928,8 @@ export type NbaGameModel = {
   home_de: number;
   away_off: number;
   away_de: number;
+  pts?: { home: number; away: number }; // the team points the player lines are reconciled to
+  scale?: Record<string, Record<string, number>>;
 };
 export type NbaNewsContrib = { player_id: number; name: string | null; p_play: number; share: number; net: number; effect: number };
 export type NbaGameProjection = {
@@ -946,7 +948,7 @@ export type NbaGameProjection = {
   computed_at: string;
 };
 /** One stat's outcome distribution: ge[i] = P(stat >= k0 + i). */
-export type NbaStatDist = { mean: number; median: number; k0: number; ge: number[] };
+export type NbaStatDist = { mean: number; e?: number; median: number; k0: number; ge: number[] }; // mean = if he plays; e = expected (chance to play and rotation included)
 export type NbaPlayerProjection = {
   game_id: number;
   player_id: number;
@@ -962,7 +964,7 @@ export type NbaPlayerProjection = {
   min_q10: number | null;
   min_q90: number | null;
   exp_min: number | null;
-  stats: ({ _joint?: { dd: number; td: number } } & Record<string, unknown>) | null; // per stat: NbaStatDist; _joint = double-double / triple-double chances
+  stats: ({ _joint?: { dd: number; td: number; rot?: number } } & Record<string, unknown>) | null; // per stat: NbaStatDist; _joint = double-double / triple-double chances
   computed_at: string;
 };
 
