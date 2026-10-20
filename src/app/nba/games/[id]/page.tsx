@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import NbaBetButtons from "@/components/NbaBetButtons";
+import NbaModelButton from "@/components/NbaModelButton";
 import NbaPlayerTable from "@/components/NbaPlayerTable";
 import NbaPropsExplorer from "@/components/NbaPropsExplorer";
 import SiteFooter from "@/components/SiteFooter";
@@ -108,6 +109,7 @@ export default async function NbaGamePage({ params }: { params: Promise<{ id: st
         <Link href="/nba" className="text-xs text-muted hover:text-foreground">
           ← Board
         </Link>
+        {!game.completed && <NbaModelButton updatedAt={gp?.computed_at ?? null} />}
 
         {/* header */}
         <div className="rounded-lg border border-border bg-surface px-5 py-4">

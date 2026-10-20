@@ -230,6 +230,44 @@ export async function triggerNbaRatings(): Promise<{ ok: boolean; message: strin
   return { ok: false, message: `GitHub returned ${res.status}.` };
 }
 
+// --- NBA model -----------------------------------------------------------------
+const NBA_LIVE_WORKFLOW = "nba-live.yml";
+
+/** The newest run of the NBA live-projection job (started by the injury timer or the "Update model" button). Never throws. */
+export async function getNbaLiveStatus(): Promise<NhlRefreshStatus> {
+  const none: NhlRefreshStatus = { state: "none", createdAt: null, updatedAt: null, url: null };
+  try {
+    const res = await github(`/actions/workflows/${NBA_LIVE_WORKFLOW}/runs?per_page=1`);
+    if (!res.ok) return none;
+    const run = (await res.json()).workflow_runs?.[0];
+    if (!run) return none;
+    const state: NhlRefreshStatus["state"] =
+      run.status === "completed" ? (run.conclusion === "success" ? "success" : "failed") : run.status === "in_progress" ? "running" : "queued";
+    return { state, createdAt: run.created_at, updatedAt: run.updated_at, url: run.html_url };
+  } catch {
+    return none;
+  }
+}
+
+/** "Update model": reads the injury report and lines right now (a few seconds), then starts the projection job (a few minutes in
+ * GitHub Actions) so minutes, stat lines and the model's spread / total / moneyline are rebuilt from them. */
+export async function triggerNbaLive(): Promise<{ ok: boolean; message: string }> {
+  if (!process.env.GITHUB_DISPATCH_TOKEN) {
+    return { ok: false, message: "Model refresh isn't set up yet: GITHUB_DISPATCH_TOKEN is missing." };
+  }
+  await updateNba().catch(() => null); // newest injury report and lines first, so the job starts from them
+  const res = await github(`/actions/workflows/${NBA_LIVE_WORKFLOW}/dispatches`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ref: "main" }),
+  });
+  if (res.status === 204) return { ok: true, message: "Rebuilding projections from the latest injury report…" };
+  if (res.status === 404 || res.status === 403 || res.status === 401) {
+    return { ok: false, message: "GitHub refused the request - check the token has Actions read & write on the repo." };
+  }
+  return { ok: false, message: `GitHub returned ${res.status}.` };
+}
+
 // --- CFB scores ----------------------------------------------------------------
 // College football scores come from the ESPN sync job (.github/workflows/sync-results-espn.yml -> cfbd_ingest.sync_results_espn),
 // which already runs every 5 minutes. The "Update scores" button runs that same job right now, so there is still exactly one

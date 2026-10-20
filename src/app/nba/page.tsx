@@ -1,6 +1,7 @@
 import Link from "next/link";
 import LogParlayForm from "@/components/LogParlayForm";
 import NbaGameCard from "@/components/NbaGameCard";
+import NbaModelButton from "@/components/NbaModelButton";
 import NbaScoresButton from "@/components/NbaScoresButton";
 import NhlBetStrip from "@/components/NhlBetStrip";
 import SiteFooter from "@/components/SiteFooter";
@@ -36,6 +37,7 @@ export default async function NbaPage({ searchParams }: { searchParams: Promise<
       <SiteHeader subtitle="Board" sport="nba" />
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
         <NbaScoresButton />
+        <NbaModelButton updatedAt={[...projections.games.values()].map((g) => g.computed_at).sort().at(-1) ?? null} />
         <div className="mb-4 max-w-4xl rounded-lg border border-border bg-surface p-4 text-xs leading-relaxed text-muted">
           Log every NBA bet here: spread, moneyline and total on each game, plus player props. Spread, ML and total grade themselves from the final score.{" "}
           <span className="text-foreground">Player props grade themselves too</span> from ESPN&apos;s box score once the game is final - type the player and pick the
