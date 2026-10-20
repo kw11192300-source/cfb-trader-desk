@@ -50,7 +50,8 @@ def fair_ml(p: float) -> int:
 
 def league_constants(now: dt.datetime) -> dict:
     """Trailing year of finished games: points per 100 possessions, home margin, pace."""
-    tg = pd.read_csv(DATA_DIR / "team_games.csv.gz", usecols=["start_utc", "pts", "poss", "pace", "is_home", "opp_pts"])
+    tg = pd.read_csv(DATA_DIR / "team_games.csv.gz", usecols=["start_utc", "pts", "poss", "pace", "is_home", "opp_pts", "season_type"])
+    tg = tg[tg["season_type"] != 3]  # regular season only: playoff pace and scoring are lower
     tg["start_utc"] = pd.to_datetime(tg["start_utc"], utc=True)
     tg = tg[tg["start_utc"] >= pd.Timestamp(now) - pd.Timedelta(days=365)]
     home = tg[tg["is_home"] == 1]
@@ -59,7 +60,8 @@ def league_constants(now: dt.datetime) -> dict:
 
 def league_stat_means(now: dt.datetime) -> dict:
     """Trailing-year average of what a team produces per game (rebounds, assists ...): the reference a team's player lines must add up to."""
-    tg = pd.read_csv(DATA_DIR / "team_games.csv.gz", usecols=["start_utc", "oreb", "dreb", "ast", "tpm", "stl", "blk", "tov"])
+    tg = pd.read_csv(DATA_DIR / "team_games.csv.gz", usecols=["start_utc", "oreb", "dreb", "ast", "tpm", "stl", "blk", "tov", "season_type"])
+    tg = tg[tg["season_type"] != 3]
     tg["start_utc"] = pd.to_datetime(tg["start_utc"], utc=True)
     tg = tg[tg["start_utc"] >= pd.Timestamp(now) - pd.Timedelta(days=365)]
     return {"reb": float((tg["oreb"] + tg["dreb"]).mean()), "ast": float(tg["ast"].mean()), "tpm": float(tg["tpm"].mean()), "stl": float(tg["stl"].mean()), "blk": float(tg["blk"].mean()), "tov": float(tg["tov"].mean())}

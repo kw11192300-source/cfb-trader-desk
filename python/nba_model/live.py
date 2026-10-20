@@ -71,8 +71,17 @@ def _rates(st: dict | None, season: int) -> dict:
     return out
 
 
-def team_rows(state: dict, members: list[int], team: int, opp: int, is_home: int, start_utc: pd.Timestamp, season: int, exp_margin: float, out_set: set[int]) -> pd.DataFrame:
-    """One row per roster player: his features if he plays and `out_set` (minus him) sits - the same definitions minutes.build() uses."""
+N_PLAY = 10  # players a team really uses: in history 10.1 rotation-level players played per game (the rest sat - hurt, resting or coach's choice)
+
+
+def team_rows(state: dict, members: list[int], team: int, opp: int, is_home: int, start_utc: pd.Timestamp, season: int, exp_margin: float, out_set: set[int], played_override: set[int] | None = None) -> pd.DataFrame:
+    """One row per roster player: his features if he plays - the same definitions minutes.build() uses.
+
+    Those definitions count who ACTUALLY played (avail_rot ~10, n_out_rot ~4, vacated ~69 minutes in a typical game, because a
+    third of a 15-man roster does not play). Before tip we only know who is out, so the "played" set is the nine highest-minutes
+    players not in `out_set` plus the player himself; everyone else - the hurt AND the deep bench - counts as not playing, as in
+    training. (Counting every healthy roster player as playing gives avail_rot 15, n_out 0: a situation the model never saw, and
+    it cut every starter's minutes.) `played_override` is the real played set, used to check this code against history."""
     ps = state["pstate"]
     base = {p: ps[p]["slow"] if p in ps else COLD for p in members}
     lg = state["last_game"].get(team)
@@ -81,15 +90,19 @@ def team_rows(state: dict, members: list[int], team: int, opp: int, is_home: int
     opp_a = state["allowed"].get(opp, {})
     own_pace, opp_pace = state["pace"].get(team), state["pace"].get(opp)
     rows = []
+    by_base = sorted((q for q in members if q not in out_set), key=lambda q: -base[q])
     for p in members:
-        out = out_set - {p}
-        avail = [q for q in members if q not in out]
+        if played_override is not None:
+            played = set(played_override) | {p}
+        else:
+            played = set([q for q in by_base if q != p][: N_PLAY - 1]) | {p}
+        out = [q for q in members if q not in played]
         st = ps.get(p)
         rows.append(
             {
                 "player_id": p, "is_home": is_home, **_base_feats(st, season),
-                "vacated": sum(base[q] for q in out if base[q] >= ROT), "avail_rot": sum(1 for q in avail if base[q] >= ROT),
-                "n_out_rot": sum(1 for q in out if base[q] >= ROT), "rank_today": 1 + sum(1 for q in avail if q != p and base[q] > base[p]),
+                "vacated": sum(base[q] for q in out if base[q] >= ROT), "avail_rot": sum(1 for q in played if base[q] >= ROT),
+                "n_out_rot": sum(1 for q in out if base[q] >= ROT), "rank_today": 1 + sum(1 for q in played if q != p and base[q] > base[p]),
                 "tgno": state["tgcount"].get((team, season), 0) + 1, "rest": rest, "b2b": 1 if rest < 1.5 else 0, "games_4d": len(recent), "exp_margin": exp_margin, "abs_margin": abs(exp_margin),
                 **_rates(st, season),
                 **{f"vac_{k}": sum(ps[q]["rs"][k] for q in out if q in ps and base[q] >= ROT) for k in VAC_KEYS},
@@ -325,7 +338,7 @@ def check(event_id: int) -> None:
         opp = int(g[g["team_id"] != team]["team_id"].iloc[0]) if g["team_id"].nunique() > 1 else 0
         members = [int(p) for p in tg["player_id"]]
         out_set = {int(p) for p, pl in zip(tg["player_id"], tg["played"]) if pl == 0}
-        mine = team_rows(state, members, int(team), opp, int(tg["is_home"].iloc[0]), start, season, float(tg["exp_margin"].iloc[0]), out_set)
+        mine = team_rows(state, members, int(team), opp, int(tg["is_home"].iloc[0]), start, season, float(tg["exp_margin"].iloc[0]), out_set, played_override={int(p) for p, pl in zip(tg["player_id"], tg["played"]) if pl == 1})
         # rows for non-players in the stored table have the same definitions (vacated excludes himself)
         both = mine.merge(tg[tg["played"] == 1], on="player_id", suffixes=("_l", ""))  # rows are "if he plays": compare players who did
         for c in XCOLS + [f"rf_{k}" for k in STATS] + [f"rs_{k}" for k in STATS] + [f"vac_{k}" for k in VAC_KEYS] + [f"opp_{k}" for k in STATS] + ["own_pace", "opp_pace"]:

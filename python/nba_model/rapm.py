@@ -38,7 +38,7 @@ RAW_STATS = ["pts", "fga", "fta", "tpm", "tpa", "ast", "tov", "oreb", "dreb", "s
 XS = [f"x_{s}" for s in RAW_STATS] + ["x_ts", "x_mpg"]
 
 
-def load_stints(first: int = 2021, last: int = 2100) -> pd.DataFrame:
+def load_stints(first: int = 2021, last: int = 2100, regular_only: bool = True) -> pd.DataFrame:
     frames = []
     for s in range(first, last + 1):
         path = STINTS_DIR / f"stints_{s}.csv.gz"
@@ -47,8 +47,10 @@ def load_stints(first: int = 2021, last: int = 2100) -> pd.DataFrame:
             f["season"] = s
             frames.append(f)
     st = pd.concat(frames, ignore_index=True)
-    gm = pd.read_csv(GAMES_OUT, usecols=["event_id", "start_utc"])
+    gm = pd.read_csv(GAMES_OUT, usecols=["event_id", "start_utc", "season_type"])
     st = st.merge(gm, on="event_id", how="left")
+    if regular_only:  # playoff lineups, minutes and defences are a different game from the regular season
+        st = st[st["season_type"] != 3]
     st["start_utc"] = pd.to_datetime(st["start_utc"], utc=True)
     for c in HOME + AWAY:
         st[c] = st[c].astype("int64")

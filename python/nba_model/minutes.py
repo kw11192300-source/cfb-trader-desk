@@ -37,9 +37,11 @@ A_TEAM = 0.10
 COLD = 12.0  # minutes assumed for a player with no history yet
 
 
-def build(emit: bool = True, stop_at: int | None = None):
+def build(emit: bool = True, stop_at: int | None = None, regular_only: bool = True):
     """The feature table (emit=True, written to FEATURES_OUT) or, with emit=False, just the rolling state after the last game before
-    `stop_at` (or after every game): what the live projections start from. The state carries every player's minutes / rate baselines."""
+    `stop_at` (or after every game): what the live projections start from. The state carries every player's minutes / rate baselines.
+    Postseason games (season_type 3) are left out of both the rows and the state by default: playoff minutes, rotations, pace and
+    scoring are a different game from the regular season, and an injured star's playoff stretch should not set his October projection."""
     gm = pd.read_csv(GAMES_OUT)
     gm["start_utc"] = pd.to_datetime(gm["start_utc"], utc=True)
     pg = pd.read_csv(PLAYER_GAMES_OUT)
@@ -67,6 +69,8 @@ def build(emit: bool = True, stop_at: int | None = None):
     for gi in gm.itertuples():
         if stop_at is not None and gi.event_id == stop_at:
             break
+        if regular_only and getattr(gi, "season_type", 2) == 3:
+            continue
         box = by_event.get(gi.event_id)
         if box is None:
             continue
@@ -244,8 +248,12 @@ def train() -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("what", choices=["build", "evaluate", "train"])
+    ap.add_argument("--with-playoffs", action="store_true", help="keep postseason games in the features (the old behaviour; for comparison)")
     a = ap.parse_args()
-    {"build": build, "evaluate": evaluate, "train": train}[a.what]()
+    if a.what == "build":
+        build(regular_only=not a.with_playoffs)
+    else:
+        {"evaluate": evaluate, "train": train}[a.what]()
 
 
 if __name__ == "__main__":
