@@ -10,18 +10,18 @@ const CBB_GAME_ID_OFFSET = 7_000_000_000; // games.id = -(ESPN event id + this):
 const DAYS_BACK = 1;
 const DAYS_FORWARD = 4;
 
-const num = (s: unknown): number | null => {
+export const num = (s: unknown): number | null => {
   if (s === null || s === undefined || s === "") return null;
   const n = Number(String(s).replace(/^[ou]/i, "").replace("+", ""));
   return Number.isFinite(n) ? n : null;
 };
-const price = (s: unknown): number | null => {
+export const price = (s: unknown): number | null => {
   const n = num(s);
   return n === null ? null : Math.round(n);
 };
 
 type Price = { close?: { odds?: string; line?: string }; open?: { odds?: string; line?: string } };
-type EspnOdds = {
+export type EspnOdds = {
   provider?: { name?: string };
   details?: string;
   spread?: number;
@@ -45,11 +45,11 @@ export type CbbMarket = {
   under_odds: number | null;
 };
 
-const PRICE_FIELDS = ["ml_home", "ml_away", "spread_home_line", "spread_home_odds", "spread_away_odds", "total_line", "over_odds", "under_odds"] as const;
-const samePrices = (a: CbbMarket | null, b: CbbMarket): boolean => a !== null && PRICE_FIELDS.every((k) => (a[k] ?? null) === (b[k] ?? null));
+export const PRICE_FIELDS = ["ml_home", "ml_away", "spread_home_line", "spread_home_odds", "spread_away_odds", "total_line", "over_odds", "under_odds"] as const;
+export const samePrices = (a: CbbMarket | null, b: CbbMarket): boolean => a !== null && PRICE_FIELDS.every((k) => (a[k] ?? null) === (b[k] ?? null));
 
 /** ESPN uses two shapes for the same thing (the structured close/open one, and the older flat one); read either. */
-function parseMarket(o: EspnOdds): CbbMarket {
+export function parseMarket(o: EspnOdds): CbbMarket {
   const ml = o.moneyline ?? {};
   const ps = o.pointSpread ?? {};
   const tot = o.total ?? {};
@@ -80,7 +80,7 @@ export type CbbOpen = {
   total_odds_open: number | null;
 };
 
-function parseOpen(o: EspnOdds): CbbOpen | null {
+export function parseOpen(o: EspnOdds): CbbOpen | null {
   const ml = o.moneyline ?? {};
   const ps = o.pointSpread ?? {};
   const tot = o.total ?? {};

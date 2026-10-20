@@ -831,6 +831,48 @@ export async function getCbbRatingKinds(): Promise<{ season: number; kind: strin
   return [...seen.values()].sort((a, b) => b.season - a.season || order(a.kind) - order(b.kind));
 }
 
+/** NBA games in a time window (the `games` table, sport = nba), soonest first. */
+export async function getNbaGames(fromIso: string, toIso: string): Promise<Game[]> {
+  const { data, error } = await supabase.from("games").select("*").eq("sport", "nba").gte("start_date", fromIso).lte("start_date", toIso).order("start_date", { ascending: true }).limit(200);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Game[];
+}
+
+export type NbaSnapshot = {
+  game_id: number;
+  captured_at: string;
+  ml_home: number | null;
+  ml_away: number | null;
+  spread_home_line: number | null;
+  spread_home_odds: number | null;
+  spread_away_odds: number | null;
+  total_line: number | null;
+  over_odds: number | null;
+  under_odds: number | null;
+};
+
+/** Every line change we logged for the given NBA games (nba_odds_snapshots), oldest first, grouped by game. */
+export async function getNbaSnapshots(gameIds: number[]): Promise<Map<number, NbaSnapshot[]>> {
+  const out = new Map<number, NbaSnapshot[]>();
+  if (gameIds.length === 0) return out;
+  const { data, error } = await supabase
+    .from("nba_odds_snapshots")
+    .select("game_id, captured_at, ml_home, ml_away, spread_home_line, spread_home_odds, spread_away_odds, total_line, over_odds, under_odds")
+    .in("game_id", gameIds)
+    .order("captured_at", { ascending: true })
+    .limit(20000);
+  if (error) {
+    if (isMissingTable(error)) return out;
+    throw new Error(error.message);
+  }
+  for (const r of (data ?? []) as NbaSnapshot[]) {
+    const list = out.get(r.game_id) ?? [];
+    list.push(r);
+    out.set(r.game_id, list);
+  }
+  return out;
+}
+
 /** Players marked as out/doubtful/questionable that are still in effect (no end date, or the date has not passed). */
 export async function getCbbAvailability(season: number): Promise<CbbAvailability[]> {
   const { data, error } = await supabase.from("cbb_availability").select("*").eq("season", season).order("created_at", { ascending: false }).limit(500);

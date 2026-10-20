@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { simulateGame, type GoalieScenario } from "@/lib/nhlSim";
+import { updateNba } from "@/lib/nbaOdds";
 import { recordModelSnapshot, reapplyUnavailable, updateNhlOdds, updateNhlScores } from "@/lib/nhlOdds";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import type { GoalieSource, NhlGoalie, NhlPrediction } from "@/lib/types";
@@ -70,6 +71,8 @@ export async function logBet(formData: FormData): Promise<void> {
 
   revalidatePath("/bets");
   revalidatePath("/nfl/bets");
+  revalidatePath("/nba");
+  revalidatePath("/nba/bets");
 }
 
 /** Manually settles a bet - the ONLY way a prop ever gets graded (no
@@ -268,6 +271,17 @@ export async function refreshNhlScores(): Promise<{ ok: boolean; message: string
     revalidatePath("/nhl");
     revalidatePath("/nhl/bets");
     revalidatePath("/nhl/performance");
+  }
+  return { ok: r.ok, message: r.message };
+}
+
+/** The NBA "Update scores" button: pulls today's scores, live status, finals and lines from ESPN right now (a few seconds), then grades
+ * any prop bet on a game that just finished from its box score. The same update runs on a timer (/api/cron/nba-odds). */
+export async function refreshNba(): Promise<{ ok: boolean; message: string }> {
+  const r = await updateNba({ grade: true });
+  if (r.ok) {
+    revalidatePath("/nba");
+    revalidatePath("/nba/bets");
   }
   return { ok: r.ok, message: r.message };
 }

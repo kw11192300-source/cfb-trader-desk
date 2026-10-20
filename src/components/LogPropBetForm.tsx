@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { logBet } from "@/lib/actions";
+import { PROPS } from "@/lib/nbaPropCatalog";
 
 // Suggestions only, not a fixed list - real prop markets are too varied
 // to enumerate (same reasoning as sportsbook/prop_type being free text
@@ -32,7 +33,7 @@ const HOCKEY_PROP_TYPES = [
   "Time on Ice",
   "Goals Against",
 ];
-const PROP_TYPES_BY_SPORT: Record<string, string[]> = { nhl: HOCKEY_PROP_TYPES };
+const PROP_TYPES_BY_SPORT: Record<string, string[]> = { nhl: HOCKEY_PROP_TYPES, nba: PROPS.map((p) => p.label) };
 const COMMON_BOOKS = [
   "DraftKings",
   "FanDuel",

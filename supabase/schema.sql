@@ -978,3 +978,21 @@ create table if not exists cbb_availability (
 );
 alter table cbb_availability enable row level security;
 create policy "public read" on cbb_availability for select using (true);
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- NBA. Games live in the shared `games` table with sport = 'nba' (id = -(ESPN event id + 8,000,000,000)), kept current by
+-- src/lib/nbaOdds.ts. This is the timestamped line history (one row each time any posted price moved) that lets a bet be
+-- compared with where the line closed; written by the ~10-minute timer (src/app/api/cron/nba-odds/route.ts).
+-- ---------------------------------------------------------------------------------------------------------------------
+create table if not exists nba_odds_snapshots (
+  id bigserial primary key,
+  game_id bigint not null references games(id) on delete cascade,
+  captured_at timestamptz not null default now(),
+  provider text,
+  ml_home int, ml_away int,
+  spread_home_line numeric, spread_home_odds int, spread_away_odds int,
+  total_line numeric, over_odds int, under_odds int
+);
+create index if not exists nba_odds_snapshots_game_idx on nba_odds_snapshots (game_id, captured_at);
+alter table nba_odds_snapshots enable row level security;
+create policy "public read" on nba_odds_snapshots for select using (true);

@@ -49,7 +49,7 @@ function Cell({ title, b, showPending = true }: { title: string; b: Bucket; show
 
 /** Your NHL bets at a glance by schedule day (Eastern): yesterday's result, today's settled result and what is still live, and
  * what is riding on tomorrow and later. Units are stakes as logged; ROI is profit over the settled stake. */
-export default function NhlBetStrip({ bets, today }: { bets: GradedBet[]; today: string }) {
+export default function NhlBetStrip({ bets, today, sport = "nhl" }: { bets: GradedBet[]; today: string; sport?: "nhl" | "nba" }) {
   const d = new Date(`${today}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() - 1);
   const yesterday = d.toISOString().slice(0, 10);
@@ -58,7 +58,7 @@ export default function NhlBetStrip({ bets, today }: { bets: GradedBet[]; today:
   const now = empty();
   const later = empty();
   for (const g of bets) {
-    if (g.bet.sport !== "nhl" || !g.game) continue;
+    if (g.bet.sport !== sport || !g.game) continue;
     const day = etDay(g.game.start_date);
     const target = day === yesterday ? yest : day === today ? now : day > today ? later : null;
     if (!target) continue;
@@ -81,7 +81,7 @@ export default function NhlBetStrip({ bets, today }: { bets: GradedBet[]; today:
     <section className="mb-4 rounded-lg border border-border bg-surface px-4 py-3">
       <div className="mb-2 flex items-baseline justify-between gap-2">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Your bets</h2>
-        <Link href="/nhl/bets" className="text-[11px] text-muted hover:text-foreground">
+        <Link href={`/${sport}/bets`} className="text-[11px] text-muted hover:text-foreground">
           all bets ›
         </Link>
       </div>
