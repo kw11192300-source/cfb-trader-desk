@@ -82,7 +82,10 @@ def absence_effects() -> pd.DataFrame:
 def build_rows() -> list[dict]:
     rat = pd.read_csv(RATINGS_OUT)
     ros = current_rosters()
-    last = int(pd.read_csv(TEAM_GAMES_OUT, usecols=["season"])["season"].max())
+    tg = pd.read_csv(TEAM_GAMES_OUT, usecols=["season"])
+    last = int(tg["season"].max())
+    if int((tg["season"] == last).sum()) < 400:  # the new season is only a few games old: show last season's box lines until it has 13+ per team
+        last -= 1
     box = box_lines(last)
     ab = absence_effects()
     d = ros.merge(rat, on="player_id", how="inner").merge(box, on="player_id", how="left").merge(ab, on="player_id", how="left")
@@ -126,6 +129,10 @@ def main() -> None:
         (DATA_DIR / "last_publish_players.json").write_text(json.dumps(rows, default=str))
         print("dry run - nothing written")
         return
+    publish(rows)
+
+
+def publish(rows: list[dict]) -> None:
     from cfbd_ingest.supabase_client import get_client
 
     client = get_client()

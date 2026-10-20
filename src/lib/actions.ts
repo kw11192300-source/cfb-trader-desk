@@ -212,6 +212,24 @@ export async function triggerCbbRatings(): Promise<{ ok: boolean; message: strin
   return { ok: false, message: `GitHub returned ${res.status}.` };
 }
 
+/** Starts the NBA in-season ratings job (.github/workflows/nba-ratings.yml): ingests what finished, rebuilds this season's lineup
+ * stints and refits the player ratings on top of the 2021-25 history. Runs once or twice a day. */
+export async function triggerNbaRatings(): Promise<{ ok: boolean; message: string }> {
+  if (!process.env.GITHUB_DISPATCH_TOKEN) {
+    return { ok: false, message: "Ratings refresh isn't set up yet: GITHUB_DISPATCH_TOKEN is missing." };
+  }
+  const res = await github("/actions/workflows/nba-ratings.yml/dispatches", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ref: "main" }),
+  });
+  if (res.status === 204) return { ok: true, message: "Ratings refresh started." };
+  if (res.status === 404 || res.status === 403 || res.status === 401) {
+    return { ok: false, message: "GitHub refused the request - check the token has Actions read & write on the repo." };
+  }
+  return { ok: false, message: `GitHub returned ${res.status}.` };
+}
+
 // --- CFB scores ----------------------------------------------------------------
 // College football scores come from the ESPN sync job (.github/workflows/sync-results-espn.yml -> cfbd_ingest.sync_results_espn),
 // which already runs every 5 minutes. The "Update scores" button runs that same job right now, so there is still exactly one

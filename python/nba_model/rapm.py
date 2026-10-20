@@ -38,7 +38,7 @@ RAW_STATS = ["pts", "fga", "fta", "tpm", "tpa", "ast", "tov", "oreb", "dreb", "s
 XS = [f"x_{s}" for s in RAW_STATS] + ["x_ts", "x_mpg"]
 
 
-def load_stints(first: int = 2021, last: int = 2025) -> pd.DataFrame:
+def load_stints(first: int = 2021, last: int = 2100) -> pd.DataFrame:
     frames = []
     for s in range(first, last + 1):
         path = STINTS_DIR / f"stints_{s}.csv.gz"
