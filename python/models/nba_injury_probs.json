@@ -1,0 +1,49 @@
+{
+ "overall": {
+  "Available": 0.8520928215137714,
+  "Doubtful": 0.029540114132259147,
+  "Out": 0.0025145845906256285,
+  "Probable": 0.8982949446604845,
+  "Questionable": 0.4949234057712861
+ },
+ "by_bucket": {
+  "Available|<1.5h": 0.87241186345831,
+  "Available|1.5-3h": 0.7952167414050823,
+  "Available|3-6h": 0.8136054421768707,
+  "Available|6-12h": 0.8385321100917431,
+  "Available|12h+": 0.8948571428571429,
+  "Doubtful|<1.5h": 0.006802721088435374,
+  "Doubtful|1.5-3h": 0.012755102040816327,
+  "Doubtful|3-6h": 0.01436265709156194,
+  "Doubtful|6-12h": 0.03139013452914798,
+  "Doubtful|12h+": 0.04365733113673806,
+  "Out|<1.5h": 0.0001072271070126528,
+  "Out|1.5-3h": 0.0009887005649717514,
+  "Out|3-6h": 0.0010878164556962025,
+  "Out|6-12h": 0.0027150304083405734,
+  "Out|12h+": 0.00579233409610984,
+  "Probable|<1.5h": 0.947565543071161,
+  "Probable|1.5-3h": 0.9340866290018832,
+  "Probable|3-6h": 0.9193121693121693,
+  "Probable|6-12h": 0.8733031674208145,
+  "Probable|12h+": 0.8703374777975134,
+  "Questionable|<1.5h": 0.5222381635581061,
+  "Questionable|1.5-3h": 0.5085638998682477,
+  "Questionable|3-6h": 0.49442896935933145,
+  "Questionable|6-12h": 0.48191823899371067,
+  "Questionable|12h+": 0.4936268829663963
+ },
+ "by_cat": {
+  "Available|injury/illness": 0.9299892703862661,
+  "Available|other (personal, rest, ...)": 0.5232163080407701,
+  "Doubtful|injury/illness": 0.026248399487836107,
+  "Doubtful|other (personal, rest, ...)": 0.033168666196189134,
+  "Out|injury/illness": 0.0005432158377595364,
+  "Out|other (personal, rest, ...)": 0.006455894774948715,
+  "Probable|injury/illness": 0.9020281883808869,
+  "Probable|other (personal, rest, ...)": 0.8732718894009217,
+  "Questionable|injury/illness": 0.5482334699302248,
+  "Questionable|other (personal, rest, ...)": 0.2760345611641655
+ },
+ "n": 71871
+}
