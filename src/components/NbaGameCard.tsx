@@ -1,8 +1,7 @@
 import Image from "next/image";
-import LogBetForm from "./LogBetForm";
-import LogPropBetForm from "./LogPropBetForm";
-import NbaProjectionPanel from "./NbaProjectionPanel";
-import type { GradedBet, NbaGameProjection, NbaInjury, NbaPlayerProjection, NbaSnapshot } from "@/lib/data";
+import Link from "next/link";
+import NbaBetButtons from "./NbaBetButtons";
+import type { GradedBet, NbaGameProjection, NbaInjury, NbaSnapshot } from "@/lib/data";
 import { nbaLogo, nbaShort } from "@/lib/nbaTeams";
 import type { Bet, Game } from "@/lib/types";
 
@@ -66,9 +65,8 @@ function InjuryLine({ team, rows, ratings }: { team: string; rows: NbaInjury[]; 
   );
 }
 
-export default function NbaGameCard({ game, snaps, bets, injuries = [], ratings = {}, projection, projPlayers = [] }: { game: Game; snaps: NbaSnapshot[]; bets: GradedBet[]; injuries?: NbaInjury[]; ratings?: Record<string, number>; projection?: NbaGameProjection; projPlayers?: NbaPlayerProjection[] }) {
+export default function NbaGameCard({ game, snaps, bets, injuries = [], ratings = {}, projection }: { game: Game; snaps: NbaSnapshot[]; bets: GradedBet[]; injuries?: NbaInjury[]; ratings?: Record<string, number>; projection?: NbaGameProjection }) {
   const cur = snaps.length ? snaps[snaps.length - 1] : null;
-  const first = snaps.length ? snaps[0] : null;
   const live = game.live_status;
   const started = game.completed || live !== null;
   const hp = game.completed ? game.home_points : (live?.home_points ?? null);
@@ -81,18 +79,23 @@ export default function NbaGameCard({ game, snaps, bets, injuries = [], ratings 
 
   const homeLine = cur?.spread_home_line ?? null; // the home team's own number (negative = favoured)
   const total = cur?.total_line ?? null;
-  const moved = (a: number | null | undefined, b: number | null | undefined) => a !== null && a !== undefined && b !== null && b !== undefined && a !== b;
-
   const mine = bets.filter((b) => b.bet.game_id === game.id);
   const homeShort = nbaShort(game.home_team);
   const awayShort = nbaShort(game.away_team);
+  const model = projection?.detail?.model;
+  const gap = projection?.gap ?? null;
+  const news = projection?.news_move ?? null;
+  const stale = news !== null && gap !== null && Math.abs(gap) >= 1 && Math.abs(news) >= 0.75;
 
   return (
     <div className="rounded-lg border border-border bg-surface">
-      <div className="px-4 py-3">
+      <Link href={`/nba/games/${game.id}`} className="block rounded-t-lg px-4 py-3 transition-colors hover:bg-surface-raised">
         <div className="mb-2 flex items-center justify-between text-[11px] text-muted">
           <span className={live ? "font-medium text-down" : ""}>{status}</span>
-          {game.season_type === "preseason" && <span className="rounded bg-surface-raised px-1.5 py-0.5">preseason</span>}
+          <span className="flex items-center gap-2">
+            {game.season_type === "preseason" && <span className="rounded bg-surface-raised px-1.5 py-0.5">preseason</span>}
+            <span className="text-accent">Open game →</span>
+          </span>
         </div>
         {([[game.away_team, ap, "away"], [game.home_team, hp, "home"]] as const).map(([team, pts, side]) => {
           const won = game.completed && hp !== null && ap !== null && (side === "home" ? hp > ap : ap > hp);
@@ -112,12 +115,10 @@ export default function NbaGameCard({ game, snaps, bets, injuries = [], ratings 
             <span>
               Spread {homeShort} {sp(homeLine)}
               {px(cur.spread_home_odds)}
-              {first && moved(first.spread_home_line, homeLine) ? <span className="text-foreground"> (opened {sp(first.spread_home_line)})</span> : null}
             </span>
             <span>
               Total {total ?? "—"}
               {px(cur.over_odds)}
-              {first && moved(first.total_line, total) ? <span className="text-foreground"> (opened {first.total_line})</span> : null}
             </span>
             <span>
               ML {awayShort} {ml(cur.ml_away)} / {homeShort} {ml(cur.ml_home)}
@@ -125,57 +126,31 @@ export default function NbaGameCard({ game, snaps, bets, injuries = [], ratings 
           </div>
         )}
         {!cur && !started && <div className="mt-2 text-[11px] text-muted">No line posted yet.</div>}
+        {!game.completed && model && (
+          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-muted">
+            <span>
+              Model <span className="text-foreground">{homeShort} {sp(Math.round(-model.margin * 2) / 2)}</span>
+            </span>
+            <span>
+              Total <span className="text-foreground">{model.total.toFixed(1)}</span>
+            </span>
+            <span>
+              {homeShort} win <span className="text-foreground">{Math.round(model.p_home * 100)}%</span>
+            </span>
+            {stale && <span className="rounded bg-warn/15 px-1.5 py-0.5 font-sans text-[10px] font-medium text-warn">news not in line</span>}
+          </div>
+        )}
         {!game.completed && injuries.length > 0 && (
           <div className="mt-2 space-y-0.5 border-t border-border/60 pt-2">
             <InjuryLine team={game.away_team} rows={injuries} ratings={ratings} />
             <InjuryLine team={game.home_team} rows={injuries} ratings={ratings} />
           </div>
         )}
-        {!game.completed && !live && <NbaProjectionPanel proj={projection} players={projPlayers} homeTeam={game.home_team} awayTeam={game.away_team} />}
-      </div>
+      </Link>
 
       {!game.completed && (
-        <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3">
-          <LogBetForm
-            gameId={game.id}
-            sport="nba"
-            modelVersion={null}
-            market="spread"
-            sideOptions={[
-              { value: game.home_team, label: `${homeShort} ${sp(homeLine)}`, line: homeLine ?? 0 },
-              { value: game.away_team, label: `${awayShort} ${homeLine !== null ? sp(-homeLine) : ""}`, line: homeLine !== null ? -homeLine : 0 },
-            ]}
-            line={homeLine ?? 0}
-            buttonLabel="Spread"
-            defaultEdgeSource="market"
-          />
-          <LogBetForm
-            gameId={game.id}
-            sport="nba"
-            modelVersion={null}
-            market="moneyline"
-            sideOptions={[
-              { value: game.home_team, label: `${homeShort} ${ml(cur?.ml_home)}`, line: 0 },
-              { value: game.away_team, label: `${awayShort} ${ml(cur?.ml_away)}`, line: 0 },
-            ]}
-            line={0}
-            buttonLabel="ML"
-            defaultEdgeSource="market"
-          />
-          <LogBetForm
-            gameId={game.id}
-            sport="nba"
-            modelVersion={null}
-            market="total"
-            sideOptions={[
-              { value: "over", label: "Over" },
-              { value: "under", label: "Under" },
-            ]}
-            line={total ?? 0}
-            buttonLabel="Total"
-            defaultEdgeSource="market"
-          />
-          <LogPropBetForm gameId={game.id} sport="nba" />
+        <div className="border-t border-border px-4 py-3">
+          <NbaBetButtons game={game} cur={cur} />
         </div>
       )}
 

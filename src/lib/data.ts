@@ -863,6 +863,13 @@ export async function getNbaInjuries(day: string): Promise<NbaInjury[]> {
   return (data ?? []) as NbaInjury[];
 }
 
+/** One NBA game by id (the `games` table). */
+export async function getNbaGame(id: number): Promise<Game | null> {
+  const { data, error } = await supabase.from("games").select("*").eq("id", id).eq("sport", "nba").maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data ?? null) as Game | null;
+}
+
 /** NBA games in a time window (the `games` table, sport = nba), soonest first. */
 export async function getNbaGames(fromIso: string, toIso: string): Promise<Game[]> {
   const { data, error } = await supabase.from("games").select("*").eq("sport", "nba").gte("start_date", fromIso).lte("start_date", toIso).order("start_date", { ascending: true }).limit(200);
@@ -905,6 +912,23 @@ export async function getNbaSnapshots(gameIds: number[]): Promise<Map<number, Nb
   return out;
 }
 
+/** The bottom-up game model: team strength from each player's rating x projected minutes (averaged over who is in / out). */
+export type NbaGameModel = {
+  margin: number; // home margin (+ = home wins by)
+  total: number; // level-matched to the day's posted totals
+  total_raw?: number;
+  level_shift?: number;
+  p_home: number;
+  ml_home: number;
+  ml_away: number;
+  pace: number;
+  hca: number;
+  L: number;
+  home_off: number;
+  home_de: number;
+  away_off: number;
+  away_de: number;
+};
 export type NbaNewsContrib = { player_id: number; name: string | null; p_play: number; share: number; net: number; effect: number };
 export type NbaGameProjection = {
   game_id: number;
@@ -918,7 +942,7 @@ export type NbaGameProjection = {
   gap: number | null; // news_move - moved: what the line has not yet absorbed
   pending_home: boolean;
   pending_away: boolean;
-  detail: { contrib?: { home: NbaNewsContrib[]; away: NbaNewsContrib[] }; state_through?: string; hours_to_tip?: number } | null;
+  detail: { contrib?: { home: NbaNewsContrib[]; away: NbaNewsContrib[] }; state_through?: string; hours_to_tip?: number; model?: NbaGameModel } | null;
   computed_at: string;
 };
 /** One stat's outcome distribution: ge[i] = P(stat >= k0 + i). */
@@ -938,7 +962,7 @@ export type NbaPlayerProjection = {
   min_q10: number | null;
   min_q90: number | null;
   exp_min: number | null;
-  stats: Record<string, NbaStatDist> | null;
+  stats: ({ _joint?: { dd: number; td: number } } & Record<string, unknown>) | null; // per stat: NbaStatDist; _joint = double-double / triple-double chances
   computed_at: string;
 };
 

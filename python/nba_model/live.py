@@ -127,7 +127,31 @@ def scenarios(p_play: dict[int, float], base: dict[int, float], rng: np.random.G
 
 # ------------------------------------------------------------------ projection for one team
 
-def project_team(state: dict, mbundle: dict, pbundle: dict, members: list[int], p_play: dict[int, float], ctx: dict, rng: np.random.Generator) -> pd.DataFrame:
+def _corr() -> tuple[list[str], np.ndarray]:
+    d = json.loads((MODELS / "nba_stat_corr.json").read_text())
+    return d["stats"], np.linalg.cholesky(np.array(d["corr"]))
+
+
+def joint_milestones(mixes: dict[str, np.ndarray], n: int, rng: np.random.Generator, draws: int = 4000) -> tuple[np.ndarray, np.ndarray]:
+    """P(double-double), P(triple-double) per player: stats drawn together through the Gaussian copula (simcorr.py) from each player's
+    scenario-mixed distributions. Points, rebounds, assists, steals and blocks count."""
+    from scipy.stats import norm
+
+    names, chol = _corr()
+    dd = np.zeros(n)
+    td = np.zeros(n)
+    for i in range(n):
+        z = rng.standard_normal((draws, len(names))) @ chol.T
+        u = norm.cdf(z)
+        vals = {nm: np.minimum(np.searchsorted(mixes[nm][i], u[:, k], side="left"), 60) for k, nm in enumerate(names) if nm in mixes}
+        tens = sum((vals[nm] >= 10).astype(int) for nm in ("pts", "reb", "ast", "stl", "blk"))
+        dd[i], td[i] = float((tens >= 2).mean()), float((tens >= 3).mean())
+    return dd, td
+
+
+def project_team(state: dict, mbundle: dict, pbundle: dict, members: list[int], p_play: dict[int, float], ctx: dict, rng: np.random.Generator, rating: dict[int, tuple[float, float]] | None = None) -> tuple[pd.DataFrame, dict]:
+    """Per-player projections (scenario-blended) and, if `rating` (player -> (off, points-allowed rating)) is given, the team's strength under
+    each scenario: {"w": scenario weights, "off": ..., "de": ...} where each is the minutes-weighted sum of the five on the floor."""
     base = {p: state["pstate"][p]["slow"] if p in state["pstate"] else COLD for p in members}
     scs = scenarios(p_play, base, rng)
     frames, weights = [], []
@@ -144,6 +168,16 @@ def project_team(state: dict, mbundle: dict, pbundle: dict, members: list[int], 
     n = len(members)
     out = pd.DataFrame({"player_id": members})
     wsum = np.array(weights).sum()
+    strength = {"w": np.array(weights) / wsum, "off": np.zeros(len(scs)), "de": np.zeros(len(scs))}
+    if rating is not None:
+        pm = big["pm_mean"].to_numpy().reshape(len(scs), n)
+        offv = np.array([rating.get(p, (0.0, 0.0))[0] for p in members])
+        dev = np.array([rating.get(p, (0.0, 0.0))[1] for p in members])
+        for k, (out_set, _) in enumerate(scs):
+            on = np.array([p not in out_set for p in members])
+            mins = pm[k] * on
+            w5 = mins / max(mins.sum(), 1e-6) * 5.0
+            strength["off"][k], strength["de"][k] = float((w5 * offv).sum()), float((w5 * dev).sum())
 
     def avg(col):  # scenario-weighted mean per player
         v = big[col].to_numpy().reshape(len(scs), n)
@@ -155,6 +189,7 @@ def project_team(state: dict, mbundle: dict, pbundle: dict, members: list[int], 
     # stat projections: model mean per scenario -> outcome distribution (calibrated tables) -> scenario mixture
     ks = np.arange(0, 61)
     stats: dict[str, list] = {}
+    mixes: dict[str, np.ndarray] = {}
     for name, comps in pbundle["targets"].items():
         X = feature_frame(big, comps, name)
         mu = pbundle["models"][name].predict(X)
@@ -164,6 +199,7 @@ def project_team(state: dict, mbundle: dict, pbundle: dict, members: list[int], 
         cdf = cdf.reshape(len(scs), n, -1)
         mix = (cdf * np.array(weights)[:, None, None]).sum(0) / wsum  # (n, K)
         mean = (mu.reshape(len(scs), n) * np.array(weights)[:, None]).sum(0) / wsum
+        mixes[name] = mix
         res = []
         for i in range(n):
             c = mix[i]
@@ -175,8 +211,9 @@ def project_team(state: dict, mbundle: dict, pbundle: dict, members: list[int], 
             hi = min(hi, lo + 45)
             res.append({"mean": round(float(mean[i]), 2), "median": med, "k0": lo, "ge": [round(float(x), 3) for x in ge[lo : hi + 1]]})
         stats[name] = res
-    out["stats"] = [{k: stats[k][i] for k in stats} for i in range(n)]
-    return out
+    dd, td = joint_milestones(mixes, n, rng)
+    out["stats"] = [{**{k: stats[k][i] for k in stats}, "_joint": {"dd": round(float(dd[i]), 3), "td": round(float(td[i]), 3)}} for i in range(n)]
+    return out, strength
 
 
 # ------------------------------------------------------------------ the news move

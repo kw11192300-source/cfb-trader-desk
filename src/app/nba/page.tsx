@@ -70,7 +70,7 @@ export default async function NbaPage({ searchParams }: { searchParams: Promise<
         ) : (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {games.map((g) => (
-              <NbaGameCard key={g.id} game={g} snaps={snaps.get(g.id) ?? []} bets={nbaBets} injuries={injuries.filter((i) => i.team === g.home_team || i.team === g.away_team)} ratings={ratings} projection={projections.games.get(g.id)} projPlayers={projections.players.get(g.id) ?? []} />
+              <NbaGameCard key={g.id} game={g} snaps={snaps.get(g.id) ?? []} bets={nbaBets} injuries={injuries.filter((i) => i.team === g.home_team || i.team === g.away_team)} ratings={ratings} projection={projections.games.get(g.id)} />
             ))}
           </div>
         )}

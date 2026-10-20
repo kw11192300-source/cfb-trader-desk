@@ -40,6 +40,42 @@ def load_models() -> tuple[dict, dict, dict, dict]:
     return mb, pb, probs, coef
 
 
+SIGMA = 14.2  # the game-to-game spread of margins around the model's number (the closing line's own error is about 13.9)
+
+
+def fair_ml(p: float) -> int:
+    p = min(max(p, 0.01), 0.99)
+    return int(round(-100 * p / (1 - p))) if p >= 0.5 else int(round(100 * (1 - p) / p))
+
+
+def league_constants(now: dt.datetime) -> dict:
+    """Trailing year of finished games: points per 100 possessions, home margin, pace."""
+    tg = pd.read_csv(DATA_DIR / "team_games.csv.gz", usecols=["start_utc", "pts", "poss", "pace", "is_home", "opp_pts"])
+    tg["start_utc"] = pd.to_datetime(tg["start_utc"], utc=True)
+    tg = tg[tg["start_utc"] >= pd.Timestamp(now) - pd.Timedelta(days=365)]
+    home = tg[tg["is_home"] == 1]
+    return {"L": float((tg["pts"] / tg["poss"] * 100).mean()), "hca": float((home["pts"] - home["opp_pts"]).mean()), "pace": float(tg["pace"].mean())}
+
+
+def game_model(sh: dict, sa: dict, pace: float, lg: dict) -> dict:
+    """Bottom-up game numbers from the two teams' scenario strengths (independent scenarios, outer product)."""
+    from scipy.stats import norm
+
+    wh, wa = sh["w"][:, None], sa["w"][None, :]
+    w = wh * wa
+    m100 = (sh["off"][:, None] - sa["off"][None, :]) + (sa["de"][None, :] - sh["de"][:, None])
+    margin = m100 * pace / 100.0 + lg["hca"]
+    tot100 = 2 * lg["L"] + sh["off"][:, None] + sa["off"][None, :] + sh["de"][:, None] + sa["de"][None, :]
+    total = tot100 * pace / 100.0
+    p_home = float((w * norm.cdf(margin / SIGMA)).sum())
+    return {
+        "margin": round(float((w * margin).sum()), 2), "total": round(float((w * total).sum()), 1), "p_home": round(p_home, 4),
+        "ml_home": fair_ml(p_home), "ml_away": fair_ml(1 - p_home), "pace": round(pace, 1), "hca": round(lg["hca"], 2), "L": round(lg["L"], 1),
+        "home_off": round(float((sh["w"] * sh["off"]).sum()), 2), "home_de": round(float((sh["w"] * sh["de"]).sum()), 2),
+        "away_off": round(float((sa["w"] * sa["off"]).sum()), 2), "away_de": round(float((sa["w"] * sa["de"]).sum()), 2),
+    }
+
+
 def run(dry_run: bool = False, horizon_h: float = 40.0) -> None:
     from cfbd_ingest.supabase_client import get_client
 
@@ -72,8 +108,12 @@ def run(dry_run: bool = False, horizon_h: float = 40.0) -> None:
     ros = current_rosters()
     team_id = {r.team: int(r.team_id) for r in ros.drop_duplicates("team").itertuples()}
     roster = {int(tid): [(int(p), n) for p, n in zip(g["player_id"], g["roster_name"])] for tid, g in ros.groupby("team_id")}
-    rat = client.table("nba_player_ratings").select("player_id,net").eq("season", season).eq("kind", "current").limit(2000).execute().data or []
+    rat = client.table("nba_player_ratings").select("player_id,net,stats").eq("season", season).eq("kind", "current").limit(2000).execute().data or []
     net = {int(r["player_id"]): float(r["net"]) for r in rat if r["net"] is not None}
+    # (offence, points-allowed) per 100 for the strength sums; the table stores defence as -allowed, so flip it back
+    rating = {int(r["player_id"]): (float(r["stats"]["off"]), -float(r["stats"]["def"])) for r in rat if r.get("stats") and r["stats"].get("off") is not None and r["stats"].get("def") is not None}
+    lg = league_constants(now)
+    print(f"league: {lg['L']:.1f} pts/100, home margin {lg['hca']:+.2f}, pace {lg['pace']:.1f}", flush=True)
 
     days = sorted({pd.Timestamp(g["start_date"]).tz_convert("America/New_York").strftime("%Y-%m-%d") for g in games})
     inj = client.table("nba_injury_status").select("game_date,team,player,status,reason_cat,reason_detail,report_time").in_("game_date", days).limit(5000).execute().data or []
@@ -116,17 +156,19 @@ def run(dry_run: bool = False, horizon_h: float = 40.0) -> None:
                 pp[pid] = status_p(r["status"], hours, probs)
                 meta[pid] = (r["status"], " ".join(x for x in (r["reason_cat"], r["reason_detail"]) if x))
             ctx = {"team": tid, "opp": oid, "is_home": 1 if side == "home" else 0, "start": start, "season": season, "exp_margin": em_home if side == "home" else -em_home}
-            proj = project_team(state, mb, pb, members, pp, ctx, rng)
+            proj, stren = project_team(state, mb, pb, members, pp, ctx, rng, rating=rating)
             proj["p_play"] = [pp.get(p, 1.0) for p in members]
             proj["status"] = [meta.get(p, (None, None))[0] for p in members]
             proj["reason"] = [meta.get(p, (None, None))[1] for p in members]
             proj["name"] = [names[p] for p in members]
             proj["exp_min"] = proj["p_play"] * proj["min_mean"]
-            per_team[side] = (proj, tid, names)
+            per_team[side] = (proj, tid, names, stren)
             swings[side] = news_swing(state, members, pp, net, coef)
         if len(per_team) < 2:
             continue
         nm = news_move(swings["home"][:2], swings["away"][:2], coef)
+        ph, pa = state["pace"].get(team_id[g["home_team"]]), state["pace"].get(team_id[g["away_team"]])
+        model = game_model(per_team["home"][3], per_team["away"][3], (ph + pa) / 2 if ph and pa else lg["pace"], lg)
         moved = (line_open - line_now) if (line_open is not None and line_now is not None) else None  # + = the line has moved toward home
         gap = None if moved is None else round(nm - moved, 2)
         contrib = {side: [{**w, "name": per_team[side][2].get(w["player_id"])} for w in swings[side][2]] for side in swings}
@@ -135,10 +177,10 @@ def run(dry_run: bool = False, horizon_h: float = 40.0) -> None:
                 "game_id": g["id"], "start_date": g["start_date"], "home_team": g["home_team"], "away_team": g["away_team"], "computed_at": now.isoformat(),
                 "news_move": round(nm, 2), "line_open": line_open, "line_now": line_now, "moved": None if moved is None else round(moved, 2), "gap": gap,
                 "pending_home": pend.get("home", False), "pending_away": pend.get("away", False),
-                "detail": {"contrib": contrib, "state_through": str(last_t), "hours_to_tip": round(hours, 1)},
+                "detail": {"contrib": contrib, "state_through": str(last_t), "hours_to_tip": round(hours, 1), "model": model},
             }
         )
-        for side, (proj, tid, _) in per_team.items():
+        for side, (proj, tid, _, _) in per_team.items():
             for r in proj.itertuples():
                 if r.base_min < 3.0 and r.exp_min < 2.0:
                     continue
@@ -151,7 +193,17 @@ def run(dry_run: bool = False, horizon_h: float = 40.0) -> None:
                         "exp_min": round(float(r.exp_min), 1), "stats": None if down else r.stats, "computed_at": now.isoformat(),
                     }
                 )
-        print(f"  {g['away_team']} @ {g['home_team']}: news move {nm:+.2f} (line moved {moved if moved is None else round(moved, 2)}) gap {gap}", flush=True)
+        print(f"  {g['away_team']} @ {g['home_team']}: model {model['margin']:+.1f} / {model['total']} (line {line_now} / {cur['total_line'] if cur else None}); news move {nm:+.2f} (line moved {moved if moved is None else round(moved, 2)}) gap {gap}", flush=True)
+    # The league's scoring level moves faster than a trailing average can follow (the market's totals open higher than last season's
+    # scoring), so the model total is level-matched to today's posted totals: only game-to-game differences are the model's claim.
+    tots = [(r, lastsn[r["game_id"]]["total_line"]) for r in game_rows if lastsn.get(r["game_id"]) and lastsn[r["game_id"]].get("total_line")]
+    if len(tots) >= 3:
+        shift = float(np.mean([t - r["detail"]["model"]["total"] for r, t in tots]))
+        for r in game_rows:
+            m = r["detail"]["model"]
+            m["total_raw"], m["level_shift"] = m["total"], round(shift, 1)
+            m["total"] = round(m["total"] + shift, 1)
+        print(f"model totals level-matched to the market: {shift:+.1f}", flush=True)
     if dry_run:
         (DATA_DIR / "live_preview.json").write_text(json.dumps({"games": game_rows, "players": player_rows}, default=str))
         print(f"dry run: {len(game_rows)} games, {len(player_rows)} players -> live_preview.json")
