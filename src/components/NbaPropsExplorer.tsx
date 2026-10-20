@@ -96,7 +96,7 @@ export default function NbaPropsExplorer({ players, awayTeam, homeTeam }: { play
                     return (
                       <td key={k} className="px-2 py-1.5 text-center">
                         <div className={`font-mono font-semibold ${lopsided ? "text-muted" : "text-foreground"}`}>{b.line.toFixed(1)}</div>
-                        <div className="font-mono text-[10px] text-muted">O {pct(b.over)}</div>
+                        <div className="font-mono text-[10px] text-muted">O {pct(b.over)} · {fairOdds(b.over)}</div>
                       </td>
                     );
                   })}
@@ -141,14 +141,17 @@ export default function NbaPropsExplorer({ players, awayTeam, homeTeam }: { play
                       return (
                         <td key={m} className="px-2 py-1.5 text-center font-mono text-foreground" style={{ backgroundColor: v !== null ? heat(v) : undefined }} title={v !== null ? `fair ${fairOdds(v)}` : undefined}>
                           {v === null ? "—" : v < 0.01 ? "<1%" : v > 0.985 ? ">98%" : pct(v)}
+                          {v !== null && v >= 0.01 && v <= 0.985 && <div className="text-[9px] font-normal text-muted">{fairOdds(v)}</div>}
                         </td>
                       );
                     })}
                     <td className="px-2 py-1.5 text-center font-mono text-foreground" style={{ backgroundColor: j ? heat(j.dd) : undefined }} title={j ? `fair ${fairOdds(j.dd)}` : undefined}>
                       {j ? (j.dd < 0.01 ? "<1%" : pct(j.dd)) : "—"}
+                      {j && j.dd >= 0.01 && <div className="text-[9px] font-normal text-muted">{fairOdds(j.dd)}</div>}
                     </td>
                     <td className="px-2 py-1.5 text-center font-mono text-foreground" style={{ backgroundColor: j ? heat(j.td * 2) : undefined }} title={j ? `fair ${fairOdds(j.td)}` : undefined}>
                       {j ? (j.td < 0.005 ? "<1%" : `${(j.td * 100).toFixed(j.td < 0.1 ? 1 : 0)}%`) : "—"}
+                      {j && j.td >= 0.005 && <div className="text-[9px] font-normal text-muted">{fairOdds(j.td)}</div>}
                     </td>
                   </tr>
                 );

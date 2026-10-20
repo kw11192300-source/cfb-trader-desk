@@ -76,3 +76,32 @@ export function devig(mlA: number | null | undefined, mlB: number | null | undef
   const b = impliedProb(mlB);
   return a / (a + b);
 }
+
+/** Standard normal CDF (Abramowitz-Stegun 7.1.26, accurate to ~1e-7). */
+export function normCdf(z: number): number {
+  const x = Math.abs(z) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * x);
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return z >= 0 ? 0.5 + 0.5 * y : 0.5 - 0.5 * y;
+}
+
+/** How far a final margin / total typically lands from the model's number (about the closing line's own error). */
+export const MARGIN_SD = 14.2;
+export const TOTAL_SD = 18;
+
+/** Chances that a normally distributed integer outcome lands above / below / on a line. `above` = outcome > line. */
+export function lineProbs(mean: number, sd: number, line: number): { above: number; below: number; push: number } {
+  if (line % 1 !== 0) {
+    const above = 1 - normCdf((Math.floor(line) + 0.5 - mean) / sd);
+    return { above, below: 1 - above, push: 0 };
+  }
+  const above = 1 - normCdf((line + 0.5 - mean) / sd);
+  const below = normCdf((line - 0.5 - mean) / sd);
+  return { above, below, push: Math.max(1 - above - below, 0) };
+}
+
+/** Expected profit per unit at an American price when you win with prob `pWin`, lose with `pLose` (the rest is a push). */
+export function evWithPush(pWin: number, pLose: number, american: number): number {
+  const win = american > 0 ? american / 100 : 100 / -american;
+  return pWin * win - pLose;
+}

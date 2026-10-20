@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import NbaBetButtons from "./NbaBetButtons";
 import type { GradedBet, NbaGameProjection, NbaInjury, NbaSnapshot } from "@/lib/data";
+import { devig, fairOdds } from "@/lib/nbaProj";
 import { nbaLogo, nbaShort } from "@/lib/nbaTeams";
 import type { Bet, Game } from "@/lib/types";
 
@@ -28,13 +29,13 @@ const nameKey = (s: string) => s.normalize("NFKD").replace(/[\u0300-\u036f]/g, "
 
 /** One team's line on the injury report: who is out / doubtful / questionable, each with his rating (net points per 100 he adds) so the
  * size of the news is visible at a glance. */
-function InjuryLine({ team, rows, ratings }: { team: string; rows: NbaInjury[]; ratings: Record<string, number> }) {
+function InjuryLine({ team, rows, ratings, keyNames }: { team: string; rows: NbaInjury[]; ratings: Record<string, number>; keyNames?: Set<string> }) {
   const mine = rows.filter((r) => r.team === team);
   if (mine.length === 0) return null;
   if (mine.every((r) => r.player === "")) return <div className="text-[11px] text-muted">{nbaShort(team)}: report not submitted yet</div>;
   const show = (statuses: string[]) =>
     mine
-      .filter((r) => r.player && statuses.includes(r.status) && !/g league|two-way/i.test(`${r.reason_cat ?? ""} ${r.reason_detail ?? ""}`))
+      .filter((r) => r.player && statuses.includes(r.status) && !/g league|two-way/i.test(`${r.reason_cat ?? ""} ${r.reason_detail ?? ""}`) && (!keyNames || keyNames.has(nameKey(r.player))))
       .map((r) => {
         const net = ratings[nameKey(r.player)];
         return { r, net };
@@ -65,7 +66,7 @@ function InjuryLine({ team, rows, ratings }: { team: string; rows: NbaInjury[]; 
   );
 }
 
-export default function NbaGameCard({ game, snaps, bets, injuries = [], ratings = {}, projection }: { game: Game; snaps: NbaSnapshot[]; bets: GradedBet[]; injuries?: NbaInjury[]; ratings?: Record<string, number>; projection?: NbaGameProjection }) {
+export default function NbaGameCard({ game, snaps, bets, injuries = [], ratings = {}, projection, keyNames }: { game: Game; snaps: NbaSnapshot[]; bets: GradedBet[]; injuries?: NbaInjury[]; ratings?: Record<string, number>; projection?: NbaGameProjection; keyNames?: Set<string> }) {
   const cur = snaps.length ? snaps[snaps.length - 1] : null;
   const live = game.live_status;
   const started = game.completed || live !== null;
@@ -83,6 +84,7 @@ export default function NbaGameCard({ game, snaps, bets, injuries = [], ratings 
   const homeShort = nbaShort(game.home_team);
   const awayShort = nbaShort(game.away_team);
   const model = projection?.detail?.model;
+  const mktP = devig(cur?.ml_home, cur?.ml_away);
   const gap = projection?.gap ?? null;
   const news = projection?.news_move ?? null;
   const stale = news !== null && gap !== null && Math.abs(gap) >= 1 && Math.abs(news) >= 0.75;
@@ -120,8 +122,8 @@ export default function NbaGameCard({ game, snaps, bets, injuries = [], ratings 
               Total {total ?? "—"}
               {px(cur.over_odds)}
             </span>
-            <span>
-              ML {awayShort} {ml(cur.ml_away)} / {homeShort} {ml(cur.ml_home)}
+            <span title="Percentages are the moneyline chances with the vig removed">
+              ML {awayShort} {ml(cur.ml_away)}{mktP !== null ? ` (${Math.round((1 - mktP) * 100)}%)` : ""} / {homeShort} {ml(cur.ml_home)}{mktP !== null ? ` (${Math.round(mktP * 100)}%)` : ""}
             </span>
           </div>
         )}
@@ -135,15 +137,15 @@ export default function NbaGameCard({ game, snaps, bets, injuries = [], ratings 
               Total <span className="text-foreground">{model.total.toFixed(1)}</span>
             </span>
             <span>
-              {homeShort} win <span className="text-foreground">{Math.round(model.p_home * 100)}%</span>
+              {homeShort} win <span className="text-foreground">{Math.round(model.p_home * 100)}% ({fairOdds(model.p_home)})</span>
             </span>
             {stale && <span className="rounded bg-warn/15 px-1.5 py-0.5 font-sans text-[10px] font-medium text-warn">news not in line</span>}
           </div>
         )}
         {!game.completed && injuries.length > 0 && (
           <div className="mt-2 space-y-0.5 border-t border-border/60 pt-2">
-            <InjuryLine team={game.away_team} rows={injuries} ratings={ratings} />
-            <InjuryLine team={game.home_team} rows={injuries} ratings={ratings} />
+            <InjuryLine team={game.away_team} rows={injuries} ratings={ratings} keyNames={keyNames} />
+            <InjuryLine team={game.home_team} rows={injuries} ratings={ratings} keyNames={keyNames} />
           </div>
         )}
       </Link>

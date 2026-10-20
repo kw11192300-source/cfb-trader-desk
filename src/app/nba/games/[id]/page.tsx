@@ -3,12 +3,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import NbaBetButtons from "@/components/NbaBetButtons";
 import NbaModelButton from "@/components/NbaModelButton";
+import NbaModelVsOdds from "@/components/NbaModelVsOdds";
 import NbaPlayerTable from "@/components/NbaPlayerTable";
 import NbaPropsExplorer from "@/components/NbaPropsExplorer";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import { getBets, getNbaGame, getNbaInjuries, getNbaPlayers, getNbaProjections, getNbaSnapshots, type NbaInjury } from "@/lib/data";
-import { devig, fairOdds } from "@/lib/nbaProj";
+import { devig, fairOdds, impliedProb } from "@/lib/nbaProj";
 import { nbaLogo, nbaShort } from "@/lib/nbaTeams";
 import { etDay } from "@/lib/nhlTeamGames";
 
@@ -153,14 +154,20 @@ export default async function NbaGamePage({ params }: { params: Promise<{ id: st
                   <tbody className="font-mono">
                     <tr className="border-t border-border/50">
                       <td className="py-2 font-sans text-foreground">Spread ({homeShort})</td>
-                      <td className="py-2 text-right text-foreground">{sp(homeLine)}</td>
+                      <td className="py-2 text-right text-foreground">
+                        {sp(homeLine)}
+                        {cur.spread_home_odds != null && <div className="text-[10px] text-muted">{sp0(cur.spread_home_odds)} · {Math.round(impliedProb(cur.spread_home_odds) * 100)}%</div>}
+                      </td>
                       <td className="py-2 text-right text-muted">{first ? sp(first.spread_home_line) : "—"}</td>
                       <td className="py-2 text-right text-foreground">{modelLine !== null ? sp(Math.round(modelLine * 2) / 2) : "—"}</td>
                       <td className="py-2 text-right text-muted">{modelLine !== null && homeLine !== null ? `${sp(modelLine - homeLine)} ${modelLine - homeLine < 0 ? homeShort : awayShort}` : "—"}</td>
                     </tr>
                     <tr className="border-t border-border/50">
                       <td className="py-2 font-sans text-foreground">Total</td>
-                      <td className="py-2 text-right text-foreground">{total ?? "—"}</td>
+                      <td className="py-2 text-right text-foreground">
+                        {total ?? "—"}
+                        {cur.over_odds != null && <div className="text-[10px] text-muted">o {sp0(cur.over_odds)} · {Math.round(impliedProb(cur.over_odds) * 100)}%</div>}
+                      </td>
                       <td className="py-2 text-right text-muted">{first?.total_line ?? "—"}</td>
                       <td className="py-2 text-right text-foreground">{model ? model.total.toFixed(1) : "—"}</td>
                       <td className="py-2 text-right text-muted">{model && total !== null ? `${sp(model.total - total)} ${model.total - total > 0 ? "over" : "under"}` : "—"}</td>
@@ -169,16 +176,20 @@ export default async function NbaGamePage({ params }: { params: Promise<{ id: st
                       <td className="py-2 font-sans text-foreground">Moneyline</td>
                       <td className="py-2 text-right text-foreground">
                         {sp0(cur.ml_away)} / {sp0(cur.ml_home)}
+                        {mktP !== null && <div className="text-[10px] text-muted">{Math.round((1 - mktP) * 100)}% / {Math.round(mktP * 100)}%</div>}
                       </td>
                       <td className="py-2 text-right text-muted">{first ? `${sp0(first.ml_away)} / ${sp0(first.ml_home)}` : "—"}</td>
-                      <td className="py-2 text-right text-foreground">{model ? `${sp0(model.ml_away)} / ${sp0(model.ml_home)}` : "—"}</td>
+                      <td className="py-2 text-right text-foreground">
+                        {model ? `${sp0(model.ml_away)} / ${sp0(model.ml_home)}` : "—"}
+                        {model && <div className="text-[10px] text-muted">{Math.round((1 - model.p_home) * 100)}% / {Math.round(model.p_home * 100)}%</div>}
+                      </td>
                       <td className="py-2 text-right text-muted">{model && mktP !== null ? `${sp((model.p_home - mktP) * 100, 1)} pts ${homeShort}` : "—"}</td>
                     </tr>
                   </tbody>
                 </table>
                 <div className="mt-1 text-[10px] text-muted">
                   Moneyline shows {awayShort} / {homeShort}. Model prices are fair (no vig).
-                  {model && <> {homeShort} win chance: model {Math.round(model.p_home * 100)}%{mktP !== null ? `, market ${Math.round(mktP * 100)}%` : ""}.</>}
+                  {model && <> {homeShort} win chance: model {Math.round(model.p_home * 100)}% ({fairOdds(model.p_home)}){mktP !== null ? `, market ${Math.round(mktP * 100)}% (${fairOdds(mktP)})` : ""}.</>}
                 </div>
               </div>
             ) : (
@@ -234,6 +245,8 @@ export default async function NbaGamePage({ params }: { params: Promise<{ id: st
             )}
           </div>
         </div>
+
+        {model && <NbaModelVsOdds away={game.away_team} home={game.home_team} model={model} cur={cur} />}
 
         {/* bets */}
         {!game.completed && (

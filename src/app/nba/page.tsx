@@ -12,6 +12,8 @@ import { etDay } from "@/lib/nhlTeamGames";
 
 export const dynamic = "force-dynamic";
 
+const KEY_MINUTES = 20;
+
 const dayLabel = (day: string, today: string) => (day === today ? "Today" : new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }));
 const shiftDay = (day: string, n: number) => new Date(new Date(`${day}T12:00:00Z`).getTime() + n * 86_400_000).toISOString().slice(0, 10);
 
@@ -28,6 +30,11 @@ export default async function NbaPage({ searchParams }: { searchParams: Promise<
   const nameKey = (s: string) => s.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z ]/g, "").replace(/\b(jr|sr|ii|iii|iv)\b/g, "").replace(/\s+/g, " ").trim();
   const ratings: Record<string, number> = {};
   for (const p of players) if (p.net !== null) ratings[nameKey(p.name)] = p.net;
+  // only players who matter to the game show on the board card: usual minutes of 20 or more (everyone is on the game page)
+  const keyNames = (id: number): Set<string> | undefined => {
+    const ps = projections.players.get(id);
+    return ps && ps.length > 0 ? new Set(ps.filter((p) => (p.base_min ?? 0) >= KEY_MINUTES).map((p) => nameKey(p.name))) : undefined;
+  };
   const nbaBets = allBets.filter((b) => b.bet.sport === "nba");
   const days = [-2, -1, 0, 1, 2, 3, 4].map((n) => shiftDay(today, n));
   const auto = PROPS.filter((x) => x.auto).map((x) => x.label);
@@ -72,7 +79,7 @@ export default async function NbaPage({ searchParams }: { searchParams: Promise<
         ) : (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {games.map((g) => (
-              <NbaGameCard key={g.id} game={g} snaps={snaps.get(g.id) ?? []} bets={nbaBets} injuries={injuries.filter((i) => i.team === g.home_team || i.team === g.away_team)} ratings={ratings} projection={projections.games.get(g.id)} />
+              <NbaGameCard key={g.id} game={g} snaps={snaps.get(g.id) ?? []} bets={nbaBets} injuries={injuries.filter((i) => i.team === g.home_team || i.team === g.away_team)} ratings={ratings} projection={projections.games.get(g.id)} keyNames={keyNames(g.id)} />
             ))}
           </div>
         )}

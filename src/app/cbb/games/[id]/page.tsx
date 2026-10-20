@@ -4,6 +4,7 @@ import CbbLogo from "@/components/CbbLogo";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import { adjustRow } from "@/lib/cbbAvailability";
+import { fairOdds } from "@/lib/nbaProj";
 import { getCbbAvailability, getCbbBoardGame, getCbbSnapshots } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,8 @@ const f1 = (v: number | null | undefined) => (typeof v === "number" ? v.toFixed(
 const line = (m: number | null | undefined) => (typeof m === "number" ? `${m > 0 ? "-" : m < 0 ? "+" : ""}${Math.abs(m).toFixed(1)}` : "—");
 const amer = (p: number | null | undefined) => (typeof p === "number" ? (p > 0 ? `+${p}` : `${p}`) : "—");
 const pct = (p: number | null | undefined) => (typeof p === "number" ? `${(p * 100).toFixed(1)}%` : "—");
+/** A probability with its fair American price: "57.3% (-134)". */
+const po = (p: number | null | undefined) => (typeof p === "number" ? `${(p * 100).toFixed(1)}% (${fairOdds(p)})` : "—");
 const sg = (v: number | null | undefined, d = 1) => (typeof v === "number" ? `${v > 0 ? "+" : ""}${v.toFixed(d)}` : "—");
 
 /** A small inline line chart of one series over time with the open and our expected close marked. */
@@ -110,7 +113,7 @@ export default async function CbbGamePage({ params }: { params: Promise<{ id: st
               Total {f1(mTotal)}{outCount > 0 ? "*" : ""} · {away} {f1(((mTotal ?? 0) - (mSpread ?? 0)) / 2)} - {home} {f1(((mTotal ?? 0) + (mSpread ?? 0)) / 2)}
             </div>
             <div className="mt-2 text-xs text-muted">
-              {home} win {pct(mWin)} · fair ML {amer(p.model.fair_ml_home)} / {amer(p.model.fair_ml_away)} (before availability) · pace {f1(p.model.poss)}
+              {home} win {po(mWin)} · fair ML {amer(p.model.fair_ml_home)} / {amer(p.model.fair_ml_away)} (before availability) · pace {f1(p.model.poss)}
             </div>
             {outCount > 0 && (
               <div className="mt-2 text-[11px] text-warn">
@@ -141,7 +144,7 @@ export default async function CbbGamePage({ params }: { params: Promise<{ id: st
               Total <span className="font-semibold">{f1(p.move.exp_close_total)}</span>
               <span className="ml-2 text-muted">{sg(p.move.total)} from the open</span>
             </div>
-            <div className="text-xs text-muted">ML home implied {pct(ml.cur_p_home)} now → {pct(ml.exp_close_p_home)} expected</div>
+            <div className="text-xs text-muted">ML home implied {po(ml.cur_p_home)} now → {po(ml.exp_close_p_home)} expected</div>
           </div>
         </div>
 
@@ -157,7 +160,7 @@ export default async function CbbGamePage({ params }: { params: Promise<{ id: st
               ) : (
                 <div className="text-muted">no edge to the close</div>
               )}
-              <div className="text-xs text-muted">{home} covers today&apos;s number {pct(sp.p_cover_home)} by our own price</div>
+              <div className="text-xs text-muted">{home} covers today&apos;s number {po(sp.p_cover_home)} by our own price</div>
             </div>
             <div>
               <div className="text-muted">Total</div>
@@ -168,7 +171,7 @@ export default async function CbbGamePage({ params }: { params: Promise<{ id: st
               ) : (
                 <div className="text-muted">no edge to the close</div>
               )}
-              <div className="text-xs text-muted">Over {pct(tt.p_over)} by our own price</div>
+              <div className="text-xs text-muted">Over {po(tt.p_over)} by our own price</div>
             </div>
             <div>
               <div className="text-muted">Moneyline</div>
