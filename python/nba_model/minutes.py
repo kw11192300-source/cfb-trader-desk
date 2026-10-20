@@ -30,6 +30,9 @@ FEATURES_OUT = DATA_DIR / "minutes_features.csv.gz"
 MODEL_OUT = DATA_DIR / "minutes_model.pkl"
 
 A_FAST, A_SLOW = 0.35, 0.10
+STATS = ["pts", "reb", "ast", "tpm", "stl", "blk", "tov", "fga", "fta"]  # stats whose per-minute rates and team context feed the projections
+R_FAST, R_SLOW = 0.25, 0.07
+A_TEAM = 0.10
 COLD = 12.0  # minutes assumed for a player with no history yet
 
 
@@ -54,11 +57,14 @@ def build() -> pd.DataFrame:
         w = g.groupby("player_id")["start_utc"].agg(["min", "max"])
         pool_by_season[(int(s), int(t))] = {int(p): (r["min"], r["max"]) for p, r in w.iterrows()}
 
+    allowed: dict[int, dict] = {}  # team -> EWMA of what its opponents produced per game (defence context)
+    pace: dict[int, float] = {}
     rows = []
     for gi in gm.itertuples():
         box = by_event.get(gi.event_id)
         if box is None:
             continue
+        stat_of = {(int(t), int(p)): {k: float(v) for k, v in zip(STATS, vals)} for t, p, vals in zip(box['team_id'], box['player_id'], box[STATS].to_numpy())}
         exp_margin_proxy = strength.get(gi.home_id, 0.0) - strength.get(gi.away_id, 0.0) + 2.5
         spr = -gi.spread_home_close if pd.notna(gi.spread_home_close) else exp_margin_proxy
         for team, opp, is_home in ((gi.home_id, gi.away_id, 1), (gi.away_id, gi.home_id, 0)):
@@ -76,6 +82,7 @@ def build() -> pd.DataFrame:
             vacated = sum(base[p] for p in members if p not in played and base[p] >= 8.0)
             avail_rot = sum(1 for p in played if base.get(p, COLD) >= 8.0)
             n_out_rot = sum(1 for p in members if p not in played and base[p] >= 8.0)
+            vac_stats = {k: sum(pstate[p]["rs"][k] for p in members if p not in played and p in pstate and base[p] >= 8.0) for k in ("pts", "reb", "ast", "tpm", "fga")}
             for p in members:
                 st = pstate.get(p)
                 pm = played.get(p, 0.0)
@@ -88,12 +95,25 @@ def build() -> pd.DataFrame:
                 # rank of this player's baseline among this team's players available TODAY
                 avail_bases = sorted([base[q] for q in played if q != p], reverse=True)
                 rank = 1 + sum(1 for b in avail_bases if b > base[p])
+                rates = {}
+                for k in STATS:
+                    if st is None:
+                        rates[f"rf_{k}"] = rates[f"rs_{k}"] = rates[f"rsea_{k}"] = np.nan
+                    else:
+                        rates[f"rf_{k}"] = st["rf"][k] / max(st["rfm"], 1e-6)
+                        rates[f"rs_{k}"] = st["rs"][k] / max(st["rsm"], 1e-6)
+                        rates[f"rsea_{k}"] = (st["ssum"][k] / max(st["smin"], 1e-6)) if st["season"] == gi.season and st["smin"] > 60 else rates[f"rs_{k}"]
+                opp_a = allowed.get(opp, {})
+                own_pace, opp_pace = pace.get(team), pace.get(opp)
                 rows.append(
                     {
                         "event_id": gi.event_id, "season": gi.season, "start_utc": gi.start_utc, "team_id": team, "player_id": p, "is_home": is_home,
                         "played": 1 if p in played else 0, "min": pm, "started": 1 if p in started else 0,
                         **feats, "vacated": vacated - (base[p] if (p not in played and base[p] >= 8.0) else 0.0), "avail_rot": avail_rot, "n_out_rot": n_out_rot, "rank_today": rank,
                         "rest": rest, "b2b": 1 if rest < 1.5 else 0, "games_4d": len(recent), "exp_margin": exp_margin, "abs_margin": abs(exp_margin),
+                        **rates, **{f"vac_{k}": vac_stats[k] - (pstate[p]["rs"][k] if (p not in played and p in pstate and base[p] >= 8.0) else 0.0) for k in ("pts", "reb", "ast", "tpm", "fga")},
+                        **{f"opp_{k}": opp_a.get(k, np.nan) for k in STATS}, "own_pace": own_pace if own_pace is not None else np.nan, "opp_pace": opp_pace if opp_pace is not None else np.nan,
+                        **(stat_of.get((int(team), int(p))) or {k: np.nan for k in STATS}),
                     }
                 )
         # update states AFTER the game, for everyone who played
@@ -105,7 +125,8 @@ def build() -> pd.DataFrame:
             for p, (m, st) in playing.items():
                 s_ = pstate.get(p)
                 if s_ is None:
-                    s_ = {"fast": m, "slow": m, "recent": [], "start": 0.0, "n": 0, "season": gi.season, "season_sum": 0.0, "season_n": 0, "team_games_since": 0}
+                    s_ = {"fast": m, "slow": m, "recent": [], "start": 0.0, "n": 0, "season": gi.season, "season_sum": 0.0, "season_n": 0, "team_games_since": 0,
+                          "rf": {k: 0.0 for k in STATS}, "rs": {k: 0.0 for k in STATS}, "rfm": 0.0, "rsm": 0.0, "ssum": {k: 0.0 for k in STATS}, "smin": 0.0, "seen": False}
                     pstate[p] = s_
                     s_["fast"] = s_["slow"] = COLD * 0.5 + m * 0.5
                 else:
@@ -113,6 +134,22 @@ def build() -> pd.DataFrame:
                     s_["slow"] = A_SLOW * m + (1 - A_SLOW) * s_["slow"]
                 if s_["season"] != gi.season:
                     s_["season"], s_["season_sum"], s_["season_n"] = gi.season, 0.0, 0
+                    s_["ssum"], s_["smin"] = {k: 0.0 for k in STATS}, 0.0
+                sv = stat_of.get((int(team), int(p)), {})
+                if not s_["seen"]:
+                    s_["rf"] = {k: sv.get(k, 0.0) for k in STATS}
+                    s_["rs"] = {k: sv.get(k, 0.0) for k in STATS}
+                    s_["rfm"] = s_["rsm"] = m
+                    s_["seen"] = True
+                else:
+                    for k in STATS:
+                        s_["rf"][k] = R_FAST * sv.get(k, 0.0) + (1 - R_FAST) * s_["rf"][k]
+                        s_["rs"][k] = R_SLOW * sv.get(k, 0.0) + (1 - R_SLOW) * s_["rs"][k]
+                    s_["rfm"] = R_FAST * m + (1 - R_FAST) * s_["rfm"]
+                    s_["rsm"] = R_SLOW * m + (1 - R_SLOW) * s_["rsm"]
+                for k in STATS:
+                    s_["ssum"][k] += sv.get(k, 0.0)
+                s_["smin"] += m
                 s_["season_sum"] += m
                 s_["season_n"] += 1
                 s_["recent"].append(m)
@@ -129,6 +166,13 @@ def build() -> pd.DataFrame:
             th.append(gi.start_utc)
             if len(th) > 6:
                 del th[0]
+        for team, opp in ((gi.home_id, gi.away_id), (gi.away_id, gi.home_id)):
+            ob = box[box['team_id'] == opp]
+            produced = {k: float(ob[k].sum()) for k in STATS}  # what the OPPONENT produced against this team
+            a = allowed.setdefault(team, dict(produced))
+            for k in STATS:
+                a[k] = A_TEAM * produced[k] + (1 - A_TEAM) * a[k]
+            pace[team] = A_TEAM * float(gi.poss) + (1 - A_TEAM) * pace.get(team, float(gi.poss))
         margin = gi.home_pts - gi.away_pts
         for tm, mg in ((gi.home_id, margin), (gi.away_id, -margin)):
             strength[tm] = 0.9 * strength.get(tm, 0.0) + 0.1 * mg
