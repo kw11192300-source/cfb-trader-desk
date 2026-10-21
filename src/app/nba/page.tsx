@@ -48,7 +48,7 @@ export default async function NbaPage({ searchParams }: { searchParams: Promise<
         <div className="mb-4 max-w-4xl rounded-lg border border-border bg-surface p-4 text-xs leading-relaxed text-muted">
           Log every NBA bet here: spread, moneyline and total on each game, plus player props. Spread, ML and total grade themselves from the final score.{" "}
           <span className="text-foreground">Player props grade themselves too</span> from ESPN&apos;s box score once the game is final - type the player and pick the
-          market ({auto.slice(0, 6).join(", ")}, combos like Pts + Reb + Ast, shooting lines, double-double / triple-double and more); a player who doesn&apos;t play voids
+          market ({auto.slice(0, 6).join(", ")}, combos like Points + Rebounds + Assists (PRA), shooting lines, double-double / triple-double and more); a player who doesn&apos;t play voids
           the bet. Markets the box score can&apos;t settle (first basket, quarter and half lines, team props) stay pending for you to settle on the Bets page.
         </div>
 

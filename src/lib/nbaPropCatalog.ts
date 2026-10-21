@@ -40,7 +40,7 @@ export const PROPS: PropDef[] = [
   { label: "Points + Rebounds", group: "Combo", auto: true, aliases: ["pointsrebounds", "pr", "ptsreb", "ptsrebs", "pointsandrebounds"], calc: (s) => s.pts + s.reb },
   { label: "Points + Assists", group: "Combo", auto: true, aliases: ["pointsassists", "pa", "ptsast", "pointsandassists"], calc: (s) => s.pts + s.ast },
   { label: "Rebounds + Assists", group: "Combo", auto: true, aliases: ["reboundsassists", "ra", "rebast", "reboundsandassists"], calc: (s) => s.reb + s.ast },
-  { label: "Pts + Reb + Ast", group: "Combo", auto: true, aliases: ["ptsrebast", "pra", "pointsreboundsassists", "pointsreboundsandassists"], calc: (s) => s.pts + s.reb + s.ast },
+  { label: "Points + Rebounds + Assists", group: "Combo", auto: true, aliases: ["ptsrebast", "pra", "pointsreboundsassists", "pointsreboundsandassists"], calc: (s) => s.pts + s.reb + s.ast },
   { label: "Steals + Blocks", group: "Combo", auto: true, aliases: ["stealsblocks", "stocks", "stlblk", "sb", "stealsandblocks"], calc: (s) => s.stl + s.blk },
   { label: "Fantasy Score (DraftKings)", group: "Combo", auto: true, aliases: ["fantasyscore", "fantasyscoredk", "fantasyscoredraftkings", "dkfantasy", "fantasypointsdk", "fantasypoints"], calc: (s) => s.pts + 1.25 * s.reb + 1.5 * s.ast + 2 * s.stl + 2 * s.blk - 0.5 * s.tov + 0.5 * s.tpm + (cats(s) >= 2 ? 1.5 : 0) + (cats(s) >= 3 ? 3 : 0) },
   { label: "Fantasy Score (FanDuel)", group: "Combo", auto: true, aliases: ["fantasyscorefd", "fantasyscorefanduel", "fdfantasy", "fantasypointsfd"], calc: (s) => s.pts + 1.2 * s.reb + 1.5 * s.ast + 3 * s.stl + 3 * s.blk - s.tov },
