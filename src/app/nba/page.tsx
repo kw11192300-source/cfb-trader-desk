@@ -1,5 +1,6 @@
 import Link from "next/link";
 import LogParlayForm from "@/components/LogParlayForm";
+import NbaDayBets from "@/components/NbaDayBets";
 import NbaGameCard from "@/components/NbaGameCard";
 import NbaModelButton from "@/components/NbaModelButton";
 import NbaScoresButton from "@/components/NbaScoresButton";
@@ -70,6 +71,8 @@ export default async function NbaPage({ searchParams }: { searchParams: Promise<
             </Link>
           ))}
         </div>
+
+        <NbaDayBets games={games} bets={nbaBets} day={day} />
 
         {games.length === 0 ? (
           <div className="rounded-lg border border-border bg-surface p-8 text-center text-sm text-muted">
