@@ -1,10 +1,10 @@
 import Link from "next/link";
+import LocalDateTime from "./LocalDateTime";
 import type { GradedBet } from "@/lib/data";
 import { nbaShort } from "@/lib/nbaTeams";
 import { etDay } from "@/lib/nhlTeamGames";
 import type { Bet, Game } from "@/lib/types";
 
-const ET = "America/New_York";
 const sp = (n: number) => (n > 0 ? `+${n}` : `${n}`);
 const units = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}u`;
 
@@ -90,7 +90,7 @@ export default function NbaDayBets({ games, bets, day }: { games: Game[]; bets: 
                     ? `Final ${g.away_points ?? "—"}-${g.home_points ?? "—"}`
                     : live
                       ? `LIVE${g.live_status?.detail ? ` · ${g.live_status.detail}` : ""}`
-                      : new Date(g.start_date).toLocaleTimeString("en-US", { timeZone: ET, hour: "numeric", minute: "2-digit" })}
+                      : <LocalDateTime iso={g.start_date} options={{ hour: "numeric", minute: "2-digit" }} />}
                 </span>
               </div>
               <ul>

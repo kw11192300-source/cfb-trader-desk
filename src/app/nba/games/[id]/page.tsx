@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import LocalDateTime from "@/components/LocalDateTime";
 import NbaBetButtons from "@/components/NbaBetButtons";
 import NbaModelBuild from "@/components/NbaModelBuild";
 import NbaModelButton from "@/components/NbaModelButton";
@@ -16,7 +17,6 @@ import { etDay } from "@/lib/nhlTeamGames";
 
 export const dynamic = "force-dynamic";
 
-const ET = "America/New_York";
 const sp = (n: number | null | undefined, d = 1) => (n === null || n === undefined ? "—" : n > 0 ? `+${n.toFixed(d)}` : n.toFixed(d));
 const sp0 = (n: number | null | undefined) => (n === null || n === undefined ? "—" : n > 0 ? `+${n}` : `${n}`);
 const nameKey = (s: string) => s.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z ]/g, "").replace(/\b(jr|sr|ii|iii|iv)\b/g, "").replace(/\s+/g, " ").trim();
@@ -89,7 +89,7 @@ export default async function NbaGamePage({ params }: { params: Promise<{ id: st
   const hp = game.completed ? game.home_points : (live?.home_points ?? null);
   const ap = game.completed ? game.away_points : (live?.away_points ?? null);
   const started = game.completed || live !== null;
-  const when = new Date(game.start_date).toLocaleString("en-US", { timeZone: ET, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const when = <LocalDateTime iso={game.start_date} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />;
 
   const homeLine = cur?.spread_home_line ?? null;
   const total = cur?.total_line ?? null;
@@ -100,7 +100,7 @@ export default async function NbaGamePage({ params }: { params: Promise<{ id: st
   const stale = nm !== null && gap !== null && Math.abs(gap) >= 1 && Math.abs(nm) >= 0.75;
   const leanHome = (gap ?? 0) > 0;
   const contrib = gp?.detail?.contrib;
-  const updated = gp ? new Date(gp.computed_at).toLocaleTimeString("en-US", { timeZone: ET, hour: "numeric", minute: "2-digit" }) : null;
+  const updated = gp ? <LocalDateTime iso={gp.computed_at} options={{ hour: "numeric", minute: "2-digit", timeZoneName: "short" }} /> : null;
   const lastYear: Record<string, { ppg: number; mpg: number }> = {};
   for (const r of rated) {
     const mpg = typeof r.stats.mpg === "number" ? r.stats.mpg : null;
@@ -144,7 +144,7 @@ export default async function NbaGamePage({ params }: { params: Promise<{ id: st
           <div className="rounded-lg border border-border bg-surface px-5 py-4 lg:col-span-3">
             <div className="mb-3 flex items-baseline justify-between">
               <h2 className="text-sm font-semibold text-foreground">Market vs player-up model</h2>
-              {updated && <span className="text-[11px] text-muted">model updated {updated} ET</span>}
+              {updated && <span className="text-[11px] text-muted">model updated {updated}</span>}
             </div>
             {cur ? (
               <div className="overflow-x-auto">
@@ -317,7 +317,7 @@ export default async function NbaGamePage({ params }: { params: Promise<{ id: st
                   {[...snaps].reverse().slice(0, 14).map((s, i, arr) => (
                     <tr key={s.captured_at} className="border-t border-border/50">
                       <td className="py-1 font-sans text-muted">
-                        {new Date(s.captured_at).toLocaleString("en-US", { timeZone: ET, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                        <LocalDateTime iso={s.captured_at} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
                         {i === 0 && <span className="ml-1 text-accent">current</span>}
                         {i === arr.length - 1 && snaps.length <= 14 && <span className="ml-1 text-muted">first seen</span>}
                       </td>

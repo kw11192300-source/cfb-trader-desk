@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import LocalDateTime from "./LocalDateTime";
 import { useMemo, useState } from "react";
 import CbbLogo from "./CbbLogo";
 import { adjustRow } from "@/lib/cbbAvailability";
@@ -15,7 +16,6 @@ const dayLabel = (key: string, todayKey: string) => {
   const d = new Date(`${key}T12:00:00`);
   return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 };
-const timeLabel = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { timeZone: ET, hour: "numeric", minute: "2-digit" });
 
 const f1 = (v: number | null | undefined) => (v === null || v === undefined || Number.isNaN(v) ? "—" : v.toFixed(1));
 /** A home-margin number as the home team's spread line: margin +5.5 -> "-5.5". */
@@ -162,7 +162,7 @@ export default function CbbBoardTable({
                 const spreadLabel = sp.side === "home" ? home : sp.side === "away" ? away : null;
                 return (
                   <tr key={r.game_id} className="border-b border-border/60 hover:bg-surface-raised/50">
-                    <td className="whitespace-nowrap px-3 py-2 text-xs text-muted">{timeLabel(r.start_date)}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-xs text-muted"><LocalDateTime iso={r.start_date} options={{ hour: "numeric", minute: "2-digit" }} /></td>
                     <td className="px-3 py-2">
                       <Link href={`/cbb/games/${r.game_id}`} className="flex items-center gap-1.5 hover:text-accent">
                         <CbbLogo teamId={r.away_team_id} size={18} />

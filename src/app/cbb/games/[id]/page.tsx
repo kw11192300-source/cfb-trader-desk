@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import CbbLogo from "@/components/CbbLogo";
+import LocalDateTime from "@/components/LocalDateTime";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import { adjustRow } from "@/lib/cbbAvailability";
@@ -53,10 +54,10 @@ function Series({ pts, expClose, label, unit }: { pts: { t: number; v: number }[
           <circle key={i} cx={x(p.t)} cy={y(p.v)} r={i === 0 || i === pts.length - 1 ? 3 : 1.6} fill="currentColor" />
         ))}
         <text x={pad} y={h - 8} fontSize="10" fill="var(--muted)">
-          {new Date(t0).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+          <LocalDateTime iso={new Date(t0).toISOString()} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
         </text>
         <text x={w - pad} y={h - 8} textAnchor="end" fontSize="10" fill="var(--muted)">
-          {new Date(t1).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+          <LocalDateTime iso={new Date(t1).toISOString()} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
         </text>
       </svg>
     </div>
@@ -99,7 +100,7 @@ export default async function CbbGamePage({ params }: { params: Promise<{ id: st
           <span className="text-muted">@</span>
           <T id={game.home_team_id} name={home} />
           <span className="ml-auto text-sm text-muted">
-            {new Date(game.start_date).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} ET
+            <LocalDateTime iso={game.start_date} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
           </span>
         </div>
 

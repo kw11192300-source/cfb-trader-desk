@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { getNbaLiveStatus, triggerNbaLive } from "@/lib/actions";
+import LocalDateTime from "./LocalDateTime";
 
 const POLL_MS = 5000;
 const GIVE_UP_MS = 8 * 60 * 1000;
-const ET = "America/New_York";
 
 /** "Update model": reads the newest injury report and lines, then rebuilds projected minutes, stat lines and the model's spread /
  * total / moneyline for the games coming up. Takes a few minutes (GitHub runs the job); the page reloads when it finishes. The same
@@ -36,7 +36,6 @@ export default function NbaModelButton({ updatedAt }: { updatedAt: string | null
   }, [waiting, router]);
 
   const busy = pending || waiting;
-  const stamp = updatedAt ? new Date(updatedAt).toLocaleString("en-US", { timeZone: ET, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : null;
   return (
     <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
       <button
@@ -55,7 +54,13 @@ export default function NbaModelButton({ updatedAt }: { updatedAt: string | null
         {pending ? "Starting…" : waiting ? "Updating model…" : "Update model"}
       </button>
       <span className="text-muted">
-        {message ?? (stamp ? `Model last built ${stamp} ET. It also rebuilds on its own whenever the injury report changes.` : "No projections built yet - press Update model.")}
+        {message ?? (updatedAt ? (
+          <>
+            Model last built <LocalDateTime iso={updatedAt} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }} />. It also rebuilds on its own whenever the injury report changes.
+          </>
+        ) : (
+          "No projections built yet - press Update model."
+        ))}
       </span>
     </div>
   );

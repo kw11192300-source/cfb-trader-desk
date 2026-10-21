@@ -1,4 +1,5 @@
 import CbbBoardTable from "@/components/CbbBoardTable";
+import LocalDateTime from "@/components/LocalDateTime";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import { getCbbAvailability, getCbbBoard } from "@/lib/data";
@@ -27,7 +28,11 @@ export default async function CbbBoardPage() {
           {rows.length > 0 && (
             <p className="mt-2">
               {rows.length} games scored · <span className="text-foreground">{flagged}</span> with 1+ points of expected CLV on a spread or total
-              {updated && <> · updated {new Date(updated).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} ET</>}
+              {updated && (
+                <>
+                  {" "}· updated <LocalDateTime iso={updated} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }} />
+                </>
+              )}
             </p>
           )}
         </div>

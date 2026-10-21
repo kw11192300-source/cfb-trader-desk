@@ -1,12 +1,13 @@
 import Image from "next/image";
+import type { ReactNode } from "react";
 import Link from "next/link";
+import LocalDateTime from "./LocalDateTime";
 import NbaBetButtons from "./NbaBetButtons";
 import type { GradedBet, NbaGameProjection, NbaInjury, NbaSnapshot } from "@/lib/data";
 import { devig, fairOdds } from "@/lib/nbaProj";
 import { nbaLogo, nbaShort } from "@/lib/nbaTeams";
 import type { Bet, Game } from "@/lib/types";
 
-const ET = "America/New_York";
 const sp = (n: number | null | undefined) => (n === null || n === undefined ? "—" : n > 0 ? `+${n}` : `${n}`);
 const px = (n: number | null | undefined) => (n === null || n === undefined ? "" : ` (${n > 0 ? "+" : ""}${n})`);
 const ml = (n: number | null | undefined) => (n === null || n === undefined ? "—" : n > 0 ? `+${n}` : `${n}`);
@@ -72,11 +73,11 @@ export default function NbaGameCard({ game, snaps, bets, injuries = [], ratings 
   const started = game.completed || live !== null;
   const hp = game.completed ? game.home_points : (live?.home_points ?? null);
   const ap = game.completed ? game.away_points : (live?.away_points ?? null);
-  const status = game.completed
+  const status: ReactNode = game.completed
     ? "Final"
     : live
       ? `LIVE${live.detail ? ` · ${live.detail}` : ""}`
-      : new Date(game.start_date).toLocaleTimeString("en-US", { timeZone: ET, hour: "numeric", minute: "2-digit" });
+      : <LocalDateTime iso={game.start_date} options={{ hour: "numeric", minute: "2-digit" }} />;
 
   const homeLine = cur?.spread_home_line ?? null; // the home team's own number (negative = favoured)
   const total = cur?.total_line ?? null;
