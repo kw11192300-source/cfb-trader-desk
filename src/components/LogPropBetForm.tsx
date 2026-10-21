@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { logBet } from "@/lib/actions";
 import { PROPS } from "@/lib/nbaPropCatalog";
+import { COMMON_BOOKS } from "@/lib/books";
 
 // Suggestions only, not a fixed list - real prop markets are too varied
 // to enumerate (same reasoning as sportsbook/prop_type being free text
@@ -34,20 +35,6 @@ const HOCKEY_PROP_TYPES = [
   "Goals Against",
 ];
 const PROP_TYPES_BY_SPORT: Record<string, string[]> = { nhl: HOCKEY_PROP_TYPES, nba: PROPS.map((p) => p.label) };
-const COMMON_BOOKS = [
-  "DraftKings",
-  "FanDuel",
-  "BetMGM",
-  "Caesars",
-  "ESPN Bet",
-  "Fanatics",
-  "Pinnacle",
-  "Circa",
-  "Bet365",
-  "Boomers",
-  "STN",
-  "William Hill",
-];
 
 /** Player props have no auto-grading path (no player-stats feed exists -
  * see schema.sql's manual_result docstring), so every one of these sits

@@ -2,21 +2,8 @@
 
 import { useState } from "react";
 import { logBet } from "@/lib/actions";
+import { COMMON_BOOKS } from "@/lib/books";
 
-const COMMON_BOOKS = [
-  "DraftKings",
-  "FanDuel",
-  "BetMGM",
-  "Caesars",
-  "ESPN Bet",
-  "Fanatics",
-  "Pinnacle",
-  "Circa",
-  "Bet365",
-  "Boomers",
-  "STN",
-  "William Hill",
-];
 
 /** A parlay spans multiple games/markets at once, so it doesn't fit the
  * per-game LogBetForm/LogPropBetForm pattern at all - this is a top-
