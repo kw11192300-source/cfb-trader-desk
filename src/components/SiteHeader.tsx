@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-type Sport = "cfb" | "nfl" | "nhl" | "cbb" | "nba";
+type Sport = "cfb" | "nfl" | "nhl" | "cbb" | "nba" | "desk";
 
 // Each sport's nav is scoped to what it actually has - NFL/NHL have no
 // model/odds pipeline yet (see /nfl/page.tsx, /nhl/page.tsx), so they get
@@ -41,6 +41,13 @@ const NAV_ITEMS: Record<Sport, { href: string; label: string; prefetch?: boolean
     { href: "/nba/players", label: "Players" },
     { href: "/nba/bets", label: "Bets" },
   ],
+  desk: [
+    { href: "/today", label: "Today" },
+    { href: "/bets", label: "CFB bets" },
+    { href: "/nfl/bets", label: "NFL bets" },
+    { href: "/nhl/bets", label: "NHL bets" },
+    { href: "/nba/bets", label: "NBA bets" },
+  ],
   cbb: [
     { href: "/cbb", label: "Board" },
     { href: "/cbb/movers", label: "Movers" },
@@ -50,9 +57,9 @@ const NAV_ITEMS: Record<Sport, { href: string; label: string; prefetch?: boolean
   ],
 };
 
-const SPORT_LABEL: Record<Sport, string> = { cfb: "CFB", nfl: "NFL", nhl: "NHL", cbb: "CBB", nba: "NBA" };
-const SPORT_HOME: Record<Sport, string> = { cfb: "/", nfl: "/nfl", nhl: "/nhl", cbb: "/cbb", nba: "/nba" };
-const ALL_SPORTS: Sport[] = ["cfb", "nfl", "nhl", "cbb", "nba"];
+const SPORT_LABEL: Record<Sport, string> = { cfb: "CFB", nfl: "NFL", nhl: "NHL", cbb: "CBB", nba: "NBA", desk: "ALL" };
+const SPORT_HOME: Record<Sport, string> = { cfb: "/", nfl: "/nfl", nhl: "/nhl", cbb: "/cbb", nba: "/nba", desk: "/today" };
+const ALL_SPORTS: Sport[] = ["desk", "cfb", "nfl", "nhl", "cbb", "nba"]; // "ALL" = the cross-sport page
 
 export default function SiteHeader({ subtitle, sport = "cfb" }: { subtitle: string; sport?: Sport }) {
   const items = NAV_ITEMS[sport];
@@ -63,7 +70,8 @@ export default function SiteHeader({ subtitle, sport = "cfb" }: { subtitle: stri
         <div>
           <Link href={SPORT_HOME[sport]} prefetch={false}>
             <h1 className="text-lg font-semibold tracking-tight text-foreground">
-              {SPORT_LABEL[sport]} <span className="text-accent">Trader Desk</span>
+              {sport === "desk" ? null : <>{SPORT_LABEL[sport]} </>}
+              <span className="text-accent">Trader Desk</span>
             </h1>
           </Link>
           <p className="text-xs text-muted">{subtitle}</p>
