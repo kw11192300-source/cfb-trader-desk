@@ -29,6 +29,9 @@ export type DeskBet = {
   homePts: number | null;
 };
 
+/** The slim row the history table needs for every bet ever logged: when it belongs (game start, or the day a parlay was placed). */
+export type HistBet = { t: string; sport: string; stake: number; status: "pending" | "win" | "loss" | "push"; profit: number | null };
+
 const SPORT_LABEL: Record<string, string> = { cfb: "CFB", nfl: "NFL", nhl: "NHL", cbb: "CBB", nba: "NBA" };
 const SPORT_TONE: Record<string, string> = { cfb: "text-orange-300", nfl: "text-sky-300", nhl: "text-cyan-300", cbb: "text-amber-300", nba: "text-rose-300" };
 const SPORTS = ["cfb", "nfl", "nhl", "cbb", "nba"];
@@ -87,7 +90,7 @@ function Row({ b }: { b: DeskBet }) {
 
 /** Every bet you have on one day across all sports, ordered by game time, with sport filters and a risked / pending / settled summary.
  * "Day" is the viewer's own calendar day. Parlays span games, so they sit at the bottom under the day they were placed. */
-export default function AllSportsBets({ bets }: { bets: DeskBet[] }) {
+export default function AllSportsBets({ bets, history = [] }: { bets: DeskBet[]; history?: HistBet[] }) {
   const mounted = useMounted();
   const today = mounted ? new Date().toLocaleDateString("en-CA") : "";
   const [offset, setOffset] = useState(0);
@@ -111,6 +114,29 @@ export default function AllSportsBets({ bets }: { bets: DeskBet[] }) {
     const all = [...list.flatMap(([, g]) => g.bets), ...parlays];
     return { list, parlays, all };
   }, [bets, day, mounted, only]);
+
+  const hist = useMemo(() => {
+    if (!mounted) return null;
+    const byDay = new Map<string, { n: number; pending: number; risked: number; net: number; settled: number }>();
+    for (const h of history) {
+      if (only !== "all" && h.sport !== only) continue;
+      const k = dayKey(h.t);
+      const d = byDay.get(k) ?? { n: 0, pending: 0, risked: 0, net: 0, settled: 0 };
+      d.n += 1;
+      if (h.status === "pending") d.pending += 1;
+      else {
+        d.settled += 1;
+        d.risked += h.stake;
+        d.net += h.profit ?? 0;
+      }
+      byDay.set(k, d);
+    }
+    const asc = [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    let cum = 0;
+    const rows = asc.map(([k, d]) => ({ day: k, ...d, cum: (cum += d.net) }));
+    const total = rows.reduce((t, r) => ({ n: t.n + r.n, pending: t.pending + r.pending, risked: t.risked + r.risked, net: t.net + r.net, settled: t.settled + r.settled }), { n: 0, pending: 0, risked: 0, net: 0, settled: 0 });
+    return { rows: rows.reverse(), total };
+  }, [history, mounted, only]);
 
   if (!mounted || !view) return <div className="rounded-lg border border-border bg-surface p-6 text-sm text-muted">Loading your bets…</div>;
 
@@ -220,6 +246,49 @@ export default function AllSportsBets({ bets }: { bets: DeskBet[] }) {
               </ul>
             </div>
           )}
+        </div>
+      )}
+
+      {hist && hist.rows.length > 0 && (
+        <div className="rounded-lg border border-border bg-surface">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-4 py-2.5">
+            <h2 className="text-sm font-semibold text-foreground">Every day{only === "all" ? "" : ` · ${SPORT_LABEL[only]}`}</h2>
+            <span className="font-mono text-[11px] text-muted">
+              {hist.total.settled} settled · {hist.total.risked.toFixed(2)}u risked ·{" "}
+              <span className={tone(hist.total.net)}>{units(hist.total.net)}</span> ·{" "}
+              <span className={tone(hist.total.net)}>{hist.total.risked > 0 ? `${hist.total.net >= 0 ? "+" : ""}${((hist.total.net / hist.total.risked) * 100).toFixed(1)}% ROI` : "—"}</span>
+            </span>
+          </div>
+          <div className="max-h-[28rem] overflow-auto">
+            <table className="w-full min-w-[520px] text-xs">
+              <thead className="sticky top-0 bg-surface text-[10px] uppercase tracking-wide text-muted">
+                <tr>
+                  <th className="px-4 py-1.5 text-left font-medium">Day</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Bets</th>
+                  <th className="px-2 py-1.5 text-right font-medium" title="Stake on bets that have settled">Risked</th>
+                  <th className="px-2 py-1.5 text-right font-medium" title="Net units won or lost on settled bets">Return</th>
+                  <th className="px-2 py-1.5 text-right font-medium" title="Return divided by risked">ROI</th>
+                  <th className="px-4 py-1.5 text-right font-medium" title="Running total of Return, oldest day to this one">Cumulative</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono">
+                {hist.rows.map((r) => (
+                  <tr key={r.day} className="border-t border-border/50">
+                    <td className="px-4 py-1.5 font-sans text-foreground">
+                      {dayLabel(r.day, today)}
+                      {r.day.slice(0, 4) !== today.slice(0, 4) && <span className="ml-1.5 text-[10px] text-muted">{r.day.slice(0, 4)}</span>}
+                      {r.pending > 0 && <span className="ml-2 text-[10px] text-accent">{r.pending} pending</span>}
+                    </td>
+                    <td className="px-2 py-1.5 text-right text-muted">{r.n}</td>
+                    <td className="px-2 py-1.5 text-right text-foreground">{r.risked > 0 ? `${r.risked.toFixed(2)}u` : "—"}</td>
+                    <td className={`px-2 py-1.5 text-right ${r.settled ? tone(r.net) : "text-muted"}`}>{r.settled ? units(r.net) : "—"}</td>
+                    <td className={`px-2 py-1.5 text-right ${r.settled ? tone(r.net) : "text-muted"}`}>{r.risked > 0 ? `${r.net >= 0 ? "+" : ""}${((r.net / r.risked) * 100).toFixed(1)}%` : "—"}</td>
+                    <td className={`px-4 py-1.5 text-right ${tone(r.cum)}`}>{units(r.cum)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
