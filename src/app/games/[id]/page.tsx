@@ -24,7 +24,7 @@ export default async function GamePage({ params }: PageProps<"/games/[id]">) {
   const gameId = Number(id);
   if (!Number.isFinite(gameId)) notFound();
 
-  const [detail, history, allBets] = await Promise.all([getGame(gameId), getLineHistory(gameId), getBets()]);
+  const [detail, history, allBets] = await Promise.all([getGame(gameId), getLineHistory(gameId), getBets({ gameId, withLines: false })]);
   if (!detail) notFound();
 
   const { game, lines, oddsApiLines, homeTeam, awayTeam, prediction, predictionMarkets } = detail;

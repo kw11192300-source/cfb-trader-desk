@@ -122,9 +122,12 @@ def run() -> None:
         print("No post-week-1 games yet (still in week 1 everywhere).")
         return
 
-    from cfbd_ingest.supabase_client import fetch_all
-
-    meta = pd.DataFrame(fetch_all("games", "id,home_team,away_team,start_date")).set_index("id")
+    # only the games being scored - reading the whole games table (19k rows) every hour was a lot to pull for a few dozen games
+    ids = [int(x) for x in live["game_id"].unique()]
+    meta_rows: list[dict] = []
+    for i in range(0, len(ids), 150):
+        meta_rows.extend(client.table("games").select("id,home_team,away_team,start_date").in_("id", ids[i : i + 150]).execute().data)
+    meta = pd.DataFrame(meta_rows).set_index("id")
     live = live.merge(meta, left_on="game_id", right_index=True)
     live["start_date"] = pd.to_datetime(live["start_date"], utc=True)
     horizon = now + datetime.timedelta(days=WATCH_WINDOW_DAYS)

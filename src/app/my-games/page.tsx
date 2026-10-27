@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 const RECENT_MS = 24 * 60 * 60 * 1000;
 
 export default async function MyGamesPage() {
-  const allBets = await getBets();
+  const allBets = await getBets({ sport: "cfb", sinceDays: 30, withLines: false });
   const now = Date.now();
 
   const byGame = new Map<number, { game: Game; bets: GradedBet[] }>();

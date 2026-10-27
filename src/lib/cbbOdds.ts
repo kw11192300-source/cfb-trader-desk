@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "./supabase-admin";
+import { latestSnapshots } from "./latestSnapshots";
 
 // Server-only. College basketball: keeps the `games` table current (schedule, live status, finals) straight from ESPN's
 // scoreboard and logs every change in the posted lines (spread, total, moneyline) to cbb_odds_snapshots - the timestamped
@@ -232,12 +233,7 @@ export async function updateCbbOdds(): Promise<CbbUpdateResult> {
   }
 
   const last = new Map<number, CbbMarket>();
-  const { data: snaps, error: snapErr } = await supabaseAdmin
-    .from("cbb_odds_snapshots")
-    .select("game_id, captured_at, provider, ml_home, ml_away, spread_home_line, spread_home_odds, spread_away_odds, total_line, over_odds, under_odds")
-    .in("game_id", [...incoming.keys()])
-    .order("captured_at", { ascending: false })
-    .limit(5000);
+  const { rows: lastRows, error: snapErr } = await latestSnapshots("cbb_odds_snapshots", [...incoming.keys()]);
   if (snapErr) {
     const missing = snapErr.code === "PGRST205" || snapErr.code === "42P01" || /does not exist|schema cache/i.test(snapErr.message);
     return {
@@ -251,7 +247,7 @@ export async function updateCbbOdds(): Promise<CbbUpdateResult> {
       final,
     };
   }
-  for (const s of snaps ?? []) if (!last.has(s.game_id as number)) last.set(s.game_id as number, s as unknown as CbbMarket);
+  for (const [gid, s] of lastRows) last.set(gid, s as unknown as CbbMarket);
 
   const rows: Record<string, unknown>[] = [];
   let moved = 0;

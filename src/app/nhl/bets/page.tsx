@@ -10,7 +10,7 @@ import { nhlBetClv, type Clv } from "@/lib/nhlBetClv";
 export const dynamic = "force-dynamic";
 
 export default async function NhlBetsPage() {
-  const allBets = await getBets();
+  const allBets = await getBets({ sport: "nhl" });
   const nhlBets = allBets.filter((b) => b.bet.sport === "nhl");
   const graded = nhlBets.filter((b) => b.status !== "pending");
 

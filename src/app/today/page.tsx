@@ -9,7 +9,7 @@ const WINDOW_MS = 10 * 86_400_000;
 
 /** One page for the whole desk: every bet you have on a day across CFB, NFL, NHL, CBB and NBA, in game-time order. */
 export default async function TodayPage() {
-  const all = await getBets();
+  const all = await getBets({ withLines: false });
   const now = Date.now();
   const bets: DeskBet[] = [];
   // every bet ever logged, reduced to what the by-day history table needs

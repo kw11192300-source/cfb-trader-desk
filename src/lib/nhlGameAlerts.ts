@@ -54,7 +54,7 @@ export async function sendGameAlerts(opts: { dry?: boolean } = {}): Promise<{ pr
     .lte("start_date", to);
   if (!games || games.length === 0) return { pregame: 0, final: 0, messages };
 
-  const allBets = (await getBets().catch(() => [])).filter((b) => b.bet.sport === "nhl" && b.bet.game_id !== null);
+  const allBets = (await getBets({ sport: "nhl", withLines: false }).catch(() => [])).filter((b) => b.bet.sport === "nhl" && b.bet.game_id !== null);
   const betsByGame = new Map<number, GradedBet[]>();
   for (const b of allBets) betsByGame.set(b.bet.game_id as number, [...(betsByGame.get(b.bet.game_id as number) ?? []), b]);
 

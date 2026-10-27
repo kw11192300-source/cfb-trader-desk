@@ -83,14 +83,21 @@ def send_kickoff_reminders(client) -> int:
     lo = now + datetime.timedelta(minutes=KICKOFF_WINDOW_MINUTES[0])
     hi = now + datetime.timedelta(minutes=KICKOFF_WINDOW_MINUTES[1])
 
-    bets = client.table("bets").select("id,game_id,side,line,market,stake,sportsbook,player,prop_type,kickoff_reminder_sent_at").execute().data
-    pending_reminder = [b for b in bets if b["kickoff_reminder_sent_at"] is None]
+    # Start from the few games kicking off inside the reminder window (this runs every 5 minutes, so reading every bet ever logged each
+    # time adds up), then fetch only the bets on those games that have not been reminded yet.
+    games = (
+        client.table("games").select("id,home_team,away_team,start_date,completed")
+        .gte("start_date", lo.isoformat()).lte("start_date", hi.isoformat()).execute().data
+    )
+    if not games:
+        return 0
+    game_by_id = {g["id"]: g for g in games}
+    pending_reminder = (
+        client.table("bets").select("id,game_id,side,line,market,stake,sportsbook,player,prop_type,kickoff_reminder_sent_at")
+        .in_("game_id", list(game_by_id)).is_("kickoff_reminder_sent_at", "null").execute().data
+    )
     if not pending_reminder:
         return 0
-
-    game_ids = list({b["game_id"] for b in pending_reminder})
-    games = client.table("games").select("id,home_team,away_team,start_date,completed").in_("id", game_ids).execute().data
-    game_by_id = {g["id"]: g for g in games}
 
     sent = 0
     for bet in pending_reminder:
@@ -115,16 +122,26 @@ def send_kickoff_reminders(client) -> int:
 
 
 def send_result_alerts(client) -> int:
-    bets = client.table("bets").select(
-        "id,game_id,side,line,market,odds,stake,sportsbook,player,prop_type,result_alert_sent_at,manual_result"
-    ).execute().data
-    pending_result = [b for b in bets if b["result_alert_sent_at"] is None]
+    # Only bets that could have a result to announce: those on games that finished in the last few days, plus anything graded by hand.
+    # (Reading every unannounced bet ever logged each 5 minutes pulled the same stale rows again and again.)
+    since = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=4)).isoformat()
+    cols = "id,game_id,side,line,market,odds,stake,sportsbook,player,prop_type,result_alert_sent_at,manual_result"
+    done = client.table("games").select("id,home_team,away_team,completed,home_points,away_points").eq("completed", True).gte("start_date", since).execute().data
+    games = {g["id"]: g for g in done}
+    pending_result = []
+    if games:
+        pending_result += client.table("bets").select(cols).in_("game_id", list(games)).is_("result_alert_sent_at", "null").execute().data
+    manual = client.table("bets").select(cols).is_("result_alert_sent_at", "null").not_.is_("manual_result", "null").gte("placed_at", since).execute().data
+    have = {b["id"] for b in pending_result}
+    pending_result += [b for b in manual if b["id"] not in have]
     if not pending_result:
         return 0
 
-    game_ids = list({b["game_id"] for b in pending_result})
-    games = client.table("games").select("id,home_team,away_team,completed,home_points,away_points").in_("id", game_ids).execute().data
-    game_by_id = {g["id"]: g for g in games}
+    missing = list({b["game_id"] for b in pending_result if b["game_id"] is not None and b["game_id"] not in games})
+    if missing:
+        for g in client.table("games").select("id,home_team,away_team,completed,home_points,away_points").in_("id", missing).execute().data:
+            games[g["id"]] = g
+    game_by_id = games
 
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     emoji = {"win": "✅", "loss": "❌", "push": "➡️"}

@@ -6,7 +6,7 @@ import { getBets } from "@/lib/data";
 export const dynamic = "force-dynamic";
 
 export default async function RiskPage() {
-  const bets = (await getBets()).filter((b) => b.bet.sport === "cfb");
+  const bets = (await getBets({ sport: "cfb", withLines: false })).filter((b) => b.bet.sport === "cfb");
 
   return (
     <div className="flex min-h-screen flex-col">

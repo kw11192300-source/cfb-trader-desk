@@ -476,23 +476,35 @@ function gradeBet(bet: Bet, game: Game | null): { status: BetStatus; profit: num
   return { status: "push", profit: 0 };
 }
 
-/** Every bet ever logged, newest first, graded live against each game's
- * current state. */
-export async function getBets(): Promise<GradedBet[]> {
+/** Bets, newest first, graded live against each game's current state.
+ *
+ * Every page view reads from Supabase and the database bills for what leaves it, so ask for no more than the page shows:
+ *   sport      - only that sport's bets
+ *   gameId     - only bets on that game
+ *   sinceDays  - only bets placed in the last N days (boards that look at a few days around today)
+ *   withLines  - fetch every book's posted lines for the bet games, used ONLY for closing-line value on the Bets ledgers. Default true
+ *                (the ledgers rely on it); everything else passes false, which skips the two biggest queries here.
+ */
+export async function getBets(opts: { sport?: string; gameId?: number; sinceDays?: number; withLines?: boolean } = {}): Promise<GradedBet[]> {
   // Secret-key client, deliberately - `bets` holds real stakes/P&L, the
   // one genuinely sensitive table in this app, and its RLS no longer
   // allows public reads (see schema.sql). Every other query in this file
   // stays on the public client; games/predictions/etc. are just public
   // sports data with no privacy reason to lock down.
-  const { data: bets, error } = await supabaseAdmin.from("bets").select("*").order("placed_at", { ascending: false });
+  let q = supabaseAdmin.from("bets").select("*").order("placed_at", { ascending: false });
+  if (opts.sport) q = q.eq("sport", opts.sport);
+  if (opts.gameId !== undefined) q = q.eq("game_id", opts.gameId);
+  if (opts.sinceDays !== undefined) q = q.gte("placed_at", new Date(Date.now() - opts.sinceDays * 86_400_000).toISOString());
+  const { data: bets, error } = await q;
   if (error) throw new Error(error.message);
   if (!bets || bets.length === 0) return [];
+  const withLines = opts.withLines !== false;
 
   const gameIds = Array.from(new Set(bets.map((b) => b.game_id).filter((id): id is number => id !== null)));
   const [{ data: games, error: gamesError }, { data: lines, error: linesError }, { data: oddsApiLines, error: oddsApiError }] = await Promise.all([
     supabase.from("games").select("*").in("id", gameIds),
-    supabase.from("betting_lines").select("*").in("game_id", gameIds),
-    supabase.from("odds_api_lines").select("*").in("game_id", gameIds),
+    withLines ? supabase.from("betting_lines").select("*").in("game_id", gameIds) : Promise.resolve({ data: [], error: null }),
+    withLines ? supabase.from("odds_api_lines").select("*").in("game_id", gameIds) : Promise.resolve({ data: [], error: null }),
   ]);
   if (gamesError) throw new Error(gamesError.message);
   if (linesError) throw new Error(linesError.message);
@@ -833,13 +845,17 @@ export async function getCbbRatingKinds(): Promise<{ season: number; kind: strin
 }
 
 /** Every NBA player with a rating for a season (nba_player_ratings), best net rating first. */
-export async function getNbaPlayers(season: number): Promise<NbaPlayerRating[]> {
-  const { data, error } = await supabase.from("nba_player_ratings").select("*").eq("season", season).eq("kind", "current").order("net", { ascending: false, nullsFirst: false }).limit(1000);
+/** NBA player ratings. `light` returns just name and net (the board's injury chips); `teams` limits to those rosters (a game page). Both
+ * exist because every view is billed by what leaves the database - the full table is ~450 rows of box-score detail. */
+export async function getNbaPlayers(season: number, opts: { light?: boolean; teams?: string[] } = {}): Promise<NbaPlayerRating[]> {
+  let q = supabase.from("nba_player_ratings").select(opts.light ? "name, net" : "*").eq("season", season).eq("kind", "current");
+  if (opts.teams && opts.teams.length > 0) q = q.in("team", opts.teams);
+  const { data, error } = await q.order("net", { ascending: false, nullsFirst: false }).limit(1000);
   if (error) {
     if (isMissingTable(error)) return [];
     throw new Error(error.message);
   }
-  return (data ?? []) as NbaPlayerRating[];
+  return (data ?? []) as unknown as NbaPlayerRating[];
 }
 
 export type NbaInjury = {
@@ -969,19 +985,21 @@ export type NbaPlayerProjection = {
 };
 
 /** The live projections (nba_game_projections / nba_player_projections) for the given games; empty until the first live run. */
-export async function getNbaProjections(gameIds: number[]): Promise<{ games: Map<number, NbaGameProjection>; players: Map<number, NbaPlayerProjection[]> }> {
+export async function getNbaProjections(gameIds: number[], opts: { light?: boolean } = {}): Promise<{ games: Map<number, NbaGameProjection>; players: Map<number, NbaPlayerProjection[]> }> {
   const games = new Map<number, NbaGameProjection>();
   const players = new Map<number, NbaPlayerProjection[]>();
   if (gameIds.length === 0) return { games, players };
   const [g, p] = await Promise.all([
     supabase.from("nba_game_projections").select("*").in("game_id", gameIds).limit(200),
-    supabase.from("nba_player_projections").select("*").in("game_id", gameIds).order("exp_min", { ascending: false }).limit(5000),
+    // light (the board): just the name and usual minutes, enough to pick the key players for the injury line. The stat distributions are
+    // several KB per player, so only a game page (which shows them) asks for the full rows.
+    supabase.from("nba_player_projections").select(opts.light ? "game_id, name, base_min" : "*").in("game_id", gameIds).order("exp_min", { ascending: false }).limit(5000),
   ]);
   for (const r of [g, p]) {
     if (r.error && !isMissingTable(r.error)) throw new Error(r.error.message);
   }
   for (const r of (g.data ?? []) as NbaGameProjection[]) games.set(r.game_id, r);
-  for (const r of (p.data ?? []) as NbaPlayerProjection[]) {
+  for (const r of (p.data ?? []) as unknown as NbaPlayerProjection[]) {
     const list = players.get(r.game_id) ?? [];
     list.push(r);
     players.set(r.game_id, list);

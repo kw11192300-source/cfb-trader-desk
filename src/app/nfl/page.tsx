@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export default async function NflPage({ searchParams }: { searchParams: Promise<{ week?: string }> }) {
   const params = await searchParams;
-  const [current, allBets] = await Promise.all([getCurrentWeek("nfl"), getBets()]);
+  const [current, allBets] = await Promise.all([getCurrentWeek("nfl"), getBets({ sport: "nfl", sinceDays: 21, withLines: false })]);
 
   const requestedWeek = params.week ? Number(params.week) : NaN;
   const board =

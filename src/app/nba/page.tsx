@@ -25,9 +25,9 @@ export default async function NbaPage({ searchParams }: { searchParams: Promise<
   // an Eastern-time day spans 04:00-05:00 UTC to the same time next day; fetch a little wide and filter on the Eastern date
   const from = new Date(new Date(`${day}T00:00:00Z`).getTime() - 2 * 3_600_000).toISOString();
   const to = new Date(new Date(`${day}T00:00:00Z`).getTime() + 31 * 3_600_000).toISOString();
-  const [rawGames, allBets] = await Promise.all([getNbaGames(from, to), getBets()]);
+  const [rawGames, allBets] = await Promise.all([getNbaGames(from, to), getBets({ sport: "nba", sinceDays: 21, withLines: false })]);
   const games = rawGames.filter((g) => etDay(g.start_date) === day);
-  const [snaps, injuries, players, projections] = await Promise.all([getNbaSnapshots(games.map((g) => g.id)), getNbaInjuries(day), getNbaPlayers(2026), getNbaProjections(games.map((g) => g.id))]);
+  const [snaps, injuries, players, projections] = await Promise.all([getNbaSnapshots(games.map((g) => g.id)), getNbaInjuries(day), getNbaPlayers(2026, { light: true }), getNbaProjections(games.map((g) => g.id), { light: true })]);
   const nameKey = (s: string) => s.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z ]/g, "").replace(/\b(jr|sr|ii|iii|iv)\b/g, "").replace(/\s+/g, " ").trim();
   const ratings: Record<string, number> = {};
   for (const p of players) if (p.net !== null) ratings[nameKey(p.name)] = p.net;

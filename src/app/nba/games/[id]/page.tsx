@@ -72,7 +72,7 @@ export default async function NbaGamePage({ params }: { params: Promise<{ id: st
   const game = await getNbaGame(gameId);
   if (!game) notFound();
   const day = etDay(game.start_date);
-  const [snapMap, injuries, rated, proj, allBets] = await Promise.all([getNbaSnapshots([game.id]), getNbaInjuries(day), getNbaPlayers(2026), getNbaProjections([game.id]), getBets()]);
+  const [snapMap, injuries, rated, proj, allBets] = await Promise.all([getNbaSnapshots([game.id]), getNbaInjuries(day), getNbaPlayers(2026, { teams: [game.home_team, game.away_team] }), getNbaProjections([game.id]), getBets({ sport: "nba", gameId: game.id, withLines: false })]);
   const snaps = snapMap.get(game.id) ?? [];
   const cur = snaps.length ? snaps[snaps.length - 1] : null;
   const first = snaps.length ? snaps[0] : null;

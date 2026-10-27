@@ -3,6 +3,7 @@ import { type CbbMarket, type EspnOdds, parseMarket, PRICE_FIELDS, samePrices } 
 import { NBA_GAME_ID_OFFSET } from "./nbaTeams";
 import { gradeNbaProps, type GradeResult } from "./nbaProps";
 import { updateNbaInjuries } from "./nbaInjuries";
+import { latestSnapshots } from "./latestSnapshots";
 import { maybeRunNbaLive } from "./nbaLive";
 
 // Server-only. NBA: keeps the `games` table current (schedule, live status, finals) straight from ESPN's scoreboard and logs every
@@ -134,18 +135,13 @@ export async function updateNba(opts: { grade?: boolean } = {}): Promise<NbaUpda
   let oddsNote = "";
   if (incoming.size > 0) {
     const last = new Map<number, CbbMarket>();
-    const { data: snaps, error: snapErr } = await supabaseAdmin
-      .from("nba_odds_snapshots")
-      .select("game_id, captured_at, provider, ml_home, ml_away, spread_home_line, spread_home_odds, spread_away_odds, total_line, over_odds, under_odds")
-      .in("game_id", [...incoming.keys()])
-      .order("captured_at", { ascending: false })
-      .limit(5000);
+    const { rows: lastRows, error: snapErr } = await latestSnapshots("nba_odds_snapshots", [...incoming.keys()]);
     if (snapErr) {
       const missing = snapErr.code === "PGRST205" || snapErr.code === "42P01" || /does not exist|schema cache/i.test(snapErr.message);
       if (!missing) return fail(snapErr.message);
       oddsNote = " Lines not logged yet - run the nba_odds_snapshots block in supabase/schema.sql.";
     } else {
-      for (const s of snaps ?? []) if (!last.has(s.game_id as number)) last.set(s.game_id as number, s as unknown as CbbMarket);
+      for (const [gid, s] of lastRows) last.set(gid, s as unknown as CbbMarket);
       const rows: Record<string, unknown>[] = [];
       for (const [gid, m] of incoming) {
         const prev = last.get(gid) ?? null;

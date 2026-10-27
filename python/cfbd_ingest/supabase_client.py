@@ -1,8 +1,45 @@
+try:
+    from postgrest.types import ReturnMethod
+except ImportError:  # older postgrest keeps it in constants
+    from postgrest.constants import ReturnMethod
 from supabase import Client, create_client
 
 from .config import SUPABASE_SECRET_KEY, SUPABASE_URL
 
 _client: Client | None = None
+
+
+class _QuietTable:
+    """A table handle whose upsert / insert ask the database NOT to send the written rows back (Prefer: return=minimal).
+
+    By default PostgREST echoes every row you write, which for the big tables (projections with stat distributions, ratings, boards)
+    meant the same megabytes were uploaded and then downloaded again on every run - and the database bills for what leaves it. No caller
+    reads the echoed rows."""
+
+    def __init__(self, table):
+        self._t = table
+
+    def upsert(self, *args, **kwargs):
+        kwargs.setdefault("returning", ReturnMethod.minimal)
+        return self._t.upsert(*args, **kwargs)
+
+    def insert(self, *args, **kwargs):
+        kwargs.setdefault("returning", ReturnMethod.minimal)
+        return self._t.insert(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._t, name)
+
+
+class _QuietClient:
+    def __init__(self, client: Client):
+        self._c = client
+
+    def table(self, name: str) -> _QuietTable:
+        return _QuietTable(self._c.table(name))
+
+    def __getattr__(self, name):
+        return getattr(self._c, name)
 
 
 def get_client() -> Client:
@@ -11,7 +48,7 @@ def get_client() -> Client:
         if not SUPABASE_URL or not SUPABASE_SECRET_KEY:
             raise RuntimeError("Missing NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SECRET_KEY in .env.local")
         # Server-side only: the secret key bypasses RLS, never ship it to the browser.
-        _client = create_client(SUPABASE_URL, SUPABASE_SECRET_KEY)
+        _client = _QuietClient(create_client(SUPABASE_URL, SUPABASE_SECRET_KEY))  # type: ignore[assignment]
     return _client
 
 
