@@ -9,7 +9,7 @@ import { latestSnapshots } from "./latestSnapshots";
 const ESPN_CBB_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard";
 const CBB_GAME_ID_OFFSET = 7_000_000_000; // games.id = -(ESPN event id + this): a distinct range from NFL, NHL and CFB
 const DAYS_BACK = 1;
-const DAYS_FORWARD = 4;
+const DAYS_FORWARD = 7; // a week ahead, so a season opener is on the board (with our numbers) before the market has posted anything
 
 export const num = (s: unknown): number | null => {
   if (s === null || s === undefined || s === "") return null;

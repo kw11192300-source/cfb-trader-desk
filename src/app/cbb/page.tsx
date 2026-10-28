@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export default async function CbbBoardPage() {
   const from = new Date(Date.now() - 6 * 3_600_000).toISOString();
-  const to = new Date(Date.now() + 5 * 86_400_000).toISOString();
+  const to = new Date(Date.now() + 8 * 86_400_000).toISOString();
   const [rows, avail, graded] = await Promise.all([getCbbBoard(from, to), getCbbAvailability(2026), getBets({ sport: "cbb", sinceDays: 21, withLines: false })]);
   const bets = toDeskBets(graded);
   const flagged = rows.filter((r) => Math.max(r.spread_clv ?? 0, r.total_clv ?? 0) >= 1).length;

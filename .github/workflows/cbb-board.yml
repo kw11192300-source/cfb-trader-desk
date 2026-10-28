@@ -28,4 +28,4 @@ jobs:
           PYTHONUNBUFFERED: "1"
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-        run: python -m cbb_model.board refresh --days 3
+        run: python -m cbb_model.board refresh --days 8
