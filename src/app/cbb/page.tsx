@@ -1,15 +1,18 @@
 import CbbBoardTable from "@/components/CbbBoardTable";
+import CbbRefreshButtons from "@/components/CbbRefreshButtons";
 import LocalDateTime from "@/components/LocalDateTime";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
-import { getCbbAvailability, getCbbBoard } from "@/lib/data";
+import { toDeskBets } from "@/lib/deskBets";
+import { getBets, getCbbAvailability, getCbbBoard } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export default async function CbbBoardPage() {
   const from = new Date(Date.now() - 6 * 3_600_000).toISOString();
   const to = new Date(Date.now() + 5 * 86_400_000).toISOString();
-  const [rows, avail] = await Promise.all([getCbbBoard(from, to), getCbbAvailability(2026)]);
+  const [rows, avail, graded] = await Promise.all([getCbbBoard(from, to), getCbbAvailability(2026), getBets({ sport: "cbb", sinceDays: 21, withLines: false })]);
+  const bets = toDeskBets(graded);
   const flagged = rows.filter((r) => Math.max(r.spread_clv ?? 0, r.total_clv ?? 0) >= 1).length;
   const updated = rows.reduce((m, r) => (r.updated_at > m ? r.updated_at : m), "");
 
@@ -17,6 +20,7 @@ export default async function CbbBoardPage() {
     <div className="flex min-h-screen flex-col">
       <SiteHeader subtitle="Board" sport="cbb" />
       <main className="mx-auto w-full max-w-[1500px] flex-1 px-6 py-6">
+        <CbbRefreshButtons updatedAt={updated || null} />
         <div className="mb-4 max-w-5xl rounded-lg border border-border bg-surface p-4 text-xs leading-relaxed text-muted">
           <p>
             Every game with what we project, where we expect each line to <span className="text-foreground">close</span>, and the side that should gain{" "}
@@ -36,7 +40,7 @@ export default async function CbbBoardPage() {
             </p>
           )}
         </div>
-        <CbbBoardTable rows={rows} avail={avail} />
+        <CbbBoardTable rows={rows} avail={avail} bets={bets} />
       </main>
       <SiteFooter />
     </div>

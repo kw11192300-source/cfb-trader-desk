@@ -51,6 +51,7 @@ const NAV_ITEMS: Record<Sport, { href: string; label: string; prefetch?: boolean
   cbb: [
     { href: "/cbb", label: "Board" },
     { href: "/cbb/movers", label: "Movers" },
+    { href: "/cbb/bets", label: "Bets" },
     { href: "/cbb/availability", label: "Availability" },
     { href: "/cbb/ratings", label: "Ratings" },
     { href: "/cbb/players", label: "Players" },

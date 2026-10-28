@@ -1054,6 +1054,29 @@ export async function getCbbSnapshots(gameId: number): Promise<CbbSnapshot[]> {
   return (data ?? []) as CbbSnapshot[];
 }
 
+/** Every line change we logged for the given college basketball games, oldest first, grouped by game (same shape as the NBA snapshots,
+ * so the closing-line-value helper is shared). Used by the Bets page; one query for all the games, narrow columns. */
+export async function getCbbSnapshotsMany(gameIds: number[]): Promise<Map<number, NbaSnapshot[]>> {
+  const out = new Map<number, NbaSnapshot[]>();
+  if (gameIds.length === 0) return out;
+  const { data, error } = await supabase
+    .from("cbb_odds_snapshots")
+    .select("game_id, captured_at, ml_home, ml_away, spread_home_line, spread_home_odds, spread_away_odds, total_line, over_odds, under_odds")
+    .in("game_id", gameIds)
+    .order("captured_at", { ascending: true })
+    .limit(20000);
+  if (error) {
+    if (isMissingTable(error)) return out;
+    throw new Error(error.message);
+  }
+  for (const r of (data ?? []) as NbaSnapshot[]) {
+    const list = out.get(r.game_id) ?? [];
+    list.push(r);
+    out.set(r.game_id, list);
+  }
+  return out;
+}
+
 /** The NHL team names we have games for (as stored: ESPN's full names), alphabetical. */
 export async function getNhlTeamNames(): Promise<string[]> {
   const { data, error } = await supabase.from("games").select("home_team").eq("sport", "nhl").limit(3000);

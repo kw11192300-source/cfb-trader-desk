@@ -2,15 +2,22 @@
 
 import Link from "next/link";
 import LocalDateTime from "./LocalDateTime";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
+import CbbBetButtons from "./CbbBetButtons";
 import CbbLogo from "./CbbLogo";
+import DayBetsPanel from "./DayBetsPanel";
 import { adjustRow } from "@/lib/cbbAvailability";
+import type { DeskBet } from "@/lib/deskBets";
 import type { CbbAvailability, CbbBoardRow } from "@/lib/types";
 
 type SortKey = "time" | "spread" | "total" | "mover";
 
-const ET = "America/New_York";
-const dayKey = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: ET });
+// days are the VIEWER'S calendar days (a 9 PM Pacific tip is the next day in Eastern), so the table only renders once it is in the browser
+const dayKey = (iso: string) => new Date(iso).toLocaleDateString("en-CA");
+const subscribe = () => () => {};
+function useMounted(): boolean {
+  return useSyncExternalStore(subscribe, () => true, () => false);
+}
 const dayLabel = (key: string, todayKey: string) => {
   if (key === todayKey) return "Today";
   const d = new Date(`${key}T12:00:00`);
@@ -33,16 +40,24 @@ function Play({ label, clv, strong }: { label: string | null; clv: number | null
 
 /** The CBB board: one row per upcoming game with the model's number, where the line should close and the side that earns
  * closing-line value now. Day tabs, sortable by start time, spread CLV, total CLV, or how far the line should still move. */
-export default function CbbBoardTable({
+export default function CbbBoardTable(props: { rows: CbbBoardRow[]; initialSort?: SortKey; showDays?: boolean; avail?: CbbAvailability[]; bets?: DeskBet[] }) {
+  const mounted = useMounted();
+  if (!mounted) return <div className="rounded-lg border border-border bg-surface p-6 text-sm text-muted">Loading the board…</div>;
+  return <BoardInner {...props} />;
+}
+
+function BoardInner({
   rows,
   initialSort = "time",
   showDays = true,
   avail = [],
+  bets = [],
 }: {
   rows: CbbBoardRow[];
   initialSort?: SortKey;
   showDays?: boolean;
   avail?: CbbAvailability[];
+  bets?: DeskBet[];
 }) {
   const todayKey = dayKey(new Date().toISOString());
   const days = useMemo(() => [...new Set(rows.map((r) => dayKey(r.start_date)))].sort(), [rows]);
@@ -76,6 +91,7 @@ export default function CbbBoardTable({
 
   return (
     <div>
+      {showDays && day !== "all" && <DayBetsPanel bets={bets} sport="cbb" day={day} />}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         {showDays && (
           <div className="flex flex-wrap gap-1.5">
@@ -171,6 +187,9 @@ export default function CbbBoardTable({
                         <CbbLogo teamId={r.home_team_id} size={18} />
                         <span className="font-medium">{home}</span>
                       </Link>
+                      <div className="mt-1">
+                        <CbbBetButtons gameId={r.game_id} home={home} away={away} market={p.market} />
+                      </div>
                       {hasOut && (
                         <div className="mt-0.5 text-[11px] text-warn">
                           Out: {[...adj.away.map((e) => `${e.name} (${away})`), ...adj.home.map((e) => `${e.name} (${home})`)].join(", ")}

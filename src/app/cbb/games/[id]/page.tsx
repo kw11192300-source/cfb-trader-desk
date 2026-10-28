@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Row } from "@/components/AllSportsBets";
+import CbbBetButtons from "@/components/CbbBetButtons";
 import CbbLogo from "@/components/CbbLogo";
 import LocalDateTime from "@/components/LocalDateTime";
 import SiteFooter from "@/components/SiteFooter";
 import SiteHeader from "@/components/SiteHeader";
 import { adjustRow } from "@/lib/cbbAvailability";
 import { fairOdds } from "@/lib/nbaProj";
-import { getCbbAvailability, getCbbBoardGame, getCbbSnapshots } from "@/lib/data";
+import { toDeskBets } from "@/lib/deskBets";
+import { getBets, getCbbAvailability, getCbbBoardGame, getCbbSnapshots } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
@@ -68,7 +71,7 @@ export default async function CbbGamePage({ params }: { params: Promise<{ id: st
   const { id } = await params;
   const gameId = Number(id);
   if (!Number.isFinite(gameId)) notFound();
-  const [game, snaps, avail] = await Promise.all([getCbbBoardGame(gameId), getCbbSnapshots(gameId), getCbbAvailability(2026)]);
+  const [game, snaps, avail, graded] = await Promise.all([getCbbBoardGame(gameId), getCbbSnapshots(gameId), getCbbAvailability(2026), getBets({ sport: "cbb", gameId, withLines: false })]);
   if (!game) notFound();
   const p = game.payload;
   const adj = adjustRow(game, avail);
@@ -102,6 +105,18 @@ export default async function CbbGamePage({ params }: { params: Promise<{ id: st
           <span className="ml-auto text-sm text-muted">
             <LocalDateTime iso={game.start_date} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
           </span>
+        </div>
+
+        <div className="rounded-lg border border-border bg-surface px-5 py-3">
+          <div className="mb-2 text-xs font-medium text-foreground">Log a bet on this game</div>
+          <CbbBetButtons gameId={game.game_id} home={home} away={away} market={p.market} />
+          {graded.length > 0 && (
+            <ul className="mt-3 border-t border-border/60 pt-2 text-xs">
+              {toDeskBets(graded).map((b) => (
+                <Row key={b.id} b={b} />
+              ))}
+            </ul>
+          )}
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">

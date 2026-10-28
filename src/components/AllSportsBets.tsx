@@ -3,44 +3,19 @@
 import Link from "next/link";
 import { useMemo, useState, useSyncExternalStore } from "react";
 
-export type DeskBet = {
-  id: number;
-  sport: string;
-  market: string;
-  side: string;
-  player: string | null;
-  propType: string | null;
-  legs: string[] | null;
-  line: number;
-  odds: number;
-  stake: number;
-  book: string | null;
-  status: "pending" | "win" | "loss" | "push";
-  profit: number | null;
-  placedAt: string;
-  gameId: number | null;
-  start: string | null; // game start (ISO)
-  away: string | null;
-  home: string | null;
-  completed: boolean;
-  live: boolean; // the game is in progress
-  liveDetail: string | null;
-  awayPts: number | null;
-  homePts: number | null;
-};
+import type { DeskBet, HistBet } from "@/lib/deskBets";
 
-/** The slim row the history table needs for every bet ever logged: when it belongs (game start, or the day a parlay was placed). */
-export type HistBet = { t: string; sport: string; stake: number; status: "pending" | "win" | "loss" | "push"; profit: number | null };
+export type { DeskBet, HistBet };
 
-const SPORT_LABEL: Record<string, string> = { cfb: "CFB", nfl: "NFL", nhl: "NHL", cbb: "CBB", nba: "NBA" };
-const SPORT_TONE: Record<string, string> = { cfb: "text-orange-300", nfl: "text-sky-300", nhl: "text-cyan-300", cbb: "text-amber-300", nba: "text-rose-300" };
-const SPORTS = ["cfb", "nfl", "nhl", "cbb", "nba"];
-const gameHref = (sport: string, id: number): string | null =>
+export const SPORT_LABEL: Record<string, string> = { cfb: "CFB", nfl: "NFL", nhl: "NHL", cbb: "CBB", nba: "NBA" };
+export const SPORT_TONE: Record<string, string> = { cfb: "text-orange-300", nfl: "text-sky-300", nhl: "text-cyan-300", cbb: "text-amber-300", nba: "text-rose-300" };
+export const SPORTS = ["cfb", "nfl", "nhl", "cbb", "nba"];
+export const gameHref = (sport: string, id: number): string | null =>
   sport === "nba" ? `/nba/games/${id}` : sport === "nhl" ? `/nhl/games/${id}` : sport === "cbb" ? `/cbb/games/${id}` : sport === "cfb" ? `/games/${id}` : null;
 
 const sp = (n: number) => (n > 0 ? `+${n}` : `${n}`);
-const units = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}u`;
-const tone = (n: number) => (n > 0 ? "text-up" : n < 0 ? "text-down" : "text-foreground");
+export const units = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}u`;
+export const tone = (n: number) => (n > 0 ? "text-up" : n < 0 ? "text-down" : "text-foreground");
 
 function describe(b: DeskBet): string {
   if (b.market === "prop") return `${b.player ?? ""} ${b.side} ${b.line} ${b.propType ?? ""}`.trim();
@@ -49,8 +24,8 @@ function describe(b: DeskBet): string {
   if (b.market === "parlay") return b.side;
   return `${b.side} ${sp(b.line)}`;
 }
-const marketLabel = (m: string) => (m === "moneyline" ? "ML" : m === "prop" ? "Prop" : m === "parlay" ? "Parlay" : m === "total" ? "Total" : "Spread");
-const short = (team: string | null, sport: string) => {
+export const marketLabel = (m: string) => (m === "moneyline" ? "ML" : m === "prop" ? "Prop" : m === "parlay" ? "Parlay" : m === "total" ? "Total" : "Spread");
+export const short = (team: string | null, sport: string) => {
   if (!team) return "?";
   if (sport === "nba" || sport === "nhl") return team.endsWith("Trail Blazers") ? "Trail Blazers" : team.split(" ").slice(-1)[0];
   return team;
@@ -61,7 +36,7 @@ const subscribe = () => () => {};
 function useMounted(): boolean {
   return useSyncExternalStore(subscribe, () => true, () => false);
 }
-const dayKey = (iso: string) => new Date(iso).toLocaleDateString("en-CA");
+export const dayKey = (iso: string) => new Date(iso).toLocaleDateString("en-CA");
 const shiftKey = (key: string, n: number) => {
   const d = new Date(`${key}T12:00:00`);
   d.setDate(d.getDate() + n);
@@ -69,7 +44,7 @@ const shiftKey = (key: string, n: number) => {
 };
 const dayLabel = (key: string, today: string) => (key === today ? "Today" : new Date(`${key}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }));
 
-function Row({ b }: { b: DeskBet }) {
+export function Row({ b }: { b: DeskBet }) {
   const color = b.status === "win" ? "text-up" : b.status === "loss" ? "text-down" : b.status === "push" ? "text-muted" : "text-accent";
   return (
     <li className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 py-1">

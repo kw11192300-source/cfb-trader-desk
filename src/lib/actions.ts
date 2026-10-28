@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { simulateGame, type GoalieScenario } from "@/lib/nhlSim";
+import { updateCbbOdds } from "@/lib/cbbOdds";
 import { updateNba } from "@/lib/nbaOdds";
 import { recordModelSnapshot, reapplyUnavailable, updateNhlOdds, updateNhlScores } from "@/lib/nhlOdds";
 import { supabaseAdmin } from "@/lib/supabase-admin";
@@ -266,6 +267,40 @@ export async function triggerNbaLive(): Promise<{ ok: boolean; message: string }
     return { ok: false, message: "GitHub refused the request - check the token has Actions read & write on the repo." };
   }
   return { ok: false, message: `GitHub returned ${res.status}.` };
+}
+
+// --- CBB board buttons ---------------------------------------------------------
+/** "Update scores & lines": reads ESPN now for college basketball scores, live status and posted lines (a few seconds). */
+export async function refreshCbb(): Promise<{ ok: boolean; message: string }> {
+  const r = await updateCbbOdds();
+  if (r.ok) {
+    revalidatePath("/cbb");
+    revalidatePath("/cbb/bets");
+  }
+  return { ok: r.ok, message: r.message };
+}
+
+/** "Update model": lines first, then the board job (GitHub Actions, ~1-2 minutes) rescores every upcoming game against them. */
+export async function runCbbModel(): Promise<{ ok: boolean; message: string }> {
+  await updateCbbOdds().catch(() => null);
+  const r = await triggerCbbBoard();
+  return r.ok ? { ok: true, message: "Rescoring the board against the latest lines…" } : r;
+}
+
+/** The newest run of the CBB board job (started by the timer or the Update model button). Never throws. */
+export async function getCbbBoardStatus(): Promise<NhlRefreshStatus> {
+  const none: NhlRefreshStatus = { state: "none", createdAt: null, updatedAt: null, url: null };
+  try {
+    const res = await github("/actions/workflows/cbb-board.yml/runs?per_page=1");
+    if (!res.ok) return none;
+    const run = (await res.json()).workflow_runs?.[0];
+    if (!run) return none;
+    const state: NhlRefreshStatus["state"] =
+      run.status === "completed" ? (run.conclusion === "success" ? "success" : "failed") : run.status === "in_progress" ? "running" : "queued";
+    return { state, createdAt: run.created_at, updatedAt: run.updated_at, url: run.html_url };
+  } catch {
+    return none;
+  }
 }
 
 // --- CFB scores ----------------------------------------------------------------
