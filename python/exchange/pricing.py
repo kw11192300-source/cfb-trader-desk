@@ -123,6 +123,18 @@ def fit(sport: str, snap: dict | None) -> tuple[Dist | None, float | None]:
     return Dist(sport, m, t), ml
 
 
+def main_half(line: float | None) -> float | None:
+    """The half-point line standing in for a main line: itself if it already ends in .5, else half a point toward the home side's favour."""
+    return None if line is None else line if line % 1 else line + 0.5
+
+
+def ladder(base: float, offsets: list[float]) -> list[float]:
+    """Lines around a main number, every one ending in .5 so no contract can push. A whole-number main gets the half-points either side of it."""
+    if base % 1:
+        return [base + o for o in offsets]
+    return sorted({base + o + 0.5 for o in offsets} | {base - 0.5})
+
+
 def lines_for(sport: str, snap: dict | None) -> list[tuple[str, float]]:
     """The contracts offered on a game, anchored on whatever DraftKings has posted: moneyline, a ladder of spreads, a ladder of totals."""
     if not snap:
@@ -134,10 +146,10 @@ def lines_for(sport: str, snap: dict | None) -> list[tuple[str, float]]:
         if sport == "nhl":
             out += [("spread", x) for x in HK_SPREADS]
         else:
-            out += [("spread", snap["spread"] + o) for o in FB_OFFS]
+            out += [("spread", x) for x in ladder(snap["spread"], FB_OFFS)]
     if snap.get("total") is not None and snap.get("over") is not None:
         offs = HK_TOTAL_OFFS if sport == "nhl" else BB_TOTAL_OFFS if sport in ("nba", "cbb") else FB_OFFS
-        out += [("total", snap["total"] + o) for o in offs if snap["total"] + o > 0]
+        out += [("total", x) for x in ladder(snap["total"], offs) if x > 0]
     return out
 
 

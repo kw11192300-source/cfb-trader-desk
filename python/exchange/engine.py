@@ -339,7 +339,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     for gid, keys in by_gid.items():
         g, (d, ml) = games[gid], refs[gid]
         views = {"lines": [], "r": [], "e": {}}
-        for kd, ln in [("ml", 0.0), ("spread", g["ref"].get("spread")), ("total", g["ref"].get("total"))]:
+        for kd, ln in [("ml", 0.0), ("spread", pricing.main_half(g["ref"].get("spread"))), ("total", pricing.main_half(g["ref"].get("total")))]:
             if ln is not None and ckey(gid, kd, ln) in markets:
                 views["lines"].append([kd, ln])
                 views["r"].append(round(markets[ckey(gid, kd, ln)]["ref"], 4))
