@@ -10,7 +10,7 @@ from .store import FileStore, SbStore
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["init", "ratings", "round", "live", "status", "reset"])
+    ap.add_argument("cmd", choices=["init", "ratings", "round", "live", "status", "reset", "audit"])
     ap.add_argument("--local", action="store_true")
     ap.add_argument("--sports", default=",".join(SPORTS))
     ap.add_argument("--days", type=int, default=420)
@@ -24,6 +24,10 @@ def main() -> None:
     if a.cmd == "init":
         engine.init(store)
         print("roster ready")
+    elif a.cmd == "audit":
+        from . import audit
+
+        audit.main(store)
     elif a.cmd == "reset":
         if not a.yes:
             raise SystemExit("reset wipes every trade, game, snapshot and trader record; add --yes to confirm")

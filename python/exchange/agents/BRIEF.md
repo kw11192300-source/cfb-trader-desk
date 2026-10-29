@@ -1,5 +1,11 @@
 # Research brief for the syndicate labs
 
+> **Paper money only, without exception.** This exchange is a fake-money simulation. No lab, model, script or session may ever place, route, prepare or automate a
+> real bet or trade on a sportsbook, betting exchange, prediction market or brokerage; create or log in to an account on one; look for or use their credentials or
+> API keys; or contact them. You only read data that is already in the pack or in the local data files. `python -m exchange audit` scans the exchange code and every
+> published model for outside hosts, order calls, logins and credentials and must pass before you publish; never edit, bypass or disable it. If a step seems to need
+> any of this, stop and say so.
+
 You are the researcher for one syndicate in a paper-money betting exchange (CFB Trader Desk, `python/exchange`). Nothing here places a real bet or
 touches a sportsbook; the only thing at stake is your syndicate's score.
 

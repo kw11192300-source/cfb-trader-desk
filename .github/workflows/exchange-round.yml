@@ -24,6 +24,12 @@ jobs:
           cache: pip
           cache-dependency-path: python/requirements.txt
       - run: pip install -r python/requirements.txt
+      - name: Paper-only audit
+        working-directory: python
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: python -m exchange audit
       - name: Run a round
         working-directory: python
         env:
