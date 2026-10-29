@@ -4,7 +4,7 @@ import LocalDateTime from "@/components/LocalDateTime";
 import { LadderDepth } from "@/components/SyndicateCharts";
 import { SyndicateHeader } from "@/components/SyndicateParts";
 import { takerOf } from "@/lib/syndicateGame";
-import { type ExGame, getAllOpenTrades, getExchange, getExchangeBoard, getRecentTrades, label, pct } from "@/lib/syndicates";
+import { type ExGame, getAllOpenTrades, getExchange, getExchangeBoard, getGamesFull, getRecentTrades, label, pct } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
@@ -19,8 +19,9 @@ const srcNote = (g: ExGame) => (g.ref?.src === "kalshi" ? "no DraftKings line ye
 
 export default async function SyndicateMarketsPage({ searchParams }: { searchParams: Promise<{ h?: string; sport?: string; sort?: string }> }) {
   const sp = await searchParams;
-  const hours = WINDOWS.find(([, v]) => String(v) === sp.h)?.[1] ?? 48;
   const sport = SPORTS.includes(sp.sport ?? "") ? sp.sport! : null;
+  const hours = WINDOWS.find(([, v]) => String(v) === sp.h)?.[1] ?? (sport ? 168 : 48); // picking one sport can afford to show a whole week
+  const explicitH = WINDOWS.some(([, v]) => String(v) === sp.h);
   const byVolume = sp.sort === "volume";
   const [board, recent, open, { meta, members }] = await Promise.all([getExchangeBoard(hours), getRecentTrades(24), getAllOpenTrades(), getExchange()]);
   const games = board.filter((g) => !sport || g.sport === sport);
@@ -29,7 +30,7 @@ export default async function SyndicateMarketsPage({ searchParams }: { searchPar
   const q = (o: { h?: number; sport?: string | null; sort?: string }) => {
     const p = new URLSearchParams();
     const h = o.h ?? hours, s = o.sport === undefined ? sport : o.sport, so = o.sort ?? (byVolume ? "volume" : "time");
-    if (h !== 48) p.set("h", String(h));
+    if (h !== (s ? 168 : 48) || (o.h !== undefined && explicitH)) p.set("h", String(h));
     if (s) p.set("sport", s);
     if (so === "volume") p.set("sort", "volume");
     return `/syndicates/markets${p.toString() ? `?${p}` : ""}`;
@@ -45,6 +46,20 @@ export default async function SyndicateMarketsPage({ searchParams }: { searchPar
     const c = (cv[`${t.game_id}|${t.kind}|${t.line}`] ??= { gid: t.game_id, kind: t.kind, line: t.line, n: 0, qty: 0, oi: 0, takers: new Set(), syns: new Set() });
     c.n += 1; c.qty += t.qty; c.oi += t.rem_b ?? t.qty; c.takers.add(takerOf(t)); c.syns.add(synOf[t.buyer]); c.syns.add(synOf[t.seller]);
   }
+  // trades on games that kick off beyond this window, so nothing that is trading is hidden without a word
+  const outsideIds = [...new Set(open.map((t) => t.game_id).filter((id) => !byId[id] && (!sport || id.startsWith(`${sport}:`))))];
+  const outside = await getGamesFull(outsideIds);
+  const outBy: Record<string, { games: number; trades: number; qty: number; maxH: number }> = {};
+  const outG = new Set<string>();
+  for (const t of open) {
+    const g = outside[t.game_id];
+    if (!g || g.state !== "pre") continue;
+    const o = (outBy[g.sport] ??= { games: 0, trades: 0, qty: 0, maxH: 0 });
+    if (!outG.has(g.id)) { outG.add(g.id); o.games += 1; }
+    o.trades += 1; o.qty += t.qty;
+    o.maxH = Math.max(o.maxH, (new Date(g.start_utc).getTime() - Date.now()) / 3600000);
+  }
+  const nextWindow = WINDOWS.find(([, v]) => v > hours && v >= Math.max(0, ...Object.values(outBy).map((o) => o.maxH)))?.[1] ?? 336;
   const ordered = [...games].sort((a, b) => (byVolume ? (gv[b.id]?.qty ?? 0) - (gv[a.id]?.qty ?? 0) : 0));
   const topGames = [...games].filter((g) => gv[g.id]).sort((a, b) => gv[b.id].qty - gv[a.id].qty).slice(0, 8);
   const topContracts = Object.values(cv).sort((a, b) => b.qty - a.qty).slice(0, 10);
@@ -105,6 +120,14 @@ export default async function SyndicateMarketsPage({ searchParams }: { searchPar
             <Link href={q({ sort: "volume" })} className={`rounded px-2.5 py-1 ${byVolume ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>Most traded</Link>
           </div>
         </div>
+
+        {Object.keys(outBy).length > 0 && hours < 336 && (
+          <p className="mb-5 rounded-lg border border-border bg-surface px-3 py-2 text-[11px] text-muted">
+            Also trading, but kicking off after this window:{" "}
+            {Object.entries(outBy).map(([s, o]) => `${SPORT_LABEL[s]} ${o.games} game${o.games > 1 ? "s" : ""} (${o.trades} trades, ${n0(o.qty)} contracts)`).join(" · ")}.{" "}
+            <Link href={q({ h: nextWindow })} className="text-accent hover:underline">Show {WINDOWS.find(([, v]) => v === nextWindow)?.[0].toLowerCase()}</Link>
+          </p>
+        )}
 
         {sport ? (
           <div className="mb-8 grid gap-6 lg:grid-cols-2">

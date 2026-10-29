@@ -113,6 +113,18 @@ export type ExSnap = { ts: string; subject: string; equity: number };
 export type ExMeta = { n: number; ts: string; markets: number; games: number; new_trades: number; settled: number; secs?: number; errors?: string[] } | null;
 export type ExRatingsMeta = { ts: string; sports: string[] } | null;
 
+/** The database returns at most 1,000 rows per request whatever limit is asked for, so anything that can pass that is read in pages. */
+async function pageAll<T>(build: (from: number, to: number) => PromiseLike<{ data: unknown[] | null }>, max = 30000): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; from < max; from += 1000) {
+    const { data } = await build(from, from + 999);
+    const rows = (data ?? []) as T[];
+    out.push(...rows);
+    if (rows.length < 1000) break;
+  }
+  return out;
+}
+
 export const equityOf = (m: ExMember): number => m.equity ?? m.cash + m.locked;
 
 export async function getExchange(): Promise<{ syndicates: ExSyndicate[]; members: ExMember[]; meta: ExMeta; ratingsMeta: ExRatingsMeta; configured: boolean }> {
@@ -155,8 +167,7 @@ export async function getExchangeBoard(maxHours?: number): Promise<ExGame[]> {
 
 export async function getExchangeSnapshots(subjectPrefix: string, days = 14): Promise<ExSnap[]> {
   const since = new Date(Date.now() - days * 86400000).toISOString();
-  const { data } = await supabase.from("ex_snapshots").select("ts,subject,equity").like("subject", `${subjectPrefix}%`).gte("ts", since).order("ts").limit(5000);
-  return (data ?? []) as ExSnap[];
+  return pageAll<ExSnap>((a, b) => supabase.from("ex_snapshots").select("ts,subject,equity").like("subject", `${subjectPrefix}%`).gte("ts", since).order("ts").order("id").range(a, b));
 }
 
 export function label(t: { kind: string; line: number }, g?: ExGame): string {
@@ -229,13 +240,11 @@ export function summarize(syndicates: ExSyndicate[], members: ExMember[]): { mem
 }
 
 export async function getGameTrades(gameId: string): Promise<ExTrade[]> {
-  const { data } = await supabase.from("ex_trades").select("*").eq("game_id", gameId).order("ts", { ascending: true }).limit(3000);
-  return (data ?? []) as ExTrade[];
+  return pageAll<ExTrade>((a, b) => supabase.from("ex_trades").select("*").eq("game_id", gameId).order("ts", { ascending: true }).order("id").range(a, b));
 }
 
 export async function getGameMarks(gameId: string): Promise<ExMark[]> {
-  const { data } = await supabase.from("ex_marks").select("ts,game_id,lines,r,e").eq("game_id", gameId).order("ts", { ascending: true }).limit(2000);
-  return (data ?? []) as ExMark[];
+  return pageAll<ExMark>((a, b) => supabase.from("ex_marks").select("ts,game_id,lines,r,e").eq("game_id", gameId).order("ts", { ascending: true }).order("id").range(a, b));
 }
 
 export async function getExchangeGame(gameId: string): Promise<ExGame | null> {
@@ -246,8 +255,7 @@ export async function getExchangeGame(gameId: string): Promise<ExGame | null> {
 /** Trades from the last `hours`, for the top-traded views. */
 export async function getRecentTrades(hours = 24): Promise<ExTrade[]> {
   const since = new Date(Date.now() - hours * 3600000).toISOString();
-  const { data } = await supabase.from("ex_trades").select("id,ts,game_id,kind,line,price,qty,buyer,seller,maker").gte("ts", since).order("ts", { ascending: false }).limit(5000);
-  return (data ?? []) as ExTrade[];
+  return pageAll<ExTrade>((a, b) => supabase.from("ex_trades").select("id,ts,game_id,kind,line,price,qty,buyer,seller,maker").gte("ts", since).order("ts", { ascending: false }).order("id").range(a, b));
 }
 
 /** Profit and loss at each possible final margin (or total) for a set of trades, from one side of the market: positions still open only. */
@@ -297,10 +305,7 @@ export function fairOf(g: ExGame | undefined, kind: string, line: number): numbe
 }
 
 export async function getSyndicateOpenTrades(syndicate: string): Promise<ExTrade[]> {
-  const { data } = await supabase
-    .from("ex_trades").select("*").eq("settled", false)
-    .or(`buyer.like.${syndicate}-%,seller.like.${syndicate}-%`).order("ts", { ascending: false }).limit(4000);
-  return (data ?? []) as ExTrade[];
+  return pageAll<ExTrade>((a, b) => supabase.from("ex_trades").select("*").eq("settled", false).or(`buyer.like.${syndicate}-%,seller.like.${syndicate}-%`).order("ts", { ascending: false }).order("id").range(a, b));
 }
 
 export async function getGamesFull(ids: string[]): Promise<Record<string, ExGame>> {
@@ -310,16 +315,15 @@ export async function getGamesFull(ids: string[]): Promise<Record<string, ExGame
 }
 
 export async function getTraderOpenTrades(memberId: string): Promise<ExTrade[]> {
-  const { data } = await supabase.from("ex_trades").select("*").eq("settled", false).or(`buyer.eq.${memberId},seller.eq.${memberId}`).order("ts", { ascending: false }).limit(3000);
-  return (data ?? []) as ExTrade[];
+  return pageAll<ExTrade>((a, b) => supabase.from("ex_trades").select("*").eq("settled", false).or(`buyer.eq.${memberId},seller.eq.${memberId}`).order("ts", { ascending: false }).order("id").range(a, b));
 }
 
 /** The price history of the model-weight snapshots for a syndicate: sport -> [time, weight][] */
 export async function getWeightHistory(syndicate: string, days = 30): Promise<Record<string, [number, number][]>> {
   const since = new Date(Date.now() - days * 86400000).toISOString();
-  const { data } = await supabase.from("ex_snapshots").select("ts,subject,equity").like("subject", `w:${syndicate}:%`).gte("ts", since).order("ts").limit(5000);
+  const data = await pageAll<{ ts: string; subject: string; equity: number }>((a, b) => supabase.from("ex_snapshots").select("ts,subject,equity").like("subject", `w:${syndicate}:%`).gte("ts", since).order("ts").order("id").range(a, b));
   const out: Record<string, [number, number][]> = {};
-  for (const r of (data ?? []) as { ts: string; subject: string; equity: number }[]) (out[r.subject.split(":")[2]] ??= []).push([new Date(r.ts).getTime(), Number(r.equity)]);
+  for (const r of data) (out[r.subject.split(":")[2]] ??= []).push([new Date(r.ts).getTime(), Number(r.equity)]);
   return out;
 }
 
@@ -344,10 +348,13 @@ export type ExResult = {
 /** Finished games' results, newest first. They are kept forever; the trades behind them are tidied away after a couple of weeks. */
 export async function getResults(days = 30, sport?: string, withTraders = false): Promise<ExResult[]> {
   const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
-  let q = supabase.from("ex_results").select(`id,day,sport,kickoff,home,away,home_score,away_score,n_trades,contracts,traded,syn,top${withTraders ? ",traders" : ""}`).gte("day", since).order("kickoff", { ascending: false }).limit(2000);
-  if (sport) q = q.eq("sport", sport);
-  const { data } = await q;
-  return ((data ?? []) as unknown as ExResult[]).map((r) => ({ ...r, traders: r.traders ?? {} }));
+  const cols = `id,day,sport,kickoff,home,away,home_score,away_score,n_trades,contracts,traded,syn,top${withTraders ? ",traders" : ""}`;
+  const rows = await pageAll<ExResult>((a, b) => {
+    let q = supabase.from("ex_results").select(cols).gte("day", since).order("kickoff", { ascending: false }).order("id").range(a, b);
+    if (sport) q = q.eq("sport", sport);
+    return q;
+  });
+  return rows.map((r) => ({ ...r, traders: r.traders ?? {} }));
 }
 
 export async function getResult(id: string): Promise<ExResult | null> {
@@ -376,6 +383,5 @@ export async function getDigests(n = 14): Promise<Digest[]> {
 
 /** Every position still open, from the trade ledger of games that have not settled. */
 export async function getAllOpenTrades(): Promise<ExTrade[]> {
-  const { data } = await supabase.from("ex_trades").select("id,ts,game_id,kind,line,price,qty,buyer,seller,maker,rem_b,rem_s,settled").eq("settled", false).limit(8000);
-  return (data ?? []) as ExTrade[];
+  return pageAll<ExTrade>((a, b) => supabase.from("ex_trades").select("id,ts,game_id,kind,line,price,qty,buyer,seller,maker,rem_b,rem_s,settled").eq("settled", false).order("id").range(a, b));
 }
