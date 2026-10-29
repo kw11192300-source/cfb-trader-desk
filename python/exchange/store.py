@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 LOCAL = Path(__file__).resolve().parents[1] / "data" / "exchange_local.json"
-TABLES = ("ex_syndicates", "ex_members", "ex_games", "ex_trades", "ex_snapshots", "ex_ratings", "ex_meta")
+TABLES = ("ex_syndicates", "ex_members", "ex_games", "ex_trades", "ex_snapshots", "ex_marks", "ex_ratings", "ex_meta")
 KEYS = {"ex_syndicates": "id", "ex_members": "id", "ex_games": "id", "ex_trades": "id", "ex_ratings": "key", "ex_meta": "key"}
 
 

@@ -1,6 +1,6 @@
-"""The roster: eight syndicates with 10,000 units each, split into five sport desks of 2,000.
+"""The roster: eight syndicates with 10,000 units each, split among five traders of 2,000.
 
-Every trader has the same goal (beat the closing DraftKings price, which in the long run is the same as making money) and works inside the
+Every trader knows every sport, and some focus on a few where they trade bigger and accept smaller edges. They all have the same goal (beat the closing DraftKings price, which in the long run is the same as making money) and works inside the
 same rulebook; each builds its own strategy inside it:
 
   rulebook   (engine.RULES) fair price is DraftKings' no-vig price nudged toward the syndicate's model by a weight the syndicate learns
@@ -17,14 +17,21 @@ from __future__ import annotations
 import random
 
 SYNDICATE_UNITS = 10_000.0
-DESK_SPORTS = ["nfl", "cfb", "nhl", "nba", "cbb"]
-DESK_UNITS = SYNDICATE_UNITS / len(DESK_SPORTS)
+SPORTS = ["nfl", "cfb", "nhl", "nba", "cbb"]
+TRADERS_PER = 5
+TRADER_UNITS = SYNDICATE_UNITS / TRADERS_PER
+NAMES = ["Avery", "Blake", "Casey", "Drew", "Emery", "Finley", "Gray", "Harper", "Indigo", "Jules", "Kai", "Logan", "Morgan", "Nico", "Oakley", "Parker",
+         "Quinn", "Reese", "Sage", "Tatum", "Uma", "Val", "Wren", "Xan", "Yael", "Zion", "Arden", "Bryn", "Cleo", "Dale", "Eden", "Flynn", "Gale", "Hollis",
+         "Ivy", "Jordan", "Kit", "Lane", "Marlow", "Nova"]
+# (role, number of focus sports): two market makers (a specialist and a generalist), two takers, one who does both
+SEATS = [("maker", 2), ("maker", 3), ("taker", 2), ("taker", 1), ("both", 2)]
 
-def strategy(sid: str, sport: str) -> dict:
+
+def strategy(sid: str, i: int, role: str) -> dict:
     """Each trader starts with its own take on the shared rulebook - how big an edge it wants, how tight it quotes, how hard it bets, how far it
     trusts its syndicate's model - and then adapts it from its own results (engine.adapt). The rulebook itself (engine.RULES) caps all of it."""
-    r = random.Random(f"{sid}-{sport}")
-    return dict(max_risk=100.0, thr=round(r.uniform(0.012, 0.03), 3), half=round(r.uniform(0.01, 0.025), 3), kelly=round(r.uniform(0.1, 0.25), 2),
+    r = random.Random(f"{sid}-{i}")
+    return dict(max_risk=100.0, thr=round(r.uniform(0.012, 0.03), 3), half=round(r.uniform(0.01, 0.022), 3), kelly=round(r.uniform(0.1, 0.25), 2),
                 size=round(r.uniform(60, 100)), skew=round(r.uniform(0.0001, 0.0004), 5), trust=round(r.uniform(0.7, 1.3), 2))
 
 
@@ -42,15 +49,18 @@ SYNDICATES = [
 
 def roster() -> tuple[list[dict], list[dict]]:
     syns, mems = [], []
-    for s in SYNDICATES:
+    for si, s in enumerate(SYNDICATES):
         syns.append({"id": s["id"], "name": s["name"], "engine": s["engine"], "color": s["color"], "tagline": s["tagline"],
                      "start_units": SYNDICATE_UNITS, "learn": {}})
-        for sp in DESK_SPORTS:
-            params = {**strategy(s["id"], sp), "sports": [sp]}
+        pool = SPORTS[:]
+        random.Random(s["id"]).shuffle(pool)
+        picks = [pool[0:2], pool[2:5], pool[3:5], pool[0:1], pool[1:3]]  # between them the five traders cover every sport
+        for i, ((role, _), focus) in enumerate(zip(SEATS, picks)):
+            params = {**strategy(s["id"], i, role), "focus": focus}
             if s["id"] == "pace":
                 params["kinds"] = ["total"]
-            mems.append({"id": f"{s['id']}-{sp}", "syndicate_id": s["id"], "name": f"{sp.upper()} desk", "role": "both", "staking": "kelly",
-                         "params": params, "start_units": DESK_UNITS, "cash": DESK_UNITS, "locked": 0.0, "realized": 0.0,
+            mems.append({"id": f"{s['id']}-{i + 1}", "syndicate_id": s["id"], "name": NAMES[si * TRADERS_PER + i], "role": role, "staking": "kelly",
+                         "params": params, "start_units": TRADER_UNITS, "cash": TRADER_UNITS, "locked": 0.0, "realized": 0.0,
                          "stats": {"n_maker": 0, "n_taker": 0, "vol_maker": 0.0, "vol_taker": 0.0, "pnl_maker": 0.0, "pnl_taker": 0.0,
-                                   "clv_sum": 0.0, "clv_n": 0, "peak": DESK_UNITS, "max_dd": 0.0, "wins": 0, "losses": 0, "biggest": 0.0}})
+                                   "clv_sum": 0.0, "clv_n": 0, "peak": TRADER_UNITS, "max_dd": 0.0, "wins": 0, "losses": 0, "biggest": 0.0}})
     return syns, mems

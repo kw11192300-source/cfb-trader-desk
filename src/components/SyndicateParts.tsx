@@ -57,7 +57,7 @@ export function LeaderTable({ rows, linkBase, title }: { rows: Row[]; linkBase?:
               <th className="px-3 py-2 text-right" title="Equity minus starting units. Open trades are marked at the current DraftKings price, so this moves before any game finishes">P&amp;L (marked)</th>
               <th className="px-3 py-2 text-right" title="Profit from games that have finished and settled">Settled</th>
               <th className="px-3 py-2 text-right" title="Realized profit divided by units put at risk">ROI/vol</th>
-              <th className="px-3 py-2 text-right">Open</th>
+              <th className="px-3 py-2 text-right" title="Worst-case loss on open positions, across every possible result - not the cash tied up">At risk</th>
               <th className="px-3 py-2 text-right">Trades</th>
               <th className="px-3 py-2 text-right" title="Average of (closing fair price - price paid), in cents per contract, over settled trades">CLV</th>
               <th className="px-3 py-2 text-right">Maker P&amp;L</th>
@@ -79,7 +79,7 @@ export function LeaderTable({ rows, linkBase, title }: { rows: Row[]; linkBase?:
                   ) : (
                     r.name
                   )}
-                  {!linkBase && <span className="ml-2 text-muted">{r.syndicate}</span>}
+                  {!linkBase && <span className="ml-2 text-muted">{r.syndicate}{r.note ? ` · ${r.note}` : ""}</span>}
                 </td>
                 <td className="px-3 py-1.5 text-right">{r.equity.toFixed(1)}</td>
                 <td className={`px-3 py-1.5 text-right ${tone(r.pnl)}`}>{u(r.pnl)}</td>
@@ -174,7 +174,15 @@ export function TradeList({ trades, games, names }: { trades: ExTrade[]; games: 
                   <td className="px-3 py-1.5 text-muted">
                     <LocalDateTime iso={t.ts} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
                   </td>
-                  <td className="px-3 py-1.5 font-sans text-foreground">{g ? `${g.away.abbr} @ ${g.home.abbr}` : t.game_id}</td>
+                  <td className="px-3 py-1.5 font-sans text-foreground">
+                    {g ? (
+                      <Link href={`/syndicates/games/${encodeURIComponent(t.game_id)}`} className="hover:text-accent">
+                        {g.away.abbr} @ {g.home.abbr}
+                      </Link>
+                    ) : (
+                      t.game_id
+                    )}
+                  </td>
                   <td className="px-3 py-1.5 font-sans">{label(t, g)}</td>
                   <td className="px-3 py-1.5 text-right">{pct(t.price)}</td>
                   <td className="px-3 py-1.5 text-right text-muted">{pct(t.ref_p)}</td>

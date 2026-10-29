@@ -1164,6 +1164,8 @@ create table if not exists ex_trades (
   seller text not null,
   maker text not null,
   ref_p numeric,
+  rem_b numeric,
+  rem_s numeric,
   settled boolean not null default false,
   outcome numeric,
   close_p numeric
@@ -1180,6 +1182,14 @@ create table if not exists ex_snapshots (
   open_risk numeric
 );
 create index if not exists ex_snapshots_subject_idx on ex_snapshots (subject, ts);
+create table if not exists ex_marks (
+  id bigint generated always as identity primary key,
+  ts timestamptz not null,
+  game_id text not null,
+  lines jsonb not null,
+  r jsonb not null
+);
+create index if not exists ex_marks_game_idx on ex_marks (game_id, ts);
 create table if not exists ex_ratings (
   key text primary key,
   payload jsonb not null,
@@ -1194,6 +1204,7 @@ alter table ex_members enable row level security;
 alter table ex_games enable row level security;
 alter table ex_trades enable row level security;
 alter table ex_snapshots enable row level security;
+alter table ex_marks enable row level security;
 alter table ex_ratings enable row level security;
 alter table ex_meta enable row level security;
 create policy "public read" on ex_syndicates for select using (true);
@@ -1201,5 +1212,6 @@ create policy "public read" on ex_members for select using (true);
 create policy "public read" on ex_games for select using (true);
 create policy "public read" on ex_trades for select using (true);
 create policy "public read" on ex_snapshots for select using (true);
+create policy "public read" on ex_marks for select using (true);
 create policy "public read" on ex_meta for select using (true);
 -- ex_ratings is read by the Python jobs only (secret key bypasses RLS), so it has no public policy.

@@ -55,6 +55,8 @@ export type ExTrade = {
   seller: string;
   maker: string;
   ref_p: number | null;
+  rem_b: number | null;
+  rem_s: number | null;
   settled: boolean;
   outcome: number | null;
   close_p: number | null;
@@ -72,8 +74,11 @@ export type ExGame = {
   away_score: number | null;
   ref: { spread: number | null; total: number | null; ml_home: number | null; ml_away: number | null } | null;
   /** [kind, line, reference %, best bid, best ask, last trade] */
-  book: [string, number, number, number | null, number | null, number | null][] | null;
+  /** [kind, line, fair, best bid, best ask, last trade, first trade, bid size, ask size] */
+  book: [string, number, number, number | null, number | null, number | null, number | null, number | null, number | null][] | null;
+  ref_open: { spread: number | null; total: number | null; ml_home: number | null } | null;
 };
+export type ExMark = { ts: string; game_id: string; lines: [string, number][]; r: number[] };
 export type ExSnap = { ts: string; subject: string; equity: number };
 export type ExMeta = { n: number; ts: string; markets: number; games: number; new_trades: number; settled: number } | null;
 
@@ -147,12 +152,13 @@ export type Row = {
   takerPnl: number;
   maxDd: number;
   winRate: number | null;
+  note: string;
 };
 
 /** One summary row per member, and one per syndicate (its members added up), in the same shape so the same table renders both. */
 export function summarize(syndicates: ExSyndicate[], members: ExMember[]): { members: Row[]; syndicates: Row[] } {
   const syn = Object.fromEntries(syndicates.map((s) => [s.id, s]));
-  const rowOf = (id: string, name: string, syndicate: string, color: string, ms: ExMember[], start: number): Row => {
+  const rowOf = (id: string, name: string, syndicate: string, color: string, ms: ExMember[], start: number, note = ""): Row => {
     const equity = ms.reduce((a, m) => a + equityOf(m), 0);
     const st = ms.map((m) => m.stats);
     const sum = (f: (s: ExMemberStats) => number) => st.reduce((a, s) => a + (f(s) ?? 0), 0);
@@ -164,10 +170,53 @@ export function summarize(syndicates: ExSyndicate[], members: ExMember[]): { mem
       id, name, syndicate, color, equity, pnl: equity - start, realized, roi: volume > 0 ? realized / volume : 0,
       openRisk: ms.reduce((a, m) => a + (m.open_risk ?? 0), 0), trades: sum((s) => s.n_maker + s.n_taker), volume,
       clv: clvN > 0 ? sum((s) => s.clv_sum) / clvN : null, clvN, makerPnl: sum((s) => s.pnl_maker), takerPnl: sum((s) => s.pnl_taker),
-      maxDd: Math.max(0, ...st.map((s) => s.max_dd)), winRate: decided > 0 ? sum((s) => s.wins) / decided : null,
+      maxDd: Math.max(0, ...st.map((s) => s.max_dd)), winRate: decided > 0 ? sum((s) => s.wins) / decided : null, note,
     };
   };
-  const mrows = members.map((m) => rowOf(m.id, m.name, syn[m.syndicate_id]?.name ?? m.syndicate_id, syn[m.syndicate_id]?.color ?? "#888", [m], m.start_units));
+  const mrows = members.map((m) => rowOf(m.id, m.name, syn[m.syndicate_id]?.name ?? m.syndicate_id, syn[m.syndicate_id]?.color ?? "#888", [m], m.start_units, `${m.role === "both" ? "maker + taker" : m.role} · ${Array.isArray(m.params.focus) ? (m.params.focus as string[]).map((x) => x.toUpperCase()).join(", ") : ""}`));
   const srows = syndicates.map((s) => rowOf(s.id, s.name, s.name, s.color, members.filter((m) => m.syndicate_id === s.id), s.start_units));
   return { members: mrows.sort((a, b) => b.pnl - a.pnl), syndicates: srows.sort((a, b) => b.pnl - a.pnl) };
+}
+
+export async function getGameTrades(gameId: string): Promise<ExTrade[]> {
+  const { data } = await supabase.from("ex_trades").select("*").eq("game_id", gameId).order("ts", { ascending: true }).limit(3000);
+  return (data ?? []) as ExTrade[];
+}
+
+export async function getGameMarks(gameId: string): Promise<ExMark[]> {
+  const { data } = await supabase.from("ex_marks").select("ts,game_id,lines,r").eq("game_id", gameId).order("ts", { ascending: true }).limit(2000);
+  return (data ?? []) as ExMark[];
+}
+
+export async function getExchangeGame(gameId: string): Promise<ExGame | null> {
+  const { data } = await supabase.from("ex_games").select("*").eq("id", gameId).maybeSingle();
+  return (data ?? null) as ExGame | null;
+}
+
+/** Trades from the last `hours`, for the top-traded views. */
+export async function getRecentTrades(hours = 24): Promise<ExTrade[]> {
+  const since = new Date(Date.now() - hours * 3600000).toISOString();
+  const { data } = await supabase.from("ex_trades").select("id,ts,game_id,kind,line,price,qty,buyer,seller,maker").gte("ts", since).order("ts", { ascending: false }).limit(5000);
+  return (data ?? []) as ExTrade[];
+}
+
+/** Profit and loss at each possible final margin (or total) for a set of trades, from one side of the market: positions still open only. */
+export function payoff(trades: ExTrade[], who: (id: string) => string | null, xs: number[], dim: "m" | "t"): Record<string, number[]> {
+  const out: Record<string, number[]> = {};
+  const add = (key: string, qty: number, sign: 1 | -1, t: ExTrade) => {
+    if (qty <= 1e-9) return;
+    const isTotal = t.kind === "total";
+    if ((dim === "t") !== isTotal) return;
+    const arr = (out[key] ??= xs.map(() => 0));
+    xs.forEach((x, i) => {
+      const yes = t.kind === "ml" ? (x > 0 ? 1 : x < 0 ? 0 : 0.5) : t.kind === "spread" ? (x + t.line > 0 ? 1 : x + t.line < 0 ? 0 : 0.5) : x > t.line ? 1 : x < t.line ? 0 : 0.5;
+      arr[i] += sign === 1 ? qty * (yes - t.price) : qty * (t.price - yes);
+    });
+  };
+  for (const t of trades) {
+    const b = who(t.buyer), s = who(t.seller);
+    if (b) add(b, t.rem_b ?? t.qty, 1, t);
+    if (s) add(s, t.rem_s ?? t.qty, -1, t);
+  }
+  return out;
 }
