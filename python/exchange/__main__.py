@@ -1,0 +1,36 @@
+"""python -m exchange init | ratings | round | status   (add --local to use the JSON file instead of Supabase)"""
+from __future__ import annotations
+
+import argparse
+
+from . import engine
+from .espn import SPORTS
+from .store import FileStore, SbStore
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("cmd", choices=["init", "ratings", "round", "status"])
+    ap.add_argument("--local", action="store_true")
+    ap.add_argument("--sports", default=",".join(SPORTS))
+    ap.add_argument("--days", type=int, default=420)
+    ap.add_argument("--rounds", type=int, default=1)
+    a = ap.parse_args()
+    store = FileStore() if a.local else SbStore()
+    sports = a.sports.split(",")
+    if a.cmd == "init":
+        engine.init(store)
+        print("roster ready")
+    elif a.cmd == "ratings":
+        engine.fit_ratings(store, sports, a.days)
+    elif a.cmd == "round":
+        for _ in range(a.rounds):
+            engine.run_round(store, sports)
+    else:
+        mem = sorted(store.rows("ex_members"), key=lambda m: -m.get("equity", m["cash"]))
+        for m in mem:
+            s = m["stats"]
+            print(f"{m['id']:<14} equity {m.get('equity', m['cash']):8.2f}  realized {m['realized']:+7.2f}  open {m.get('open_risk', 0):6.2f}  maker/taker trades {s['n_maker']}/{s['n_taker']}")
+
+
+main()
