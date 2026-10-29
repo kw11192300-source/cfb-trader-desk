@@ -119,7 +119,12 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
             </h2>
             <p className="mt-1 text-xs text-muted">
               <LocalDateTime iso={game.start_utc} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
-              {game.ref && (
+              {game.ref?.src === "kalshi" || game.ref?.src === "model" ? (
+                <span className="ml-2 rounded border border-warn/50 px-1.5 py-0.5 text-[10px] text-warn">
+                  No DraftKings line yet: the baseline is {game.ref.src === "kalshi" ? "Kalshi's prices" : "our rating models"} blended with the exchange&rsquo;s own price, and limits are small
+                </span>
+              ) : null}
+              {game.ref && game.ref.src !== "kalshi" && game.ref.src !== "model" && (
                 <>
                   {" · "}DraftKings {game.ref.spread !== null ? `${game.home.abbr} ${game.ref.spread > 0 ? "+" : ""}${game.ref.spread}` : ""}
                   {game.ref.total !== null ? ` · total ${game.ref.total}` : ""}

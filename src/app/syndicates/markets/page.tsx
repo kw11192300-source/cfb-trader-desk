@@ -11,8 +11,13 @@ const SPORT_LABEL: Record<string, string> = { cfb: "CFB", nfl: "NFL", nhl: "NHL"
 const gameHref = (id: string) => `/syndicates/games/${encodeURIComponent(id)}`;
 const sgn = (n: number) => `${n > 0 ? "+" : ""}${n}`;
 
-export default async function SyndicateMarketsPage() {
-  const [games, trades, { meta }] = await Promise.all([getExchangeBoard(), getRecentTrades(24), getExchange()]);
+const WINDOWS: [string, number][] = [["Next 24 hours", 24], ["Next 2 days", 48], ["Next week", 168], ["Two weeks", 336]];
+const srcNote = (g: ExGame) => (g.ref?.src === "kalshi" ? "no DraftKings line yet · baseline from Kalshi" : g.ref?.src === "model" ? "no DraftKings line yet · baseline from our rating models" : null);
+
+export default async function SyndicateMarketsPage({ searchParams }: { searchParams: Promise<{ h?: string }> }) {
+  const sp = await searchParams;
+  const hours = WINDOWS.find(([, v]) => String(v) === sp.h)?.[1] ?? 48;
+  const [games, trades, { meta }] = await Promise.all([getExchangeBoard(hours), getRecentTrades(24), getExchange()]);
   const byId = Object.fromEntries(games.map((g) => [g.id, g]));
   // traded size by game over the last day (a contract pays 1 unit, so contracts traded is also the units of payout changing hands)
   const vol: Record<string, { n: number; qty: number; notional: number; kinds: Record<string, number> }> = {};
@@ -38,6 +43,7 @@ export default async function SyndicateMarketsPage() {
           <Link href={gameHref(g.id)} className="hover:text-accent">
             {g.away.name} @ {g.home.name}
           </Link>
+          {srcNote(g) && <span className="ml-2 rounded border border-border px-1.5 py-0.5 text-[10px] font-normal text-muted">{srcNote(g)}</span>}
         </h3>
         <span className="text-[11px] text-muted">
           <LocalDateTime iso={g.start_utc} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
@@ -125,6 +131,11 @@ export default async function SyndicateMarketsPage() {
           </section>
         </div>
 
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-[11px]">
+          <span className="text-muted">Show</span>
+          {WINDOWS.map(([lab, v]) => <Link key={v} href={`/syndicates/markets?h=${v}`} className={`rounded px-2.5 py-1 ${v === hours ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>{lab}</Link>)}
+          <span className="text-muted">Games further out have small limits; ones DraftKings has not priced yet start from Kalshi or our own ratings and the exchange builds the line from there.</span>
+        </div>
         <p className="mb-4 max-w-3xl text-xs leading-relaxed text-muted">
           Each game lists a moneyline and a ladder of spread and total lines around DraftKings&rsquo; main number. Fair is the DraftKings price with the vig taken out (a yes
           contract pays 100¢: home wins, home covers, over). The depth bars show how much is bid (green) and offered (red) at the best prices after the latest round.

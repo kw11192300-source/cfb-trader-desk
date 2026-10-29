@@ -89,10 +89,11 @@ def scoreboard(sport: str, day: date) -> list[dict]:
     return out
 
 
-def window(sports: list[str], back: int = 2, fwd: int = 3) -> list[dict]:
+def window(sports: list[str], back: int = 2, fwd: int = 7) -> list[dict]:
     """Every event from `back` days ago to `fwd` days ahead (ESPN's scoreboard day is the US-Eastern date)."""
     today = datetime.now(timezone.utc).date()
-    jobs = [(s, today + timedelta(days=d)) for s in sports for d in range(-back, fwd + 1)]
+    # NFL plays one slate a week, so two weeks of it is a handful of games
+    jobs = [(s, today + timedelta(days=d)) for s in sports for d in range(-back, (max(fwd, 14) if s == "nfl" else fwd) + 1)]
     with ThreadPoolExecutor(8) as ex:
         res = list(ex.map(lambda a: scoreboard(*a), jobs))
     seen: dict[str, dict] = {}

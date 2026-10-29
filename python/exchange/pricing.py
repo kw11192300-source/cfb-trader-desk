@@ -171,3 +171,43 @@ def outcome(kind: str, line: float, hs: int, as_: int) -> float:
         return 0.5 if hs == as_ else float(hs > as_)
     v = (hs - as_ + line) if kind == "spread" else (hs + as_ - line)
     return 0.5 if v == 0 else float(v > 0)
+
+
+def american(p: float) -> float:
+    p = clip(p, 0.02, 0.98)
+    return float(round(-100 * p / (1 - p)) if p >= 0.5 else round(100 * (1 - p) / p))
+
+
+def _half(x: float) -> float:
+    """The half-point line nearest x."""
+    return float(round(x - 0.5) + 0.5)
+
+
+def synth_snap(sport: str, m: float, t: float, ml_p: float | None = None) -> dict:
+    """A DraftKings-shaped snapshot built from an expected margin and total, for games that have no posted line yet."""
+    d = Dist(sport, m, t)
+    sl, tl = _half(-m), _half(t)
+    ps, po, pm = d.p_spread(sl), d.p_total(tl), ml_p if ml_p is not None else d.p_ml()
+    return {"spread": sl, "spread_home": american(ps), "spread_away": american(1 - ps), "total": tl, "over": american(po), "under": american(1 - po),
+            "ml_home": american(pm), "ml_away": american(1 - pm)}
+
+
+def fit_from_probs(sport: str, spread_pts: list[tuple[float, float]], total_pts: list[tuple[float, float]], ml_p: float | None = None) -> tuple[float, float] | None:
+    """(expected margin, expected total) that best reproduces a set of spread prices (home covers at line), total prices (over at line) and a moneyline."""
+    from scipy.optimize import minimize_scalar
+
+    t_default = HOCKEY_TOTAL if sport == "nhl" else SIGMA[sport][2]
+    t = t_default
+    if total_pts:
+        lo, hi = (0.5, 20.0) if sport == "nhl" else (t_default * 0.4, t_default * 1.8)
+        t = float(minimize_scalar(lambda x: sum((Dist(sport, 0.0, x).p_total(L) - p) ** 2 for L, p in total_pts), bounds=(lo, hi), method="bounded").x)
+    span = 4.0 if sport == "nhl" else 45.0
+    if spread_pts:
+        m = float(minimize_scalar(lambda x: sum((Dist(sport, x, t).p_spread(L) - p) ** 2 for L, p in spread_pts), bounds=(-span, span), method="bounded").x)
+    elif ml_p is not None:
+        m = _bisect(lambda x: Dist(sport, x, t).p_ml(), -span, span, clip(ml_p, 0.03, 0.97))
+    elif total_pts:
+        m = 0.0
+    else:
+        return None
+    return m, t

@@ -92,7 +92,8 @@ export type ExGame = {
   away: Team;
   home_score: number | null;
   away_score: number | null;
-  ref: { spread: number | null; total: number | null; ml_home: number | null; ml_away: number | null } | null;
+  /** DraftKings' lines, or when DraftKings has not priced the game, a baseline (src is kalshi or model) built from Kalshi or our rating models */
+  ref: { spread: number | null; total: number | null; ml_home: number | null; ml_away: number | null; src?: string } | null;
   /** [kind, line, reference %, best bid, best ask, last trade] */
   /** [kind, line, fair, best bid, best ask, last trade, first trade, bid size, ask size, exchange price] */
   book: [string, number, number, number | null, number | null, number | null, number | null, number | null, number | null, number | null, [number, number, string?][][] | null][] | null;
@@ -140,13 +141,15 @@ export async function getExchangeGamesByIds(ids: string[]): Promise<Record<strin
   return Object.fromEntries(((data ?? []) as ExGame[]).map((g) => [g.id, g]));
 }
 
-export async function getExchangeBoard(): Promise<ExGame[]> {
-  const { data } = await supabase
+export async function getExchangeBoard(maxHours?: number): Promise<ExGame[]> {
+  let q = supabase
     .from("ex_games")
     .select("id,sport,start_utc,state,completed,home,away,home_score,away_score,ref,ref_open,book,views")
     .eq("state", "pre")
     .not("book", "is", null)
     .order("start_utc", { ascending: true });
+  if (maxHours) q = q.lte("start_utc", new Date(Date.now() + maxHours * 3600000).toISOString());
+  const { data } = await q;
   return (data ?? []) as unknown as ExGame[];
 }
 
