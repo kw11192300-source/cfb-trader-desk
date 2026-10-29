@@ -37,6 +37,10 @@ export type ExMemberStats = {
   wins: number;
   losses: number;
   biggest: number;
+  /** how much other traders should listen to this one's hits, 0 to 1, by sport */
+  sharp?: Record<string, number>;
+  /** its record as a taker: decayed sum of closing-line value (s), weight (w), trades (n), by sport */
+  flow?: Record<string, { s: number; w: number; n: number }>;
 };
 export type ExMember = {
   id: string;
@@ -86,7 +90,7 @@ export type ExGame = {
   ref: { spread: number | null; total: number | null; ml_home: number | null; ml_away: number | null } | null;
   /** [kind, line, reference %, best bid, best ask, last trade] */
   /** [kind, line, fair, best bid, best ask, last trade, first trade, bid size, ask size, exchange price] */
-  book: [string, number, number, number | null, number | null, number | null, number | null, number | null, number | null, number | null][] | null;
+  book: [string, number, number, number | null, number | null, number | null, number | null, number | null, number | null, number | null, [number, number][][] | null][] | null;
   ref_open: { spread: number | null; total: number | null; ml_home: number | null } | null;
 };
 export type ExMark = { ts: string; game_id: string; lines: [string, number][]; r: number[]; e: (number | null)[] | null };

@@ -6,7 +6,7 @@ import { type ExGame, type ExSnap, type ExTrade, label, pct, type Row } from "@/
 const u = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}`;
 const tone = (n: number) => (n > 0.005 ? "text-up" : n < -0.005 ? "text-down" : "text-foreground");
 
-export function SyndicateHeader({ active, round }: { active: "board" | "markets"; round?: { n: number; ts: string } | null }) {
+export function SyndicateHeader({ active, round }: { active: "board" | "markets" | "volume"; round?: { n: number; ts: string } | null }) {
   const tab = (href: string, text: string, key: string) => (
     <Link href={href} className={`rounded px-3 py-1.5 ${active === key ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>
       {text}
@@ -34,6 +34,7 @@ export function SyndicateHeader({ active, round }: { active: "board" | "markets"
         <nav className="flex items-center gap-1 text-xs">
           {tab("/syndicates", "Leaderboard", "board")}
           {tab("/syndicates/markets", "Markets", "markets")}
+          {tab("/syndicates/volume", "Volume", "volume")}
           <Link href="/today" className="ml-3 text-muted hover:text-foreground">
             ← Trader Desk
           </Link>

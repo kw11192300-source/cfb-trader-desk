@@ -163,3 +163,25 @@ export function PositionMatrix({ rows, cols }: { rows: MatrixRow[]; cols: { id: 
     </div>
   );
 }
+
+/** Plain vertical bars, one per bucket, with the first and last labels underneath. */
+export function Bars({ data, height = 120, color = "#38bdf8", fmt }: { data: { label: string; v: number }[]; height?: number; color?: string; fmt?: (v: number) => string }) {
+  if (!data.length) return <p className="rounded-lg border border-border bg-surface px-3 py-6 text-center text-xs text-muted">Nothing to chart yet.</p>;
+  const max = Math.max(1, ...data.map((d) => d.v));
+  const W = 900, H = height, L = 8, B = 18, gap = 2;
+  const bw = (W - L * 2) / data.length;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full rounded-lg border border-border bg-surface">
+      {data.map((d, i) => {
+        const h = (d.v / max) * (H - B - 8);
+        return (
+          <rect key={i} x={L + i * bw + gap / 2} y={H - B - h} width={Math.max(1, bw - gap)} height={h} fill={color} fillOpacity="0.8" rx="1">
+            <title>{`${d.label}: ${fmt ? fmt(d.v) : d.v}`}</title>
+          </rect>
+        );
+      })}
+      <text x={L} y={H - 4} className="fill-muted" fontSize="10">{data[0].label}</text>
+      <text x={W - L} y={H - 4} textAnchor="end" className="fill-muted" fontSize="10">{data[data.length - 1].label}</text>
+    </svg>
+  );
+}

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import LocalDateTime from "@/components/LocalDateTime";
+import { scenarioPnl, scenarios } from "@/lib/syndicateGame";
 import { EquityChart, LeaderTable, SyndicateHeader, TradeList } from "@/components/SyndicateParts";
 import {
   fairOf, getExchange, getExchangeSnapshots, getExchangeTrades, getGamesFull, getSyndicateOpenTrades, label, openLots, payoff, pct, ramp, summarize, SYN_GAME_LIMIT,
@@ -50,7 +51,8 @@ export default async function SyndicatePage({ params }: { params: Promise<{ id: 
       return f == null ? a : a + (l.qty > 0 ? l.qty * (f - l.price) : -l.qty * (l.price - f));
     }, 0);
     const hrs = g ? (new Date(g.start_utc).getTime() - Date.now()) / 3600000 : 0;
-    return { gid, g, worst: Math.min(...pm) + Math.min(...pt), best: Math.max(...pm) + Math.max(...pt), mtm, limit: SYN_GAME_LIMIT * ramp(Math.max(0, hrs)), n: mine_.length };
+    const scs = g ? scenarios(g) : [];
+    return { gid, g, scs, scen: scs.map((x) => scenarioPnl(mine_, x)), worst: Math.min(...pm) + Math.min(...pt), best: Math.max(...pm) + Math.max(...pt), mtm, limit: SYN_GAME_LIMIT * ramp(Math.max(0, hrs)), n: mine_.length };
   }).filter((r) => r.g).sort((a, b) => a.worst - b.worst);
   const bySport: Record<string, number> = {};
   for (const r of riskRows) bySport[r.g!.sport] = (bySport[r.g!.sport] ?? 0) + Math.max(0, -r.worst);
@@ -186,6 +188,43 @@ export default async function SyndicatePage({ params }: { params: Promise<{ id: 
             </>
           )}
         </section>
+
+        {riskRows.length > 0 && (
+          <section className="mb-8">
+            <h3 className="mb-2 text-sm font-semibold text-foreground">If it ends like this</h3>
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full min-w-[820px] text-xs">
+                <thead className="bg-surface text-left text-muted">
+                  <tr>
+                    <th className="px-3 py-2">Game</th>
+                    {["Home wins big", "Home wins close", "Away wins close", "Away wins big"].map((h) => (
+                      <th key={h} className="px-2 py-2 text-right font-medium">{h}</th>
+                    ))}
+                    {["Total well over", "Total on the line", "Total well under"].map((h, i) => (
+                      <th key={h} className={`px-2 py-2 text-right font-medium ${i === 0 ? "border-l border-border" : ""}`}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="font-mono">
+                  {riskRows.map((r) => (
+                    <tr key={r.gid} className="border-t border-border">
+                      <td className="px-3 py-1.5 font-sans text-foreground">
+                        <span className="mr-2 text-[10px] text-muted">{SPORT[r.g!.sport]}</span>
+                        <Link href={`/syndicates/games/${encodeURIComponent(r.gid)}`} className="hover:text-accent">{r.g!.away.abbr} @ {r.g!.home.abbr}</Link>
+                      </td>
+                      {r.scen.map((v, i) => (
+                        <td key={r.scs[i].id} title={r.scs[i].label} className={`px-2 py-1.5 text-right ${v > 0.5 ? "text-up" : v < -0.5 ? "text-down" : "text-muted"} ${i === 4 ? "border-l border-border" : ""}`}>
+                          {v > 0.5 ? "+" : ""}{v.toFixed(0)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-1 text-[11px] text-muted">What the syndicate makes or loses on that game at a specific final score (hover a figure for the score). Big and close are set from how much that sport&rsquo;s margins usually vary. The side columns use moneyline and spread positions, the total columns use total positions; they are separate bets, so add one of each for the whole game.</p>
+          </section>
+        )}
 
         <section className="mb-8">
           <h3 className="mb-2 text-sm font-semibold text-foreground">Open positions</h3>

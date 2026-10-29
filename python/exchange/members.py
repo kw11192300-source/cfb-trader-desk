@@ -32,7 +32,8 @@ def strategy(sid: str, i: int, role: str) -> dict:
     trusts its syndicate's model - and then adapts it from its own results (engine.adapt). The rulebook itself (engine.RULES) caps all of it."""
     r = random.Random(f"{sid}-{i}")
     return dict(max_risk=100.0, thr=round(r.uniform(0.012, 0.03), 3), half=round(r.uniform(0.01, 0.022), 3), kelly=round(r.uniform(0.1, 0.25), 2),
-                size=round(r.uniform(60, 100)), skew=round(r.uniform(0.0001, 0.0004), 5), trust=round(r.uniform(0.7, 1.3), 2))
+                size=round(r.uniform(60, 100)), skew=round(r.uniform(0.0001, 0.0004), 5), trust=round(r.uniform(0.7, 1.3), 2),
+                follow=round(r.uniform(0.2, 0.9), 2))
 
 
 SYNDICATES = [

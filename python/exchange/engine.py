@@ -25,6 +25,11 @@ TOTAL_FRAC = 0.30  # worst-case loss, summed over a trader's games, may not pass
 SYN_GAME = 150.0  # a syndicate's combined worst case on one game, all its traders together, at the kickoff end of the ramp
 TAKE_CLIP = 40.0  # most contracts a trader will take in one go
 MAX_FILLS = 2  # most hits a trader makes each time it acts
+IMPACT = 0.03  # a full-strength sharp trader's full-size trade moves everyone's view of the game by this share of a standard deviation
+IMPACT_Q = 50.0  # contracts that count as a full-size trade
+FLOW_DECAY = 0.6  # how much of that market move is still felt a round later
+SHARP_CLV = 0.02  # average closing-line value (2 cents) that makes a taker fully "sharp"
+SHARP_N = 10.0  # effective trades of evidence before a taker's record counts in full
 MAKER_SOFT = 0.6  # a market maker stops offering new risk once it has used this share of its risk limit, so it always has room to keep quoting
 RESERVE_FRAC = 0.20  # share of its starting bankroll a trader never commits as cash
 TICKS = 12  # steps of simulated time inside one round
@@ -276,6 +281,9 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 st["clv_n"] += 1
                 st[f"clv_{role}_sum"] = st.get(f"clv_{role}_sum", 0.0) + c
                 st[f"clv_{role}_n"] = st.get(f"clv_{role}_n", 0) + 1
+                if role == "taker":  # the track record other traders read: closing-line value on what this trader chose to hit, by sport
+                    fl = st.setdefault("flow", {}).setdefault(g["sport"], {"s": 0.0, "w": 0.0, "n": 0})
+                    fl["s"], fl["w"], fl["n"] = fl["s"] * 0.97 + c, fl["w"] * 0.97 + 1.0, fl["n"] + 1
         settled_rows.append(t)
         stats["settled"] += 1
         stats["voided"] += out == 0.5
@@ -355,6 +363,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
 
     # what each trader can look at: every sport, but outside its focus only the lines near the main number, smaller and pickier
     mine: dict[str, list[tuple[str, bool]]] = {}
+    base_fairs: dict[tuple[str, str], float] = {}
     fairs: dict[tuple[str, str], float] = {}
     for m in members.values():
         kinds, focus = m["params"].get("kinds"), set(m["params"].get("focus", []))
@@ -365,7 +374,42 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             on = mk["sport"] in focus
             if on or mk["near"]:
                 mine[m["id"]].append((k, on))
-                fairs[(m["id"], k)] = fair(m, k)
+                base_fairs[(m["id"], k)] = fairs[(m["id"], k)] = fair(m, k)
+
+    def sharp(mid: str, sport: str) -> float:
+        """0 to 1: how much a trader's hits are worth listening to in a sport - its closing-line record as a taker, or its syndicate's proven model."""
+        m = members[mid]
+        fl = (m["stats"].get("flow") or {}).get(sport)
+        s1 = 0.0
+        if fl and fl["w"] > 0:
+            s1 = float(np.clip(fl["s"] / fl["w"] / SHARP_CLV, 0.0, 1.0)) * fl["w"] / (fl["w"] + SHARP_N)
+        s2 = 0.7 * float(np.clip((weights[(m["syndicate_id"], sport)] - W0) / (W_MAX - W0), 0.0, 1.0))
+        return max(s1, s2)
+
+    # market moves caused by sharp flow: a shift in each game's expected margin and total that everyone who follows the flow adds to their fair prices
+    flow: dict[str, list[float]] = {}
+    delta: dict[str, float] = {}
+    sd_of = {"nhl": (2.3, 2.4), **{sp: v[:2] for sp, v in pricing.SIGMA.items()}}
+
+    def refresh(gid: str) -> None:
+        dm, dt = flow.get(gid, [0.0, 0.0])
+        d0 = refs[gid][0]
+        d1 = Dist(d0.sport, d0.m + dm, d0.t + dt)
+        for k in by_gid[gid]:
+            mk = markets[k]
+            delta[k] = d1.p(mk["kind"], mk["line"]) - d0.p(mk["kind"], mk["line"])
+        for m in members.values():
+            f = m["params"].get("follow", 0.5)
+            for k in by_gid[gid]:
+                if (m["id"], k) in base_fairs:
+                    r = markets[k]["ref"]
+                    fairs[(m["id"], k)] = clip(base_fairs[(m["id"], k)] + f * delta[k], r - BAND, r + BAND)
+
+    for gid in by_gid:
+        pv = (prev_views.get(gid) or {}).get("flow")
+        if pv and (abs(pv[0]) > 1e-6 or abs(pv[1]) > 1e-6):
+            flow[gid] = [pv[0] * FLOW_DECAY, pv[1] * FLOW_DECAY]
+            refresh(gid)
 
     # ---- positions: open lots by trader and game, with their worst-case risk
     lots_g: dict[tuple[str, str], list[dict]] = {}
@@ -505,6 +549,17 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             lots_g.setdefault((seller["id"], mk["gid"]), []).append(tr)
         last_px[k] = px
         first_px.setdefault(k, px)
+        taker = buyer if maker is seller else seller
+        sh = sharp(taker["id"], mk["sport"])
+        if sh > 0.02:  # a trader with a record hit this: everyone following the flow marks the game a little their way
+            sd_m, sd_t = sd_of[mk["sport"]]
+            imp = (1.0 if taker is buyer else -1.0) * sh * IMPACT * min(1.0, qty / IMPACT_Q)
+            f = flow.setdefault(mk["gid"], [0.0, 0.0])
+            if mk["kind"] == "total":
+                f[1] = float(np.clip(f[1] + imp * sd_t, -0.2 * sd_t, 0.2 * sd_t))
+            else:
+                f[0] = float(np.clip(f[0] + imp * sd_m, -0.2 * sd_m, 0.2 * sd_m))
+            refresh(mk["gid"])
         return tr
 
     def post_quotes(m: dict) -> None:
@@ -611,6 +666,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         if not v or gid not in by_gid:
             continue
         v["x"] = [eco.get(ckey(gid, kd, ln)) for kd, ln in v["lines"]]
+        if gid in flow and (abs(flow[gid][0]) > 1e-6 or abs(flow[gid][1]) > 1e-6):
+            v["flow"] = [round(flow[gid][0], 4), round(flow[gid][1], 4)]
         old = prev_views.get(gid)
         prior = (old or {}).get("x") or [None] * len(v["x"])
         moved = (not old or old.get("r") != v["r"] or old.get("lines") != v["lines"]
@@ -643,13 +700,21 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                           "realized": round(sum(m["realized"] for m in ms), 3), "open_risk": round(sum(m["open_risk"] for m in ms), 3)})
     for m in members.values():
         adapt(m, _iso(now))
+        m["stats"]["sharp"] = {sp: round(sharp(m["id"], sp), 3) for sp in espn.SPORTS}
 
-    # ---- the book the page shows: [kind, line, fair, best bid, best ask, last trade, first trade this round, bid size, ask size, exchange price]
+    # ---- the book the page shows: [kind, line, fair, best bid, best ask, last trade, first trade this round, bid size, ask size, exchange price, [bid levels, ask levels]]
+    def levels(book: list[list]) -> list[list[float]]:
+        agg: dict[float, float] = {}
+        for q in book:
+            if q[1] > 0.5:
+                agg[q[0]] = agg.get(q[0], 0.0) + q[1]
+        return [[p, round(v)] for p, v in list(agg.items())[:5]]
+
     by_game: dict[str, list] = {}
     for k, mk in markets.items():
         b, a = (bids[k][0] if bids[k] else None), (asks[k][0] if asks[k] else None)
         by_game.setdefault(mk["gid"], []).append([mk["kind"], mk["line"], round(mk["ref"], 3), b and b[0], a and a[0], last_px.get(k), first_px.get(k),
-                                                  b and b[1], a and a[1], eco.get(k)])
+                                                  b and b[1], a and a[1], eco.get(k), [levels(bids[k]), levels(asks[k])]])
     for gid, rows in by_game.items():
         games[gid]["book"] = rows
 
