@@ -93,6 +93,7 @@ export function LadderDepth({ g }: { g: ExGame }) {
                 <th className="w-24 py-0.5 text-center font-medium">Depth</th>
                 <th className="py-0.5 font-medium">Ask</th>
                 <th className="py-0.5 text-right font-medium" title="DraftKings price, vig removed">DK</th>
+                <th className="py-0.5 text-right font-medium" title="Kalshi's real-money price, the middle of its bid and ask">KS</th>
                 <th className="py-0.5 text-right font-medium" title="The exchange's own price: size-weighted middle of the best bid and ask, else the last trade">Exch</th>
                 <th className="py-0.5 text-right font-medium">Last</th>
               </tr>
@@ -110,6 +111,7 @@ export function LadderDepth({ g }: { g: ExGame }) {
                   </td>
                   <td className="py-0.5">{pct(r[4])}</td>
                   <td className="py-0.5 text-right text-muted">{pct(r[2])}</td>
+                  <td className="py-0.5 text-right text-muted">{pct(g.views?.kal?.find((x) => x[0] === r[0] && x[1] === r[1])?.[2])}</td>
                   <td className="py-0.5 text-right text-foreground">{pct(r[9])}</td>
                   <td className="py-0.5 text-right text-accent">{pct(r[5])}</td>
                 </tr>

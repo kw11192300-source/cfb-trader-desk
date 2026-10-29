@@ -80,7 +80,8 @@ def write_closing(store, root: Path = PACK_DIR) -> int:
         op = g.get("ref_open") or {}
         rows.append({"id": g["id"], "sport": g["sport"], "start": pd.Timestamp(g["start_utc"]), "home_id": g["home"]["id"], "away_id": g["away"]["id"],
                      "spread": ref.get("spread"), "total": ref.get("total"), "ml_home": ref.get("ml_home"), "ml_away": ref.get("ml_away"),
-                     "open_spread": op.get("spread"), "open_total": op.get("total"), "home_score": g["home_score"], "away_score": g["away_score"]})
+                     "open_spread": op.get("spread"), "open_total": op.get("total"), "home_score": g["home_score"], "away_score": g["away_score"],
+                     "kalshi": (g.get("views") or {}).get("kal")})
     root.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_pickle(root / "closing_lines.pkl")
     return len(rows)

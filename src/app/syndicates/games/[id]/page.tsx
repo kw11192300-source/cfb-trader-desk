@@ -30,6 +30,7 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
   const synName = Object.fromEntries(syndicates.map((s) => [s.id, s.name]));
   const who = (mid: string) => synOf[mid] ?? null;
   const book = game.book ?? [];
+  const kal = (kind: string, line: number): number | null => game.views?.kal?.find((x) => x[0] === kind && x[1] === line)?.[2] ?? null;
   const lots = openLots(trades, who);
 
   // per-contract totals: traded size, open interest, last price
@@ -141,7 +142,7 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
               </div>
               <div className="flex items-baseline gap-4">
                 <span className="text-4xl font-semibold text-foreground">{Math.round((selRow[9] ?? selRow[2]) * 100)}%</span>
-                <span className="text-xs text-muted">DraftKings {Math.round(selRow[2] * 100)}% · last trade {cents(selRow[5] ?? vol[`${sel.kind}|${sel.line}`]?.last)}</span>
+                <span className="text-xs text-muted">DraftKings {Math.round(selRow[2] * 100)}%{kal(selRow[0], selRow[1]) != null ? ` · Kalshi ${Math.round(kal(selRow[0], selRow[1])! * 100)}%` : ""} · last trade {cents(selRow[5] ?? vol[`${sel.kind}|${sel.line}`]?.last)}</span>
               </div>
             </div>
             <LineChart series={series} dots={dots} height={340} legend={false} xFmt={fmtTime} yFmt={(v) => `${v.toFixed(0)}¢`} />
@@ -188,7 +189,7 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
                             </td>
                             <td className="px-2 py-1.5 text-right">
                               <span className="text-sm text-foreground">{Math.round(chance * 100)}%</span>
-                              <span className="ml-1 text-[10px] text-muted">DK {Math.round(r[2] * 100)}%{dif != null && Math.abs(dif) >= 1 ? ` · ${dif > 0 ? "+" : ""}${dif.toFixed(0)}` : ""}</span>
+                              <span className="ml-1 text-[10px] text-muted">DK {Math.round(r[2] * 100)}%{kal(r[0], r[1]) != null ? ` · KS ${Math.round(kal(r[0], r[1])! * 100)}%` : ""}{dif != null && Math.abs(dif) >= 1 ? ` · ${dif > 0 ? "+" : ""}${dif.toFixed(0)}` : ""}</span>
                             </td>
                             <td className="px-2 py-1.5 text-right"><span className="rounded bg-up/15 px-1.5 py-0.5 text-up">{cents(r[4])}</span></td>
                             <td className="px-2 py-1.5 text-right"><span className="rounded bg-down/15 px-1.5 py-0.5 text-down">{r[3] == null ? "–" : `${Math.round((1 - r[3]) * 100)}¢`}</span></td>

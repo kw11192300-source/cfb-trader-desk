@@ -22,7 +22,7 @@ TRADERS_PER = 5
 TRADER_UNITS = SYNDICATE_UNITS / TRADERS_PER
 NAMES = ["Avery", "Blake", "Casey", "Drew", "Emery", "Finley", "Gray", "Harper", "Indigo", "Jules", "Kai", "Logan", "Morgan", "Nico", "Oakley", "Parker",
          "Quinn", "Reese", "Sage", "Tatum", "Uma", "Val", "Wren", "Xan", "Yael", "Zion", "Arden", "Bryn", "Cleo", "Dale", "Eden", "Flynn", "Gale", "Hollis",
-         "Ivy", "Jordan", "Kit", "Lane", "Marlow", "Nova", "Onyx", "Phoenix", "Remy", "Sky", "Teagan", "Ulric", "Vesper", "Wynn", "Yarrow", "Zeke", "Rune", "Sloane", "Tove", "Ash", "Bell", "Cove", "Dune", "Fern", "Glen", "Hale", "Ike", "Jett"]
+         "Ivy", "Jordan", "Kit", "Lane", "Marlow", "Nova", "Onyx", "Phoenix", "Remy", "Sky", "Teagan", "Ulric", "Vesper", "Wynn", "Yarrow", "Zeke", "Rune", "Sloane", "Tove", "Ash", "Bell", "Cove", "Dune", "Fern", "Glen", "Hale", "Ike", "Jett", "Kerry", "Lark", "Moss", "Noor", "Orin"]
 # (role, number of focus sports): two market makers (a specialist and a generalist), two takers, one who does both
 SEATS = [("maker", 2), ("maker", 3), ("taker", 2), ("taker", 1), ("both", 2)]
 
@@ -53,6 +53,8 @@ SYNDICATES = [
          tagline="A research agent that studies the market itself - how lines move, which moves hold and which fade - and builds a model of that."),
     dict(id="labo", name="Open Lab", engine="agent", color="#e879f9", agent={"lines": True},
          tagline="A research agent with everything: results, player data and market lines, free to combine them however it finds works."),
+    dict(id="kalshi", name="Kalshi Followers", engine="kalshi", color="#10b981",
+         tagline="No model: treats Kalshi's real-money prices as the truth and trades whatever gap there is between Kalshi and DraftKings."),
 ]
 
 

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
-from . import espn, house, pricing, ratings, risk
+from . import espn, house, kalshi, pricing, ratings, risk
 from .agents import manage as agent_manage, sandbox as agent_sandbox
 from .members import roster
 from .pricing import Dist, ckey, clip
@@ -365,6 +365,15 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             a["error"] = str(e)[-300:]
     if any(s["engine"] == "house" for s in syns.values()):
         rat["housepred"] = house.fetch(store, list(by_gid))
+    # Kalshi's real-money prices for the same games, translated into our contracts (a mid wherever both sides are posted and tight)
+    kal: dict[str, dict[tuple[str, float], list]] = {}
+    if by_gid:
+        try:
+            raw = kalshi.fetch({gid: games[gid] for gid in by_gid})
+        except Exception:  # Kalshi being down must not stop a round
+            raw = {}
+        for gid, rows in raw.items():
+            kal[gid] = {(r[0], r[1]): r for r in rows if ckey(gid, r[0], r[1]) in markets}
     # ---- every syndicate's model view of every market, and the one shared way a view becomes a fair price
     eng_p: dict[tuple[str, str], float] = {}
     marks = []
@@ -377,6 +386,12 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 views["lines"].append([kd, ln])
                 views["r"].append(round(markets[ckey(gid, kd, ln)]["ref"], 4))
         for s in syns.values():
+            if s["engine"] == "kalshi":  # no model: Kalshi's mid is its view wherever Kalshi has a price, DraftKings elsewhere
+                for k in keys:
+                    r = kal.get(gid, {}).get((markets[k]["kind"], markets[k]["line"]))
+                    eng_p[(s["id"], k)] = r[2] if r else markets[k]["ref"]
+                views["e"][s["id"]] = [round(eng_p[(s["id"], ckey(gid, kd, ln))], 4) for kd, ln in views["lines"]]
+                continue
             dist = engine_dist(s["engine"], g, d, refos.get(gid), rat, s["id"])
             if dist is None:
                 continue
@@ -384,6 +399,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 eng_p[(s["id"], k)] = p_engine(dist, d, ml, markets[k]["kind"], markets[k]["line"])
             views["e"][s["id"]] = [round(eng_p[(s["id"], ckey(gid, kd, ln))], 4) for kd, ln in views["lines"]]
         prev_views[gid] = g.get("views")
+        views["kal"] = [[r[0], r[1], round(r[2], 4), round(r[3], 4), round(r[4], 4), round(r[5])] for r in list(kal.get(gid, {}).values())[:80]]
         g["views"] = views if views["lines"] else None
     weights = {(sid, sp): syn_weight(s, sp) for sid, s in syns.items() for sp in espn.SPORTS}
 

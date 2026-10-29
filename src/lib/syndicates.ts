@@ -94,6 +94,8 @@ export type ExGame = {
   /** [kind, line, fair, best bid, best ask, last trade, first trade, bid size, ask size, exchange price] */
   book: [string, number, number, number | null, number | null, number | null, number | null, number | null, number | null, number | null, [number, number][][] | null][] | null;
   ref_open: { spread: number | null; total: number | null; ml_home: number | null } | null;
+  /** Kalshi's real-money prices in our contract terms: [kind, line, mid, bid, ask, volume] */
+  views?: { kal?: [string, number, number, number, number, number][] | null } | null;
 };
 export type ExMark = { ts: string; game_id: string; lines: [string, number][]; r: number[]; e: (number | null)[] | null };
 export type ExSnap = { ts: string; subject: string; equity: number };
@@ -131,11 +133,11 @@ export async function getExchangeGamesByIds(ids: string[]): Promise<Record<strin
 export async function getExchangeBoard(): Promise<ExGame[]> {
   const { data } = await supabase
     .from("ex_games")
-    .select("id,sport,start_utc,state,completed,home,away,home_score,away_score,ref,book")
+    .select("id,sport,start_utc,state,completed,home,away,home_score,away_score,ref,ref_open,book,kal:views->kal")
     .eq("state", "pre")
     .not("book", "is", null)
     .order("start_utc", { ascending: true });
-  return (data ?? []) as ExGame[];
+  return ((data ?? []) as unknown as (ExGame & { kal: ExGame["views"] extends infer V ? (V extends { kal?: infer K } ? K : never) : never })[]).map((r) => ({ ...r, views: { kal: r.kal } })) as ExGame[];
 }
 
 export async function getExchangeSnapshots(subjectPrefix: string, days = 14): Promise<ExSnap[]> {

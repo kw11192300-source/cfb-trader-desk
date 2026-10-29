@@ -67,7 +67,7 @@ def _slate(store, sid: str, s: dict, limit: int = 120) -> list[dict]:
 def game_payload(g: dict, lines: bool) -> dict:
     ref, op = g.get("ref") or {}, g.get("ref_open") or {}
     dk = ({"spread": ref.get("spread"), "total": ref.get("total"), "ml_home": ref.get("ml_home"), "ml_away": ref.get("ml_away"),
-           "open_spread": op.get("spread"), "open_total": op.get("total")} if lines else None)
+           "open_spread": op.get("spread"), "open_total": op.get("total"), "kalshi": (g.get("views") or {}).get("kal")} if lines else None)
     return {"id": g["id"], "sport": g["sport"], "home_id": g["home"]["id"], "away_id": g["away"]["id"], "home_name": g["home"]["name"], "away_name": g["away"]["name"],
             "neutral": bool(g.get("neutral")), "start": g["start_utc"], "dk": dk}
 
