@@ -195,6 +195,24 @@ export async function triggerCbbBoard(): Promise<{ ok: boolean; message: string 
   return { ok: false, message: `GitHub returned ${res.status}.` };
 }
 
+/** Starts one round of the Syndicates exchange (.github/workflows/exchange-round.yml). GitHub's own 10-minute schedule is best-effort and can run
+ * late or skip, so cron-job.org calls this every 10 minutes as the dependable trigger. The workflow queues overlapping runs, so extra calls are safe. */
+export async function triggerExchangeRound(): Promise<{ ok: boolean; message: string }> {
+  if (!process.env.GITHUB_DISPATCH_TOKEN) {
+    return { ok: false, message: "Exchange round isn't set up yet: GITHUB_DISPATCH_TOKEN is missing." };
+  }
+  const res = await github("/actions/workflows/exchange-round.yml/dispatches", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ref: "main" }),
+  });
+  if (res.status === 204) return { ok: true, message: "Exchange round started." };
+  if (res.status === 404 || res.status === 403 || res.status === 401) {
+    return { ok: false, message: "GitHub refused the request - check the token has Actions read & write on the repo." };
+  }
+  return { ok: false, message: `GitHub returned ${res.status}.` };
+}
+
 /** Starts the CBB in-season ratings job (.github/workflows/cbb-ratings.yml): ingests what finished, refits the ratings from this
  * season's results and rescores the board. Runs a few times a day; overlapping runs queue behind each other. */
 export async function triggerCbbRatings(): Promise<{ ok: boolean; message: string }> {
