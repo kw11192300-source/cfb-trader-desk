@@ -22,7 +22,7 @@ TRADERS_PER = 5
 TRADER_UNITS = SYNDICATE_UNITS / TRADERS_PER
 NAMES = ["Avery", "Blake", "Casey", "Drew", "Emery", "Finley", "Gray", "Harper", "Indigo", "Jules", "Kai", "Logan", "Morgan", "Nico", "Oakley", "Parker",
          "Quinn", "Reese", "Sage", "Tatum", "Uma", "Val", "Wren", "Xan", "Yael", "Zion", "Arden", "Bryn", "Cleo", "Dale", "Eden", "Flynn", "Gale", "Hollis",
-         "Ivy", "Jordan", "Kit", "Lane", "Marlow", "Nova", "Onyx", "Phoenix", "Remy", "Sky", "Teagan", "Ulric", "Vesper", "Wynn", "Yarrow", "Zeke", "Rune", "Sloane", "Tove", "Ash", "Bell", "Cove", "Dune"]
+         "Ivy", "Jordan", "Kit", "Lane", "Marlow", "Nova", "Onyx", "Phoenix", "Remy", "Sky", "Teagan", "Ulric", "Vesper", "Wynn", "Yarrow", "Zeke", "Rune", "Sloane", "Tove", "Ash", "Bell", "Cove", "Dune", "Fern", "Glen", "Hale", "Ike", "Jett"]
 # (role, number of focus sports): two market makers (a specialist and a generalist), two takers, one who does both
 SEATS = [("maker", 2), ("maker", 3), ("taker", 2), ("taker", 1), ("both", 2)]
 
@@ -45,6 +45,8 @@ SYNDICATES = [
     dict(id="fade", name="Fade Club", engine="fade", color="#dc2626", tagline="No ratings: bets that big line moves overshoot and fade them."),
     dict(id="pace", name="Pace Lab", engine="pace", color="#ca8a04", tagline="Totals specialists - scoring environment from the ratings, with no view on sides."),
     dict(id="mm", name="Liquidity Partners", engine="ref", color="#475569", tagline="The control group: no model at all, so they quote and trade straight off the DraftKings price."),
+    dict(id="house", name="House Models", engine="house", color="#f59e0b",
+         tagline="The site's own CBB, NBA and NHL models entered as a syndicate, so they are judged against DraftKings and every other syndicate on finished games."),
     dict(id="labf", name="Fundamentals Lab", engine="agent", color="#f472b6", agent={"lines": False},
          tagline="A research agent that builds its own model from results, team and player data and never sees a betting line, so any edge it finds is its own."),
     dict(id="labm", name="Market Lab", engine="agent", color="#a3e635", agent={"lines": True},

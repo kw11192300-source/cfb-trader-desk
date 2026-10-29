@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
-from . import espn, pricing, ratings, risk
+from . import espn, house, pricing, ratings, risk
 from .agents import manage as agent_manage, sandbox as agent_sandbox
 from .members import roster
 from .pricing import Dist, ckey, clip
@@ -156,6 +156,9 @@ def engine_dist(engine: str, g: dict, refd: Dist, refo: Dist | None, rat: dict, 
         return Dist(sp, refd.m, float(np.mean([r[1] for r in rs])))
     if engine == "ref":
         return refd
+    if engine == "house":  # the site's own models, read from its tables once per round
+        r = (rat.get("housepred") or {}).get(g["id"])
+        return Dist(sp, float(r[0]), float(r[1])) if r else None
     if engine == "agent":  # an agent-built model: its predictions for this round were computed once, in its sandbox
         r = (rat.get(f"agentpred:{sid}") or {}).get(g["id"])
         return Dist(sp, float(r[0]), float(r[1])) if r else None
@@ -182,8 +185,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     meta = {r["key"]: r["value"] for r in store.rows("ex_meta")}
     rnd = int((meta.get("round") or {}).get("n", 0)) + 1
     rng = random.Random(seed if seed is not None else rnd)
-    if not store.rows("ex_members"):
-        init(store)
+    if len(store.rows("ex_syndicates")) < len(roster()[0]) or not store.rows("ex_members"):
+        init(store)  # first run, or a syndicate was added to the roster since
     members = {m["id"]: m for m in store.rows("ex_members")}
     for m in members.values():
         abide(m["params"])
@@ -360,6 +363,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             a["error"] = None
         except agent_sandbox.ModelError as e:
             a["error"] = str(e)[-300:]
+    if any(s["engine"] == "house" for s in syns.values()):
+        rat["housepred"] = house.fetch(store, list(by_gid))
     # ---- every syndicate's model view of every market, and the one shared way a view becomes a fair price
     eng_p: dict[tuple[str, str], float] = {}
     marks = []
