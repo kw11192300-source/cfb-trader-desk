@@ -68,6 +68,7 @@ def roster() -> tuple[list[dict], list[dict]]:
                 params["kinds"] = ["total"]
             mems.append({"id": f"{s['id']}-{i + 1}", "syndicate_id": s["id"], "name": NAMES[si * TRADERS_PER + i], "role": role, "staking": "kelly",
                          "params": params, "start_units": TRADER_UNITS, "cash": TRADER_UNITS, "locked": 0.0, "realized": 0.0,
+                         "equity": TRADER_UNITS, "open_risk": 0.0, "updated_at": None,
                          "stats": {"n_maker": 0, "n_taker": 0, "vol_maker": 0.0, "vol_taker": 0.0, "pnl_maker": 0.0, "pnl_taker": 0.0,
                                    "clv_sum": 0.0, "clv_n": 0, "peak": TRADER_UNITS, "max_dd": 0.0, "wins": 0, "losses": 0, "biggest": 0.0}})
     return syns, mems

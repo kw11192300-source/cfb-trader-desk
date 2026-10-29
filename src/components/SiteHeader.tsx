@@ -97,6 +97,14 @@ export default function SiteHeader({ subtitle, sport = "cfb" }: { subtitle: stri
               </Link>
             ))}
           </div>
+          <Link
+            href="/syndicates"
+            prefetch={false}
+            className="rounded-md border border-accent/60 px-2.5 py-1 font-medium text-accent transition-colors hover:bg-accent hover:text-background"
+            title="The paper-money syndicate exchange"
+          >
+            Syndicates
+          </Link>
           <div className="flex items-center gap-2 text-muted">
             <span className="h-2 w-2 rounded-full bg-up" />
             live
