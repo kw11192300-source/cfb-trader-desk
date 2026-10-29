@@ -17,7 +17,7 @@ HOCKEY_TOTAL = 6.0
 
 FB_OFFS = [-6, -4, -2, -1, 0, 1, 2, 4, 6]
 BB_TOTAL_OFFS = [-8, -5, -3, -1, 0, 1, 3, 5, 8]
-HK_SPREADS = [-2.5, -1.5, -0.5, 0.5, 1.5, 2.5]
+HK_SPREADS = [-2.5, -1.5, 1.5, 2.5]  # +-0.5 are left out: with no ties they are the same event as the moneyline
 HK_TOTAL_OFFS = [-2, -1, 0, 1, 2]
 
 
@@ -51,7 +51,13 @@ class Dist:
         k, c = math.floor(s), math.ceil(s) - 1
         if self.sport == "nhl":
             lh, la = max(0.2, (self.t + self.m) / 2), max(0.2, (self.t - self.m) / 2)
-            return float(skellam.sf(k, lh, la)), float(skellam.cdf(c, lh, la))
+            w, l = float(skellam.sf(k, lh, la)), float(skellam.cdf(c, lh, la))
+            # a game level after 60 minutes is settled by overtime or a shootout, and the official final score gives the winner one goal: a tie
+            # becomes a one-goal win for either side, half each. So "home -0.5" and "home +0.5" are both just "home wins", the same event as the moneyline.
+            t = 0.5 * float(skellam.pmf(0, lh, la))
+            w += t if k == 0 else -t if k == -1 else 0.0
+            l += t if c == -1 else -t if c == 0 else 0.0
+            return w, l
         sd = SIGMA[self.sport][0]
         return float(1 - norm.cdf((k + 0.5 - self.m) / sd)), float(norm.cdf((c + 0.5 - self.m) / sd))
 
@@ -146,7 +152,7 @@ def lines_for(sport: str, snap: dict | None) -> list[tuple[str, float]]:
         if sport == "nhl":
             out += [("spread", x) for x in HK_SPREADS]
         else:
-            out += [("spread", x) for x in ladder(snap["spread"], FB_OFFS)]
+            out += [("spread", x) for x in ladder(snap["spread"], FB_OFFS) if abs(x) != 0.5]  # no ties: +-0.5 is just the moneyline
     if snap.get("total") is not None and snap.get("over") is not None:
         offs = HK_TOTAL_OFFS if sport == "nhl" else BB_TOTAL_OFFS if sport in ("nba", "cbb") else FB_OFFS
         out += [("total", x) for x in ladder(snap["total"], offs) if x > 0]

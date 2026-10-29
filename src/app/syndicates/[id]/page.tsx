@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import LocalDateTime from "@/components/LocalDateTime";
 import { scenarioPnl, scenarios } from "@/lib/syndicateGame";
 import { LineChart } from "@/components/SyndicateCharts";
-import { EquityChart, LeaderTable, MoneyLegend, SyndicateHeader, TradeList } from "@/components/SyndicateParts";
+import { EquityChart, LeaderTable, MoneyLegend, SyndicateHeader, TradeFilters, TradeList } from "@/components/SyndicateParts";
 import {
   fairOf, getExchange, getExchangeSnapshots, getExchangeTrades, getGamesFull, getSyndicateOpenTrades, getWeightHistory, label, openLots, payoff, pct, ramp, summarize, SYN_GAME_LIMIT,
 } from "@/lib/syndicates";
@@ -16,8 +16,11 @@ const range = (a: number, b: number) => Array.from({ length: Math.max(0, Math.ro
 const u = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(1)}`;
 const SPORT: Record<string, string> = { cfb: "CFB", nfl: "NFL", nhl: "NHL", cbb: "CBB", nba: "NBA" };
 
-export default async function SyndicatePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function SyndicatePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ sport?: string; game?: string }> }) {
   const { id } = await params;
+  const sp = await searchParams;
+  const sportF = ["nfl", "cfb", "nhl", "nba", "cbb"].includes(sp.sport ?? "") ? sp.sport! : null;
+  const gameF = sp.game && /^[a-z]+:\d+$/.test(sp.game) ? sp.game : null;
   const { syndicates, members, meta } = await getExchange();
   const syn = syndicates.find((s) => s.id === id);
   if (!syn) notFound();
@@ -25,7 +28,7 @@ export default async function SyndicatePage({ params }: { params: Promise<{ id: 
   const [weightHist, snaps, trades, open] = await Promise.all([
     getWeightHistory(id),
     getExchangeSnapshots("mem:" + id + "-"),
-    getExchangeTrades({ syndicate: id, limit: 40 }),
+    getExchangeTrades({ syndicate: id, game: gameF ?? undefined, sport: gameF ? undefined : sportF ?? undefined, limit: gameF ? 300 : sportF ? 120 : 40 }),
     getSyndicateOpenTrades(id),
   ]);
   const games = await getGamesFull([...new Set([...trades, ...open].map((t) => t.game_id))]);
@@ -38,7 +41,9 @@ export default async function SyndicatePage({ params }: { params: Promise<{ id: 
 
   // risk by game: the syndicate's whole book on each game, every trader added together
   const own = (mid: string) => (mid.startsWith(`${id}-`) ? id : null);
-  const lots = openLots(open, own);
+  const openF = open.filter((t) => (gameF ? t.game_id === gameF : sportF ? t.game_id.startsWith(`${sportF}:`) : true));
+  const tradedGames = [...new Set(open.map((t) => t.game_id))].map((gid) => games[gid]).filter(Boolean);
+  const lots = openLots(openF, own);
   const gids = [...new Set(lots.map((l) => l.gid))];
   const riskRows = gids.map((gid) => {
     const g = games[gid];
@@ -83,6 +88,7 @@ export default async function SyndicatePage({ params }: { params: Promise<{ id: 
         <p className="mb-6 mt-1 max-w-3xl text-xs text-muted">{syn.tagline}</p>
         <LeaderTable rows={mrows.map((r) => ({ ...r, color: colors[r.id] ?? r.color }))} linkBase="/syndicates/traders" showSyn title="Traders" />
         <MoneyLegend />
+        <TradeFilters base={`/syndicates/${id}`} sport={sportF} game={gameF} games={tradedGames} />
 
         {syn.engine === "agent" && (
           <section className="mb-8 rounded-lg border border-border bg-surface p-4">
@@ -340,7 +346,7 @@ export default async function SyndicatePage({ params }: { params: Promise<{ id: 
           </div>
         </section>
         <EquityChart snaps={snaps} colors={colors} names={first} start={start} />
-        <TradeList trades={trades} games={games} names={names} />
+        <TradeList trades={trades} games={games} names={names} title={gameF || sportF ? `Trades (${gameF ? "this game" : sportF!.toUpperCase()}) - risk, positions and scenarios above follow the filter` : "Recent trades"} />
       </main>
     </div>
   );

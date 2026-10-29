@@ -138,8 +138,10 @@ export async function getExchange(): Promise<{ syndicates: ExSyndicate[]; member
   return { syndicates: (s.data ?? []) as ExSyndicate[], members: (m.data ?? []) as ExMember[], meta: (mv.round ?? null) as ExMeta, ratingsMeta: (mv.ratings ?? null) as ExRatingsMeta, configured: true };
 }
 
-export async function getExchangeTrades(opts: { member?: string; syndicate?: string; limit?: number } = {}): Promise<ExTrade[]> {
+export async function getExchangeTrades(opts: { member?: string; syndicate?: string; game?: string; sport?: string; limit?: number } = {}): Promise<ExTrade[]> {
   let q = supabase.from("ex_trades").select("*").order("ts", { ascending: false }).limit(opts.limit ?? 40);
+  if (opts.game) q = q.eq("game_id", opts.game);
+  else if (opts.sport) q = q.like("game_id", `${opts.sport}:%`);
   if (opts.member) q = q.or(`buyer.eq.${opts.member},seller.eq.${opts.member}`);
   else if (opts.syndicate) q = q.or(`buyer.like.${opts.syndicate}-%,seller.like.${opts.syndicate}-%`);
   const { data } = await q;

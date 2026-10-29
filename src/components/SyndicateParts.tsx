@@ -165,11 +165,11 @@ export function EquityChart({ snaps, colors, names, start }: { snaps: ExSnap[]; 
   );
 }
 
-export function TradeList({ trades, games, names }: { trades: ExTrade[]; games: Record<string, ExGame>; names: Record<string, string> }) {
-  if (!trades.length) return <p className="mb-8 text-xs text-muted">No trades yet.</p>;
+export function TradeList({ trades, games, names, title = "Recent trades" }: { trades: ExTrade[]; games: Record<string, ExGame>; names: Record<string, string>; title?: string }) {
+  if (!trades.length) return <p className="mb-8 text-xs text-muted">No trades{title === "Recent trades" ? " yet" : " match this filter"}.</p>;
   return (
     <section className="mb-8">
-      <h2 className="mb-2 text-sm font-semibold text-foreground">Recent trades</h2>
+      <h2 className="mb-2 text-sm font-semibold text-foreground">{title}</h2>
       <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full min-w-[820px] text-xs">
           <thead className="bg-surface text-left text-muted">
@@ -256,6 +256,34 @@ export function HealthStrip({ round, ratings, labs }: { round: { n: number; ts: 
           Labs {broken.length ? <span className="text-down">{broken.map((b) => b.name).join(", ")} failing</span> : <span className="text-foreground">all models running</span>}
         </span>
       )}
+    </div>
+  );
+}
+
+const FILTER_SPORTS = ["nfl", "cfb", "nhl", "nba", "cbb"];
+
+/** Narrow a syndicate or trader page to one sport, or to one game, from a list of the games it has traded. Plain links and a plain form, so it works without scripts. */
+export function TradeFilters({ base, sport, game, games }: { base: string; sport: string | null; game: string | null; games: ExGame[] }) {
+  const opts = [...games].sort((a, b) => a.sport.localeCompare(b.sport) || a.start_utc.localeCompare(b.start_utc)).filter((g) => !sport || g.sport === sport);
+  const chip = (on: boolean) => `rounded px-2.5 py-1 ${on ? "bg-accent text-background" : "text-muted hover:text-foreground"}`;
+  const picked = game ? games.find((g) => g.id === game) : null;
+  return (
+    <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-border bg-surface px-3 py-2 text-[11px]">
+      <span className="text-muted">Filter</span>
+      <div className="flex flex-wrap gap-1">
+        <Link href={base} className={chip(!sport && !game)}>All sports</Link>
+        {FILTER_SPORTS.map((s) => <Link key={s} href={`${base}?sport=${s}`} className={chip(sport === s && !game)}>{s.toUpperCase()}</Link>)}
+      </div>
+      <form method="get" action={base} className="flex items-center gap-2">
+        {sport && !game ? <input type="hidden" name="sport" value={sport} /> : null}
+        <select name="game" defaultValue={game ?? ""} className="max-w-[260px] rounded border border-border bg-background px-2 py-1 text-foreground">
+          <option value="">Any game traded{sport ? ` (${sport.toUpperCase()})` : ""}</option>
+          {opts.map((g) => <option key={g.id} value={g.id}>{`${g.sport.toUpperCase()} · ${g.away.abbr} @ ${g.home.abbr} · ${new Date(g.start_utc).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}</option>)}
+        </select>
+        <button type="submit" className="rounded bg-accent px-2.5 py-1 font-medium text-background">Show</button>
+      </form>
+      {(sport || game) && <Link href={base} className="text-muted hover:text-foreground">Clear</Link>}
+      {picked && <span className="text-foreground">{picked.away.name} at {picked.home.name}</span>}
     </div>
   );
 }
