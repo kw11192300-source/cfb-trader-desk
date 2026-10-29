@@ -88,6 +88,24 @@ create table if not exists ex_marks (
   e jsonb
 );
 create index if not exists ex_marks_game_idx on ex_marks (game_id, ts);
+create table if not exists ex_results (
+  id text primary key,
+  day date not null,
+  sport text not null,
+  kickoff timestamptz not null,
+  home jsonb,
+  away jsonb,
+  home_score integer,
+  away_score integer,
+  n_trades integer not null default 0,
+  contracts numeric not null default 0,
+  traded numeric not null default 0,
+  syn jsonb not null default '{}',
+  traders jsonb not null default '{}',
+  top jsonb,
+  settled_at timestamptz not null default now()
+);
+create index if not exists ex_results_day_idx on ex_results (day desc);
 create table if not exists ex_ratings (
   key text primary key,
   payload jsonb not null,
@@ -103,6 +121,7 @@ alter table ex_games enable row level security;
 alter table ex_trades enable row level security;
 alter table ex_snapshots enable row level security;
 alter table ex_marks enable row level security;
+alter table ex_results enable row level security;
 alter table ex_ratings enable row level security;
 alter table ex_meta enable row level security;
 create policy "public read" on ex_syndicates for select using (true);
@@ -111,5 +130,6 @@ create policy "public read" on ex_games for select using (true);
 create policy "public read" on ex_trades for select using (true);
 create policy "public read" on ex_snapshots for select using (true);
 create policy "public read" on ex_marks for select using (true);
+create policy "public read" on ex_results for select using (true);
 create policy "public read" on ex_meta for select using (true);
 -- ex_ratings is read by the Python jobs only (secret key bypasses RLS), so it has no public policy.

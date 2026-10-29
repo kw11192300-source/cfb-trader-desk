@@ -49,6 +49,8 @@ export default async function SyndicatesPage({ searchParams }: { searchParams: P
           <span className="text-muted">Rank by</span>
           <Link href="/syndicates" className={`rounded px-2.5 py-1 ${!rankClv ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>Equity</Link>
           <Link href="/syndicates?rank=clv" className={`rounded px-2.5 py-1 ${rankClv ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>Closing-line value</Link>
+          <span className="ml-3 text-muted">By sport</span>
+          {["nfl", "cfb", "nhl", "nba", "cbb"].map((s) => <Link key={s} href={`/syndicates/sports?sport=${s}`} className="rounded px-2 py-1 text-muted hover:text-foreground">{s.toUpperCase()}</Link>)}
           <span className="text-muted">{rankClv ? "Sorted by the low end of each 68% range, so a big average on a few trades does not win." : "Equity moves with DraftKings lines before games finish; CLV is the steadier measure."}</span>
         </div>
         <LeaderTable rows={srows} linkBase="/syndicates" title="Syndicates" />

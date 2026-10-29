@@ -95,7 +95,7 @@ export type ExGame = {
   ref: { spread: number | null; total: number | null; ml_home: number | null; ml_away: number | null } | null;
   /** [kind, line, reference %, best bid, best ask, last trade] */
   /** [kind, line, fair, best bid, best ask, last trade, first trade, bid size, ask size, exchange price] */
-  book: [string, number, number, number | null, number | null, number | null, number | null, number | null, number | null, number | null, [number, number][][] | null][] | null;
+  book: [string, number, number, number | null, number | null, number | null, number | null, number | null, number | null, number | null, [number, number, string?][][] | null][] | null;
   ref_open: { spread: number | null; total: number | null; ml_home: number | null } | null;
   /** Kalshi's real-money prices in our contract terms: [kind, line, mid, bid, ask, volume] */
   views?: {
@@ -318,4 +318,61 @@ export async function getWeightHistory(syndicate: string, days = 30): Promise<Re
   const out: Record<string, [number, number][]> = {};
   for (const r of (data ?? []) as { ts: string; subject: string; equity: number }[]) (out[r.subject.split(":")[2]] ??= []).push([new Date(r.ts).getTime(), Number(r.equity)]);
   return out;
+}
+
+type Side = { pnl: number; traded: number; n: number; clv_sum: number; clv_n: number };
+export type ExResult = {
+  id: string;
+  day: string;
+  sport: string;
+  kickoff: string;
+  home: { id: string; name: string; abbr: string };
+  away: { id: string; name: string; abbr: string };
+  home_score: number | null;
+  away_score: number | null;
+  n_trades: number;
+  contracts: number;
+  traded: number;
+  syn: Record<string, Side>;
+  traders: Record<string, Side>;
+  top: { taker: string; kind: string; line: number; price: number; qty: number; clv: number }[] | null;
+};
+
+/** Finished games' results, newest first. They are kept forever; the trades behind them are tidied away after a couple of weeks. */
+export async function getResults(days = 30, sport?: string, withTraders = false): Promise<ExResult[]> {
+  const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  let q = supabase.from("ex_results").select(`id,day,sport,kickoff,home,away,home_score,away_score,n_trades,contracts,traded,syn,top${withTraders ? ",traders" : ""}`).gte("day", since).order("kickoff", { ascending: false }).limit(2000);
+  if (sport) q = q.eq("sport", sport);
+  const { data } = await q;
+  return ((data ?? []) as unknown as ExResult[]).map((r) => ({ ...r, traders: r.traders ?? {} }));
+}
+
+export async function getResult(id: string): Promise<ExResult | null> {
+  const { data } = await supabase.from("ex_results").select("*").eq("id", id).maybeSingle();
+  return (data ?? null) as ExResult | null;
+}
+
+export type Digest = {
+  day: string;
+  games: number;
+  contracts: number;
+  traded: number;
+  syndicates: { id: string; name: string; pnl: number; traded: number; trades: number; clv: number | null; clv_n: number }[];
+  best_traders: { id: string; name: string; syn: string; pnl: number }[];
+  worst_traders: { id: string; name: string; syn: string; pnl: number }[];
+  sharp: { who: string; teams: string; game: string; kind: string; line: number; price: number; qty: number; clv: number }[];
+  games_top: { id: string; teams: string; sport: string; score: string; contracts: number; winner: string | null; win_pnl: number }[];
+  labs: { id: string; name: string; version: number; notes: string }[];
+  weights: { name: string; sport: string; w: number }[];
+};
+
+export async function getDigests(n = 14): Promise<Digest[]> {
+  const { data } = await supabase.from("ex_meta").select("key,value").like("key", "digest:%").order("key", { ascending: false }).limit(n);
+  return ((data ?? []) as { value: Digest }[]).map((r) => r.value);
+}
+
+/** Every position still open, from the trade ledger of games that have not settled. */
+export async function getAllOpenTrades(): Promise<ExTrade[]> {
+  const { data } = await supabase.from("ex_trades").select("id,ts,game_id,kind,line,price,qty,buyer,seller,maker,rem_b,rem_s,settled").eq("settled", false).limit(8000);
+  return (data ?? []) as ExTrade[];
 }

@@ -5,7 +5,7 @@ import LocalDateTime from "@/components/LocalDateTime";
 import { LineChart, type Dot, type Series } from "@/components/SyndicateCharts";
 import { SyndicateHeader, TradeList } from "@/components/SyndicateParts";
 import { scenarioPnl, scenarios, takerOf, yesNo } from "@/lib/syndicateGame";
-import { fairOf, getExchange, getExchangeGame, getGameMarks, getGameTrades, label, openLots, payoff, ramp, SYN_GAME_LIMIT, type ExGame, type ExTrade, type Lot } from "@/lib/syndicates";
+import { fairOf, getExchange, getExchangeGame, getGameMarks, getGameTrades, getResult, label, openLots, payoff, ramp, SYN_GAME_LIMIT, type ExGame, type ExTrade, type Lot } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +22,7 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
   const sp = await searchParams;
   const [game, { syndicates, members, meta }] = await Promise.all([getExchangeGame(id), getExchange()]);
   if (!game) notFound();
-  const [trades, marks] = await Promise.all([getGameTrades(id), getGameMarks(id)]);
+  const [trades, marks, result] = await Promise.all([getGameTrades(id), getGameMarks(id), game.completed ? getResult(id) : Promise.resolve(null)]);
   const synOf = Object.fromEntries(members.map((m) => [m.id, m.syndicate_id]));
   const memberName = Object.fromEntries(members.map((m) => [m.id, m.name]));
   const names = Object.fromEntries(members.map((m) => [m.id, `${syndicates.find((s) => s.id === m.syndicate_id)?.name ?? ""} · ${m.name}`]));
@@ -132,6 +132,39 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
             {trades.length} trades · {Math.round(trades.reduce((a, t) => a + t.qty, 0)).toLocaleString()} contracts traded · syndicate limit {Math.round(SYN_GAME_LIMIT * ramp(Math.max(0, hrs)))} units now
           </p>
         </div>
+
+        {result && (
+          <section className="mb-6 rounded-lg border border-border bg-surface p-4">
+            <h3 className="mb-1 text-sm font-semibold text-foreground">Final result: {result.away.abbr} {result.away_score}, {result.home.abbr} {result.home_score}</h3>
+            <p className="mb-3 text-[11px] text-muted">What every syndicate and trader actually made or lost on this game, from all {result.n_trades} trades ({Math.round(result.contracts).toLocaleString()} contracts), including positions netted off along the way.</p>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <table className="w-full text-xs">
+                <thead className="text-left text-muted"><tr><th className="py-1 font-medium">Syndicate</th><th className="py-1 text-right font-medium">Profit</th><th className="py-1 text-right font-medium">Traded</th><th className="py-1 text-right font-medium">CLV</th></tr></thead>
+                <tbody className="font-mono">
+                  {Object.entries(result.syn).sort((a, b) => b[1].pnl - a[1].pnl).map(([sid, v]) => (
+                    <tr key={sid} className="border-t border-border">
+                      <td className="py-1 font-sans text-foreground"><span className="mr-2 inline-block h-2 w-2 rounded-full" style={{ background: color[sid] }} />{synName[sid] ?? sid}</td>
+                      <td className={`py-1 text-right ${tone(v.pnl)}`}>{u(v.pnl)}</td>
+                      <td className="py-1 text-right text-muted">{Math.round(v.traded)}</td>
+                      <td className={`py-1 text-right ${v.clv_n ? tone(v.clv_sum / v.clv_n) : "text-muted"}`}>{v.clv_n ? `${v.clv_sum / v.clv_n >= 0 ? "+" : ""}${((v.clv_sum / v.clv_n) * 100).toFixed(1)}¢` : "–"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <table className="w-full text-xs">
+                <thead className="text-left text-muted"><tr><th className="py-1 font-medium">Traders: best and worst</th><th className="py-1 text-right font-medium">Profit</th></tr></thead>
+                <tbody className="font-mono">
+                  {(() => {
+                    const ts = Object.entries(result.traders ?? {}).sort((a, b) => b[1].pnl - a[1].pnl);
+                    return [...ts.slice(0, 5), ...ts.slice(-5)].filter((x, i, a) => a.findIndex((y) => y[0] === x[0]) === i).map(([mid, v]) => (
+                      <tr key={mid} className="border-t border-border"><td className="py-1 font-sans text-foreground"><Link href={`/syndicates/traders/${mid}`} className="hover:text-accent">{names[mid] ?? mid}</Link></td><td className={`py-1 text-right ${tone(v.pnl)}`}>{u(v.pnl)}</td></tr>
+                    ));
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
 
         {sel && selRow && (
           <section className="mb-6 rounded-lg border border-border bg-surface p-4">

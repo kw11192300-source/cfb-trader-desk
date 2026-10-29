@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 
 LOCAL = Path(__file__).resolve().parents[1] / "data" / "exchange_local.json"
-TABLES = ("ex_syndicates", "ex_members", "ex_games", "ex_trades", "ex_snapshots", "ex_marks", "ex_ratings", "ex_meta")
-KEYS = {"ex_syndicates": "id", "ex_members": "id", "ex_games": "id", "ex_trades": "id", "ex_ratings": "key", "ex_meta": "key"}
+TABLES = ("ex_syndicates", "ex_members", "ex_games", "ex_trades", "ex_snapshots", "ex_marks", "ex_results", "ex_ratings", "ex_meta")
+KEYS = {"ex_syndicates": "id", "ex_members": "id", "ex_games": "id", "ex_trades": "id", "ex_results": "id", "ex_ratings": "key", "ex_meta": "key"}
 
 
 class FileStore:
@@ -35,6 +35,17 @@ class FileStore:
 
     def clear(self, table: str) -> None:
         self.d[table] = []
+
+    def old_ids(self, table: str, col: str, cutoff: str) -> list[str]:
+        return [r["id"] for r in self.d[table] if str(r.get(col, "")) < cutoff]
+
+    def delete_in(self, table: str, col: str, values: list[str]) -> int:
+        keep = [r for r in self.d[table] if r.get(col) not in set(values)]
+        n, self.d[table] = len(self.d[table]) - len(keep), keep
+        return n
+
+    def delete_before(self, table: str, col: str, iso: str) -> None:
+        self.d[table] = [r for r in self.d[table] if str(r.get(col, "")) >= iso]
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -67,6 +78,17 @@ class SbStore:
     def insert(self, table: str, rows: list[dict]) -> None:
         for i in range(0, len(rows), 400):
             self.c.table(table).insert(rows[i : i + 400]).execute()
+
+    def old_ids(self, table: str, col: str, cutoff: str) -> list[str]:
+        return [r["id"] for r in self.c.table(table).select("id").lt(col, cutoff).limit(5000).execute().data]
+
+    def delete_in(self, table: str, col: str, values: list[str]) -> int:
+        for i in range(0, len(values), 100):
+            self.c.table(table).delete().in_(col, values[i : i + 100]).execute()
+        return len(values)
+
+    def delete_before(self, table: str, col: str, iso: str) -> None:
+        self.c.table(table).delete().lt(col, iso).execute()
 
     def clear(self, table: str) -> None:
         col = KEYS.get(table, "id")

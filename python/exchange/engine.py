@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
-from . import espn, house, kalshi, pricing, ratings, risk
+from . import espn, house, kalshi, pricing, ratings, results, risk
 from .agents import manage as agent_manage, sandbox as agent_sandbox
 from .members import roster
 from .pricing import Dist, ckey, clip
@@ -124,6 +124,10 @@ def fit_ratings(store, sports: list[str], days: int = 420) -> None:
         rows = [{"key": f"{sp}|{eng}", "payload": pl, "fitted_at": _iso(_now())} for eng, pl in fits.items() if pl]
         store.upsert("ex_ratings", rows)
         print(f"  {sp}: {len(games)} finished games -> {', '.join(r['key'] for r in rows)}", flush=True)
+    try:
+        print("  housekeeping:", results.prune(store), flush=True)
+    except Exception as e:
+        print(f"  (housekeeping skipped: {str(e)[:120]})", flush=True)
     agent_manage.refit_portable(store, hist)  # agent models that learn from ESPN results alone are refit with the same fresh histories
     store.upsert("ex_meta", [{"key": "ratings", "value": {"ts": _iso(_now()), "sports": list(hist)}}])
     store.save()
@@ -274,6 +278,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
 
     # ---- settle: what each side still holds pays out; what was netted off earlier was already banked
     settled_rows = []
+    settled_by_game: dict[str, list[dict]] = {}
     stats = {"settled": 0, "voided": 0}
     still_open = []
     for t in open_trades:
@@ -317,9 +322,14 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                     fl = st.setdefault("flow", {}).setdefault(g["sport"], {"s": 0.0, "w": 0.0, "n": 0})
                     fl["s"], fl["w"], fl["n"] = fl["s"] * 0.97 + c, fl["w"] * 0.97 + 1.0, fl["n"] + 1
         settled_rows.append(t)
+        settled_by_game.setdefault(t["game_id"], []).append(t)
         stats["settled"] += 1
         stats["voided"] += out == 0.5
     open_trades = still_open
+    result_rows = []
+    for gid, trs in settled_by_game.items():  # the historical record of each finished game, from its whole trade ledger
+        if not games[gid].get("voided"):
+            result_rows.append(results.game_result(games[gid], trs, members))
 
     # ---- markets
     lo, hi = now + timedelta(minutes=CUTOFF_MIN), now + timedelta(hours=HORIZON_H)
@@ -844,12 +854,15 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         m["stats"]["sharp"] = {sp: round(sharp(m["id"], sp), 3) for sp in espn.SPORTS}
 
     # ---- the book the page shows: [kind, line, fair, best bid, best ask, last trade, first trade this round, bid size, ask size, exchange price, [bid levels, ask levels]]
-    def levels(book: list[list]) -> list[list[float]]:
-        agg: dict[float, float] = {}
+    def levels(book: list[list]) -> list[list]:
+        agg: dict[float, list] = {}
         for q in book:
             if q[1] > 0.5:
-                agg[q[0]] = agg.get(q[0], 0.0) + q[1]
-        return [[p, round(v)] for p, v in list(agg.items())[:5]]
+                a = agg.setdefault(q[0], [0.0, 0.0, ""])
+                a[0] += q[1]
+                if q[1] > a[1]:
+                    a[1], a[2] = q[1], q[2]
+        return [[p, round(v[0]), v[2]] for p, v in list(agg.items())[:5]]
 
     by_game: dict[str, list] = {}
     for k, mk in markets.items():
@@ -869,6 +882,12 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         store.upsert("ex_trades", list({t["id"]: t for t in changed}.values()))
     store.upsert("ex_members", list(members.values()))
     store.upsert("ex_syndicates", list(syns.values()))
+    try:  # the historical tables are optional: a round must never fail because they are missing or slow
+        if result_rows:
+            store.upsert("ex_results", result_rows)
+        results.maybe_digest(store, meta, syns, members, now)
+    except Exception as e:
+        print(f"  (history skipped: {str(e)[:120]})", flush=True)
     if snaps:
         store.insert("ex_snapshots", snaps)
     if marks:
