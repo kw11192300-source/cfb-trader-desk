@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 
 from . import espn, pricing, ratings, risk
+from .agents import manage as agent_manage, sandbox as agent_sandbox
 from .members import roster
 from .pricing import Dist, ckey, clip
 
@@ -89,17 +90,20 @@ def init(store) -> None:
 
 
 def fit_ratings(store, sports: list[str], days: int = 420) -> None:
+    hist: dict[str, list[dict]] = {}
     for sp in sports:
         games = espn.history(sp, days)
+        hist[sp] = games
         fits = ratings.fit_all(sp, games)
         rows = [{"key": f"{sp}|{eng}", "payload": pl, "fitted_at": _iso(_now())} for eng, pl in fits.items() if pl]
         store.upsert("ex_ratings", rows)
         print(f"  {sp}: {len(games)} finished games -> {', '.join(r['key'] for r in rows)}", flush=True)
+    agent_manage.refit_portable(store, hist)  # agent models that learn from ESPN results alone are refit with the same fresh histories
     store.save()
 
 
 # ---------------------------------------------------------------- engines
-def engine_dist(engine: str, g: dict, refd: Dist, refo: Dist | None, rat: dict) -> Dist | None:
+def engine_dist(engine: str, g: dict, refd: Dist, refo: Dist | None, rat: dict, sid: str = "") -> Dist | None:
     sp = g["sport"]
     hid, aid, neu = g["home"]["id"], g["away"]["id"], bool(g["neutral"])
 
@@ -126,6 +130,9 @@ def engine_dist(engine: str, g: dict, refd: Dist, refo: Dist | None, rat: dict) 
         return Dist(sp, refd.m, float(np.mean([r[1] for r in rs])))
     if engine == "ref":
         return refd
+    if engine == "agent":  # an agent-built model: its predictions for this round were computed once, in its sandbox
+        r = (rat.get(f"agentpred:{sid}") or {}).get(g["id"])
+        return Dist(sp, float(r[0]), float(r[1])) if r else None
     return None
 
 
@@ -303,6 +310,20 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     for mk in markets.values():
         mk["dim"], mk["ov"] = grids[mk["gid"]].outcome(mk["kind"], mk["line"])
 
+    # ---- agent-built models predict once per round, in a restricted subprocess; one that fails simply abstains
+    for sid, s in syns.items():
+        if s["engine"] != "agent":
+            continue
+        a = (s.get("learn") or {}).setdefault("agent", {})
+        code, state = rat.get(f"agent-code:{sid}"), rat.get(f"agent-state:{sid}")
+        if not code or not state or not by_gid:
+            continue
+        slate = [agent_manage.game_payload(games[gid], bool(a.get("lines"))) for gid in by_gid]
+        try:
+            rat[f"agentpred:{sid}"] = agent_sandbox.call(code["code"], "predict", timeout=180, state=state["state"], games=slate)
+            a["error"] = None
+        except agent_sandbox.ModelError as e:
+            a["error"] = str(e)[-300:]
     # ---- every syndicate's model view of every market, and the one shared way a view becomes a fair price
     eng_p: dict[tuple[str, str], float] = {}
     marks = []
@@ -315,7 +336,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 views["lines"].append([kd, ln])
                 views["r"].append(round(markets[ckey(gid, kd, ln)]["ref"], 4))
         for s in syns.values():
-            dist = engine_dist(s["engine"], g, d, refos.get(gid), rat)
+            dist = engine_dist(s["engine"], g, d, refos.get(gid), rat, s["id"])
             if dist is None:
                 continue
             for k in keys:

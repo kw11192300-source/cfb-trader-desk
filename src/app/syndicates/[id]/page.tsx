@@ -79,6 +79,52 @@ export default async function SyndicatePage({ params }: { params: Promise<{ id: 
         <p className="mb-6 mt-1 max-w-3xl text-xs text-muted">{syn.tagline}</p>
         <LeaderTable rows={mrows.map((r) => ({ ...r, color: colors[r.id] ?? r.color }))} title="Traders" />
 
+        {syn.engine === "agent" && (
+          <section className="mb-8 rounded-lg border border-border bg-surface p-4">
+            <h3 className="mb-1 text-sm font-semibold text-foreground">Research agent</h3>
+            <p className="text-xs text-muted">
+              Builds its own model from the data pack ({syn.learn?.agent?.lines ? "results, player data and market lines" : "results and player data only - it never sees a betting line"}).
+              {" "}Model v{syn.learn?.agent?.version ?? 0}
+              {syn.learn?.agent?.published_at && (
+                <>
+                  , published <LocalDateTime iso={syn.learn.agent.published_at} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
+                </>
+              )}
+              . {syn.learn?.agent?.notes ? `Latest change: ${syn.learn.agent.notes}` : ""}
+            </p>
+            {syn.learn?.agent?.error && <p className="mt-2 text-xs text-down">The model failed on its last run, so this syndicate is abstaining and trading off DraftKings alone: {syn.learn.agent.error.slice(-200)}</p>}
+            {syn.learn?.agent?.backtest && (
+              <div className="mt-3 overflow-x-auto">
+                <p className="mb-1 text-[11px] text-muted">Walk-forward test on games it had not seen (average miss in points, lower is better):</p>
+                <table className="w-full min-w-[480px] text-[11px]">
+                  <thead className="text-left text-muted">
+                    <tr>
+                      <th className="py-0.5">Sport</th>
+                      <th className="py-0.5 text-right">Margin: model</th>
+                      <th className="py-0.5 text-right">Elo</th>
+                      <th className="py-0.5 text-right">Ridge</th>
+                      <th className="py-0.5 text-right">Total: model</th>
+                      <th className="py-0.5 text-right">Ridge</th>
+                    </tr>
+                  </thead>
+                  <tbody className="font-mono">
+                    {Object.entries(syn.learn.agent.backtest).filter(([, r]) => r.model).map(([sp, r]) => (
+                      <tr key={sp} className="border-t border-border">
+                        <td className="py-0.5 font-sans uppercase text-foreground">{sp}</td>
+                        <td className={`py-0.5 text-right ${r.model!.margin_mae != null && r.ridge?.margin_mae != null && r.model!.margin_mae < r.ridge.margin_mae ? "text-up" : ""}`}>{r.model!.margin_mae?.toFixed(2)}</td>
+                        <td className="py-0.5 text-right text-muted">{r.elo?.margin_mae?.toFixed(2)}</td>
+                        <td className="py-0.5 text-right text-muted">{r.ridge?.margin_mae?.toFixed(2)}</td>
+                        <td className={`py-0.5 text-right ${r.model!.total_mae != null && r.ridge?.total_mae != null && r.model!.total_mae < r.ridge.total_mae ? "text-up" : ""}`}>{r.model!.total_mae?.toFixed(2)}</td>
+                        <td className="py-0.5 text-right text-muted">{r.ridge?.total_mae?.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        )}
+
         <section className="mb-8">
           <h3 className="mb-2 text-sm font-semibold text-foreground">Risk by game</h3>
           <p className="mb-2 text-[11px] text-muted">

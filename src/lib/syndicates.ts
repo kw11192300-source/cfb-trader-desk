@@ -10,7 +10,18 @@ export type ExSyndicate = {
   tagline: string;
   start_units: number;
   /** w: how much of its own model each sport's fair price uses, learned from settled games */
-  learn: { w?: Record<string, number>; stats?: Record<string, { n: number }> } | null;
+  learn: {
+    w?: Record<string, number>;
+    stats?: Record<string, { n: number }>;
+    agent?: {
+      lines?: boolean;
+      version?: number;
+      notes?: string;
+      published_at?: string;
+      error?: string | null;
+      backtest?: Record<string, { n?: number; coverage?: number; model?: { margin_mae: number | null; total_mae: number | null }; elo?: { margin_mae: number | null }; ridge?: { margin_mae: number | null; total_mae: number | null }; skipped?: string; error?: string }> | null;
+    };
+  } | null;
 };
 export type ExMemberStats = {
   n_maker: number;
