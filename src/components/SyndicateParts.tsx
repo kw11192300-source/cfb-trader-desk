@@ -49,14 +49,15 @@ export function LeaderTable({ rows, linkBase, title }: { rows: Row[]; linkBase?:
     <section className="mb-8">
       <h2 className="mb-2 text-sm font-semibold text-foreground">{title}</h2>
       <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full min-w-[860px] text-xs">
+        <table className="w-full min-w-[980px] text-xs">
           <thead className="bg-surface text-left text-muted">
             <tr>
               <th className="px-3 py-2">#</th>
               <th className="px-3 py-2">Name</th>
-              <th className="px-3 py-2 text-right">Equity</th>
-              <th className="px-3 py-2 text-right" title="Equity minus starting units. Open trades are marked at the current DraftKings price, so this moves before any game finishes">P&amp;L (marked)</th>
-              <th className="px-3 py-2 text-right" title="Profit from games that have finished and settled">Settled</th>
+              <th className="px-3 py-2 text-right" title="Starting units plus profit actually banked (finished games and trades netted off). Cash and collateral; open positions count at what they cost">Bankroll</th>
+              <th className="px-3 py-2 text-right" title="Profit or loss already banked: games that finished and positions that were closed out">Realized P&amp;L</th>
+              <th className="px-3 py-2 text-right" title="What the open positions would make or lose if closed at the current DraftKings price. It moves with the lines before any game finishes and is not money yet">Open P&amp;L</th>
+              <th className="px-3 py-2 text-right" title="Bankroll plus open P&L: what the account is worth marked to DraftKings now">Equity</th>
               <th className="px-3 py-2 text-right" title="Realized profit divided by units put at risk">ROI/vol</th>
               <th className="px-3 py-2 text-right" title="Worst-case loss on open positions, across every possible result - not the cash tied up">At risk</th>
               <th className="px-3 py-2 text-right">Trades</th>
@@ -82,9 +83,10 @@ export function LeaderTable({ rows, linkBase, title }: { rows: Row[]; linkBase?:
                   )}
                   {!linkBase && <span className="ml-2 text-muted">{r.syndicate}{r.note ? ` · ${r.note}` : ""}</span>}
                 </td>
-                <td className="px-3 py-1.5 text-right">{r.equity.toFixed(1)}</td>
-                <td className={`px-3 py-1.5 text-right ${tone(r.pnl)}`}>{u(r.pnl)}</td>
+                <td className="px-3 py-1.5 text-right">{r.bankroll.toFixed(1)}</td>
                 <td className={`px-3 py-1.5 text-right ${tone(r.realized)}`}>{u(r.realized)}</td>
+                <td className={`px-3 py-1.5 text-right ${tone(r.open)}`}>{u(r.open)}</td>
+                <td className="px-3 py-1.5 text-right">{r.equity.toFixed(1)}</td>
                 <td className={`px-3 py-1.5 text-right ${tone(r.roi)}`}>{r.volume > 0 ? `${(r.roi * 100).toFixed(1)}%` : "–"}</td>
                 <td className="px-3 py-1.5 text-right text-muted">{r.openRisk.toFixed(1)}</td>
                 <td className="px-3 py-1.5 text-right text-muted">{r.trades}</td>
@@ -120,7 +122,7 @@ export function EquityChart({ snaps, colors, names, start }: { snaps: ExSnap[]; 
   const y = (v: number) => T + (1 - (v - lo) / Math.max(1e-6, hi - lo)) * (H - T - B);
   return (
     <section className="mb-8">
-      <h2 className="mb-2 text-sm font-semibold text-foreground">Profit and loss over time (units)</h2>
+      <h2 className="mb-2 text-sm font-semibold text-foreground">Equity change over time (bankroll plus open P&amp;L, in units)</h2>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full rounded-lg border border-border bg-surface">
         <line x1={L} x2={W - R} y1={y(0)} y2={y(0)} stroke="currentColor" className="text-border" strokeDasharray="3 3" />
         {[lo, hi].map((v) => (
@@ -199,5 +201,17 @@ export function TradeList({ trades, games, names }: { trades: ExTrade[]; games: 
       </div>
       <p className="mt-1 text-[11px] text-muted">Greyed names posted the quote (the maker); the other side took it. Price and fair are the cost of a yes contract that pays 100¢.</p>
     </section>
+  );
+}
+
+/** The four money columns in plain words, shown once under a leaderboard. */
+export function MoneyLegend() {
+  return (
+    <p className="-mt-5 mb-8 max-w-4xl text-[11px] leading-relaxed text-muted">
+      <span className="text-foreground">Bankroll</span> is starting units plus profit actually banked, from finished games and positions closed out. It is the cash and collateral in the account.{" "}
+      <span className="text-foreground">Realized P&amp;L</span> is that banked profit on its own.{" "}
+      <span className="text-foreground">Open P&amp;L</span> is what the open positions would make or lose if closed at DraftKings&rsquo; price right now: it moves with the lines and is not money yet.{" "}
+      <span className="text-foreground">Equity</span> is bankroll plus open P&amp;L.
+    </p>
   );
 }

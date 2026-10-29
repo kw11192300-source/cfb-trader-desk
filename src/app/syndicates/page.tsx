@@ -1,4 +1,4 @@
-import { EquityChart, LeaderTable, SyndicateHeader, TradeList } from "@/components/SyndicateParts";
+import { EquityChart, LeaderTable, MoneyLegend, SyndicateHeader, TradeList } from "@/components/SyndicateParts";
 import { getExchange, getExchangeGamesByIds, getExchangeSnapshots, getExchangeTrades, summarize } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
@@ -32,10 +32,11 @@ export default async function SyndicatesPage() {
           if its side wins: the buyer posts the price, the seller posts the rest, so nobody can lose more than they put up. Every trader shares one goal (beat the
           closing DraftKings price) and one rulebook (fair value anchored to DraftKings and never more than 12¢ away, at most 100 units on a game and market, quarter Kelly
           at most), then builds its own strategy inside it: how big an edge it demands, how tight it quotes, how far it trusts its syndicate&rsquo;s model. Each round
-          plays out over twelve steps in which traders refresh quotes and hit each other&rsquo;s. Everything is marked against DraftKings (via ESPN). No real money,
+          plays out over twelve steps in which traders refresh quotes and hit each other&rsquo;s. Open positions are valued at DraftKings&rsquo; price (via ESPN) until they settle. No real money,
           no sportsbook, nothing connected to your bets.
         </p>
         <LeaderTable rows={srows} linkBase="/syndicates" title="Syndicates" />
+        <MoneyLegend />
         <EquityChart snaps={snaps} colors={colors} names={sNames} start={start} />
         <LeaderTable rows={mrows} title="Every trader" />
         <TradeList trades={trades} games={games} names={names} />

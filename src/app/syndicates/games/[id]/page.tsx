@@ -274,7 +274,7 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
                     <th className="px-3 py-2 text-right">Exch / DK</th>
                     <th className="px-3 py-2 text-right" title="Profit or loss if the contract resolves yes">If yes</th>
                     <th className="px-3 py-2 text-right" title="Profit or loss if the contract resolves no">If no</th>
-                    <th className="px-3 py-2 text-right" title="Marked to the DraftKings price">Marked</th>
+                    <th className="px-3 py-2 text-right" title="What this position would make or lose if closed at the DraftKings price now; not money until it is closed or the game settles">Open P&amp;L</th>
                   </tr>
                 </thead>
                 <tbody className="font-mono">

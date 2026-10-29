@@ -154,6 +154,11 @@ export type Row = {
   name: string;
   syndicate: string;
   color: string;
+  /** starting units plus profit actually banked (settled games and netted trades): cash and collateral, with open positions at cost */
+  bankroll: number;
+  /** what open positions would make or lose if closed at the DraftKings price now */
+  open: number;
+  /** bankroll plus open profit and loss */
   equity: number;
   pnl: number;
   realized: number;
@@ -175,6 +180,7 @@ export function summarize(syndicates: ExSyndicate[], members: ExMember[]): { mem
   const syn = Object.fromEntries(syndicates.map((s) => [s.id, s]));
   const rowOf = (id: string, name: string, syndicate: string, color: string, ms: ExMember[], start: number, note = ""): Row => {
     const equity = ms.reduce((a, m) => a + equityOf(m), 0);
+    const bankroll = ms.reduce((a, m) => a + m.cash + m.locked, 0);
     const st = ms.map((m) => m.stats);
     const sum = (f: (s: ExMemberStats) => number) => st.reduce((a, s) => a + (f(s) ?? 0), 0);
     const volume = sum((s) => s.vol_maker + s.vol_taker);
@@ -182,7 +188,7 @@ export function summarize(syndicates: ExSyndicate[], members: ExMember[]): { mem
     const decided = sum((s) => s.wins + s.losses);
     const realized = ms.reduce((a, m) => a + m.realized, 0);
     return {
-      id, name, syndicate, color, equity, pnl: equity - start, realized, roi: volume > 0 ? realized / volume : 0,
+      id, name, syndicate, color, bankroll, open: equity - bankroll, equity, pnl: equity - start, realized, roi: volume > 0 ? realized / volume : 0,
       openRisk: ms.reduce((a, m) => a + (m.open_risk ?? 0), 0), trades: sum((s) => s.n_maker + s.n_taker), volume,
       clv: clvN > 0 ? sum((s) => s.clv_sum) / clvN : null, clvN, makerPnl: sum((s) => s.pnl_maker), takerPnl: sum((s) => s.pnl_taker),
       maxDd: Math.max(0, ...st.map((s) => s.max_dd)), winRate: decided > 0 ? sum((s) => s.wins) / decided : null, note,

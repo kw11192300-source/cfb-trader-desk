@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import LocalDateTime from "@/components/LocalDateTime";
 import { scenarioPnl, scenarios } from "@/lib/syndicateGame";
-import { EquityChart, LeaderTable, SyndicateHeader, TradeList } from "@/components/SyndicateParts";
+import { EquityChart, LeaderTable, MoneyLegend, SyndicateHeader, TradeList } from "@/components/SyndicateParts";
 import {
   fairOf, getExchange, getExchangeSnapshots, getExchangeTrades, getGamesFull, getSyndicateOpenTrades, label, openLots, payoff, pct, ramp, summarize, SYN_GAME_LIMIT,
 } from "@/lib/syndicates";
@@ -80,6 +80,7 @@ export default async function SyndicatePage({ params }: { params: Promise<{ id: 
         </h2>
         <p className="mb-6 mt-1 max-w-3xl text-xs text-muted">{syn.tagline}</p>
         <LeaderTable rows={mrows.map((r) => ({ ...r, color: colors[r.id] ?? r.color }))} title="Traders" />
+        <MoneyLegend />
 
         {syn.engine === "agent" && (
           <section className="mb-8 rounded-lg border border-border bg-surface p-4">
@@ -156,7 +157,7 @@ export default async function SyndicatePage({ params }: { params: Promise<{ id: 
                       <th className="px-3 py-2 text-right">Limit now</th>
                       <th className="w-28 px-3 py-2">Used</th>
                       <th className="px-3 py-2 text-right">Best case</th>
-                      <th className="px-3 py-2 text-right">Marked</th>
+                      <th className="px-3 py-2 text-right" title="What this game&rsquo;s positions would make or lose if closed at the DraftKings price now">Open P&amp;L</th>
                     </tr>
                   </thead>
                   <tbody className="font-mono">
