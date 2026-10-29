@@ -1,4 +1,4 @@
-"""python -m exchange init | ratings | round | live | status   (add --local to use the JSON file instead of Supabase)"""
+"""python -m exchange init | ratings | round | live | status | reset --yes   (add --local to use the JSON file instead of Supabase)"""
 from __future__ import annotations
 
 import argparse
@@ -10,11 +10,12 @@ from .store import FileStore, SbStore
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["init", "ratings", "round", "live", "status"])
+    ap.add_argument("cmd", choices=["init", "ratings", "round", "live", "status", "reset"])
     ap.add_argument("--local", action="store_true")
     ap.add_argument("--sports", default=",".join(SPORTS))
     ap.add_argument("--days", type=int, default=420)
     ap.add_argument("--rounds", type=int, default=1)
+    ap.add_argument("--yes", action="store_true", help="reset: confirm that every trade and record should be wiped")
     ap.add_argument("--ticks", type=int, default=engine.TICKS)
     ap.add_argument("--every", type=int, default=120, help="live: seconds between rounds")
     a = ap.parse_args()
@@ -23,6 +24,11 @@ def main() -> None:
     if a.cmd == "init":
         engine.init(store)
         print("roster ready")
+    elif a.cmd == "reset":
+        if not a.yes:
+            raise SystemExit("reset wipes every trade, game, snapshot and trader record; add --yes to confirm")
+        engine.reset(store)
+        print("exchange reset: no trades, every trader back to its starting bankroll")
     elif a.cmd == "ratings":
         engine.fit_ratings(store, sports, a.days)
     elif a.cmd == "round":

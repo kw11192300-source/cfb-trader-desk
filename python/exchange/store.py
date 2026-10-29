@@ -33,6 +33,9 @@ class FileStore:
     def insert(self, table: str, rows: list[dict]) -> None:
         self.d[table].extend(rows)
 
+    def clear(self, table: str) -> None:
+        self.d[table] = []
+
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(self.d))
@@ -64,6 +67,11 @@ class SbStore:
     def insert(self, table: str, rows: list[dict]) -> None:
         for i in range(0, len(rows), 400):
             self.c.table(table).insert(rows[i : i + 400]).execute()
+
+    def clear(self, table: str) -> None:
+        col = KEYS.get(table, "id")
+        q = self.c.table(table).delete()
+        (q.neq(col, "") if table in KEYS else q.gt(col, -1)).execute()
 
     def save(self) -> None:
         pass

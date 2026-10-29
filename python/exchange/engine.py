@@ -94,6 +94,22 @@ def init(store) -> None:
     store.save()
 
 
+def reset(store) -> None:
+    """Start the exchange from scratch: no trades, games, price history or snapshots; every trader back to its starting bankroll, strategy and
+    record; every syndicate's learned model weight back to the cautious start. Fitted ratings and the labs' published models are kept."""
+    for t in ("ex_trades", "ex_snapshots", "ex_marks", "ex_games", "ex_meta"):
+        store.clear(t)
+    old = {s["id"]: s for s in store.rows("ex_syndicates")}
+    syns, mems = roster()
+    for s in syns:
+        keep = ((old.get(s["id"]) or {}).get("learn") or {}).get("agent")
+        if keep:  # a lab keeps what it has published: version, notes, backtest
+            s["learn"] = {"agent": keep}
+    store.upsert("ex_syndicates", syns)
+    store.upsert("ex_members", mems)
+    store.save()
+
+
 def fit_ratings(store, sports: list[str], days: int = 420) -> None:
     hist: dict[str, list[dict]] = {}
     for sp in sports:
