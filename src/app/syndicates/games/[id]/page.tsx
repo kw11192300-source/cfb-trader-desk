@@ -1,9 +1,9 @@
 import { notFound } from "next/navigation";
 
 import LocalDateTime from "@/components/LocalDateTime";
-import { LadderDepth, LineChart, type Dot, type Series } from "@/components/SyndicateCharts";
+import { LadderDepth, LineChart, PositionMatrix, type Dot, type MatrixRow, type Series } from "@/components/SyndicateCharts";
 import { SyndicateHeader, TradeList } from "@/components/SyndicateParts";
-import { getExchange, getExchangeGame, getGameMarks, getGameTrades, label, payoff } from "@/lib/syndicates";
+import { getExchange, getExchangeGame, getGameMarks, getGameTrades, label, openLots, payoff, ramp, SYN_GAME_LIMIT } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +35,22 @@ export default async function ExchangeGamePage({ params }: { params: Promise<{ i
     return { s, worst: Math.min(...m) + Math.min(...t), best: Math.max(...m) + Math.max(...t) };
   }).filter((e) => e.worst !== 0 || e.best !== 0).sort((a, b) => a.worst - b.worst);
 
+  const lots = openLots(trades, who);
+  const cells: Record<string, MatrixRow> = {};
+  for (const l of lots) {
+    const k = `${l.kind}|${l.line}`;
+    const row = (cells[k] ??= { key: k, label: label({ kind: l.kind, line: l.line }, game), cells: {} });
+    const c = (row.cells[l.owner] ??= { net: 0, long: 0, short: 0 });
+    c.net += l.qty;
+    if (l.qty > 0) c.long += l.qty;
+    else c.short -= l.qty;
+  }
+  const order = { ml: 0, spread: 1, total: 2 } as const;
+  const matrix = Object.entries(cells).sort((a, b) => {
+    const [ka, la] = a[0].split("|"), [kb, lb] = b[0].split("|");
+    return order[ka as keyof typeof order] - order[kb as keyof typeof order] || Number(la) - Number(lb);
+  }).map(([, r]) => r);
+
   // fair price over time for the three main contracts, with trades at those exact lines as dots
   const mainOf = (kind: string): number | null => {
     const l = marks.at(-1)?.lines.find((x) => x[0] === kind);
@@ -44,10 +60,11 @@ export default async function ExchangeGamePage({ params }: { params: Promise<{ i
     const idx = (mk: { lines: [string, number][] }) => mk.lines.findIndex((l) => l[0] === kind);
     const line = mainOf(kind);
     const pts: [number, number][] = marks.filter((mk) => idx(mk) >= 0).map((mk) => [new Date(mk.ts).getTime(), mk.r[idx(mk)] * 100]);
+    const eco: [number, number][] = marks.filter((mk) => idx(mk) >= 0 && mk.e && mk.e[idx(mk)] != null).map((mk) => [new Date(mk.ts).getTime(), (mk.e as number[])[idx(mk)] * 100]);
     const dots: Dot[] = line === null ? [] : trades.filter((t) => t.kind === kind && t.line === line).map((t) => ({
       x: new Date(t.ts).getTime(), y: t.price * 100, color: "#38bdf8", r: Math.min(5, 1.5 + t.qty / 40), tip: `${(t.price * 100).toFixed(0)}¢ × ${t.qty}`,
     }));
-    return { kind, line, pts, dots };
+    return { kind, line, pts, eco, dots };
   }).filter((c) => c.pts.length > 0);
 
   return (
@@ -83,14 +100,23 @@ export default async function ExchangeGamePage({ params }: { params: Promise<{ i
               {priceCharts.map((c) => (
                 <div key={c.kind}>
                   <p className="mb-1 text-[11px] text-muted">
-                    {label({ kind: c.kind, line: c.line ?? 0 }, game)} · fair line, trades as dots
+                    {label({ kind: c.kind, line: c.line ?? 0 }, game)} · DraftKings (purple), exchange price (green), trades (blue)
                   </p>
-                  <LineChart series={[{ id: c.kind, name: "fair", color: "#a78bfa", pts: c.pts, step: true }]} dots={c.dots} height={170} xFmt={fmtTime} yFmt={(v) => v.toFixed(0)} />
+                  <LineChart series={[{ id: c.kind, name: "DraftKings", color: "#a78bfa", pts: c.pts, step: true }, ...(c.eco.length > 1 ? [{ id: `${c.kind}-x`, name: "Exchange", color: "#34d399", pts: c.eco, step: true }] : [])]} dots={c.dots} height={170} xFmt={fmtTime} yFmt={(v) => v.toFixed(0)} />
                 </div>
               ))}
             </div>
           </section>
         )}
+
+        <section className="mb-8">
+          <h3 className="mb-2 text-sm font-semibold text-foreground">Where the risk sits</h3>
+          <p className="mb-2 text-[11px] text-muted">
+            Net contracts held by each syndicate on every line (green is long the yes side, red is short it; hover for the long and short legs). A syndicate may risk
+            at most {Math.round(SYN_GAME_LIMIT * ramp((new Date(game.start_utc).getTime() - Date.now()) / 3600000))} units on this game right now, rising to {SYN_GAME_LIMIT} by kickoff.
+          </p>
+          <PositionMatrix rows={matrix} cols={syndicates.map((s) => ({ id: s.id, name: s.name, color: s.color }))} />
+        </section>
 
         <section className="mb-8">
           <h3 className="mb-2 text-sm font-semibold text-foreground">Who is exposed</h3>

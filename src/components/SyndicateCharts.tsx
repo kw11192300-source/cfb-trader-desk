@@ -89,7 +89,8 @@ export function LadderDepth({ g }: { g: ExGame }) {
                 <th className="py-0.5 text-right font-medium">Bid</th>
                 <th className="w-24 py-0.5 text-center font-medium">Depth</th>
                 <th className="py-0.5 font-medium">Ask</th>
-                <th className="py-0.5 text-right font-medium">Fair</th>
+                <th className="py-0.5 text-right font-medium" title="DraftKings price, vig removed">DK</th>
+                <th className="py-0.5 text-right font-medium" title="The exchange's own price: size-weighted middle of the best bid and ask, else the last trade">Exch</th>
                 <th className="py-0.5 text-right font-medium">Last</th>
               </tr>
             </thead>
@@ -106,6 +107,7 @@ export function LadderDepth({ g }: { g: ExGame }) {
                   </td>
                   <td className="py-0.5">{pct(r[4])}</td>
                   <td className="py-0.5 text-right text-muted">{pct(r[2])}</td>
+                  <td className="py-0.5 text-right text-foreground">{pct(r[9])}</td>
                   <td className="py-0.5 text-right text-accent">{pct(r[5])}</td>
                 </tr>
               ))}
@@ -113,6 +115,51 @@ export function LadderDepth({ g }: { g: ExGame }) {
           </table>
         );
       })}
+    </div>
+  );
+}
+
+export type MatrixRow = { key: string; label: string; cells: Record<string, { net: number; long: number; short: number }> };
+
+/** Contracts down the side, syndicates across the top: the size of each net position, green for long yes, red for short yes. */
+export function PositionMatrix({ rows, cols }: { rows: MatrixRow[]; cols: { id: string; name: string; color: string }[] }) {
+  const max = Math.max(1, ...rows.flatMap((r) => Object.values(r.cells).map((c) => Math.abs(c.net))));
+  return (
+    <div className="overflow-x-auto rounded-lg border border-border">
+      <table className="w-full min-w-[640px] text-[11px]">
+        <thead className="bg-surface text-left text-muted">
+          <tr>
+            <th className="px-3 py-2">Contract</th>
+            {cols.map((c) => (
+              <th key={c.id} className="px-2 py-2 text-right font-medium">
+                <span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: c.color }} />
+                {c.name.split(" ")[0]}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="font-mono">
+          {rows.map((r) => (
+            <tr key={r.key} className="border-t border-border">
+              <td className="px-3 py-1 font-sans text-foreground">{r.label}</td>
+              {cols.map((c) => {
+                const v = r.cells[c.id];
+                const a = v ? Math.min(0.55, (Math.abs(v.net) / max) * 0.55) : 0;
+                return (
+                  <td
+                    key={c.id}
+                    className="px-2 py-1 text-right"
+                    style={v && Math.abs(v.net) > 0.5 ? { background: `${v.net > 0 ? "rgba(34,197,94," : "rgba(239,68,68,"}${a})` } : undefined}
+                    title={v ? `long ${v.long.toFixed(0)} · short ${v.short.toFixed(0)}` : undefined}
+                  >
+                    {v && Math.abs(v.net) > 0.5 ? `${v.net > 0 ? "+" : ""}${v.net.toFixed(0)}` : ""}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

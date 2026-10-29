@@ -84,7 +84,8 @@ create table if not exists ex_marks (
   ts timestamptz not null,
   game_id text not null,
   lines jsonb not null,
-  r jsonb not null
+  r jsonb not null,
+  e jsonb
 );
 create index if not exists ex_marks_game_idx on ex_marks (game_id, ts);
 create table if not exists ex_ratings (

@@ -74,11 +74,11 @@ export type ExGame = {
   away_score: number | null;
   ref: { spread: number | null; total: number | null; ml_home: number | null; ml_away: number | null } | null;
   /** [kind, line, reference %, best bid, best ask, last trade] */
-  /** [kind, line, fair, best bid, best ask, last trade, first trade, bid size, ask size] */
-  book: [string, number, number, number | null, number | null, number | null, number | null, number | null, number | null][] | null;
+  /** [kind, line, fair, best bid, best ask, last trade, first trade, bid size, ask size, exchange price] */
+  book: [string, number, number, number | null, number | null, number | null, number | null, number | null, number | null, number | null][] | null;
   ref_open: { spread: number | null; total: number | null; ml_home: number | null } | null;
 };
-export type ExMark = { ts: string; game_id: string; lines: [string, number][]; r: number[] };
+export type ExMark = { ts: string; game_id: string; lines: [string, number][]; r: number[]; e: (number | null)[] | null };
 export type ExSnap = { ts: string; subject: string; equity: number };
 export type ExMeta = { n: number; ts: string; markets: number; games: number; new_trades: number; settled: number } | null;
 
@@ -184,7 +184,7 @@ export async function getGameTrades(gameId: string): Promise<ExTrade[]> {
 }
 
 export async function getGameMarks(gameId: string): Promise<ExMark[]> {
-  const { data } = await supabase.from("ex_marks").select("ts,game_id,lines,r").eq("game_id", gameId).order("ts", { ascending: true }).limit(2000);
+  const { data } = await supabase.from("ex_marks").select("ts,game_id,lines,r,e").eq("game_id", gameId).order("ts", { ascending: true }).limit(2000);
   return (data ?? []) as ExMark[];
 }
 
@@ -219,4 +219,42 @@ export function payoff(trades: ExTrade[], who: (id: string) => string | null, xs
     if (s) add(s, t.rem_s ?? t.qty, -1, t);
   }
   return out;
+}
+
+/** The most of a game's risk limit that may be used this far from kickoff (mirrors python/exchange/engine.py ramp). */
+export const ramp = (hours: number): number => (hours > 24 ? 0.15 : hours > 12 ? 0.3 : hours > 6 ? 0.5 : hours > 2 ? 0.75 : 1);
+export const SYN_GAME_LIMIT = 150;
+export const TRADER_GAME_LIMIT = 100;
+
+export type Lot = { owner: string; holder: string; gid: string; kind: ExTrade["kind"]; line: number; qty: number; price: number };
+
+/** Every position still open, one lot per side of each trade: positive qty is long the 'yes' side, negative is short. */
+export function openLots(trades: ExTrade[], ownerOf: (memberId: string) => string | null): Lot[] {
+  const out: Lot[] = [];
+  for (const t of trades) {
+    if (t.settled) continue;
+    const b = ownerOf(t.buyer), s = ownerOf(t.seller);
+    const rb = t.rem_b ?? t.qty, rs = t.rem_s ?? t.qty;
+    if (b && rb > 1e-9) out.push({ owner: b, holder: t.buyer, gid: t.game_id, kind: t.kind, line: t.line, qty: rb, price: t.price });
+    if (s && rs > 1e-9) out.push({ owner: s, holder: t.seller, gid: t.game_id, kind: t.kind, line: t.line, qty: -rs, price: t.price });
+  }
+  return out;
+}
+
+export function fairOf(g: ExGame | undefined, kind: string, line: number): number | null {
+  const r = g?.book?.find((b) => b[0] === kind && b[1] === line);
+  return r ? r[2] : null;
+}
+
+export async function getSyndicateOpenTrades(syndicate: string): Promise<ExTrade[]> {
+  const { data } = await supabase
+    .from("ex_trades").select("*").eq("settled", false)
+    .or(`buyer.like.${syndicate}-%,seller.like.${syndicate}-%`).order("ts", { ascending: false }).limit(4000);
+  return (data ?? []) as ExTrade[];
+}
+
+export async function getGamesFull(ids: string[]): Promise<Record<string, ExGame>> {
+  if (!ids.length) return {};
+  const { data } = await supabase.from("ex_games").select("id,sport,start_utc,state,completed,home,away,home_score,away_score,ref,book").in("id", ids);
+  return Object.fromEntries(((data ?? []) as ExGame[]).map((g) => [g.id, g]));
 }

@@ -21,6 +21,9 @@ CUTOFF_MIN = 3
 SNAP_EVERY = 3  # rounds between equity snapshots
 VOID_AFTER_DAYS = 6
 TOTAL_FRAC = 0.30  # worst-case loss, summed over a trader's games, may not pass this share of its bankroll
+SYN_GAME = 150.0  # a syndicate's combined worst case on one game, all its traders together, at the kickoff end of the ramp
+TAKE_CLIP = 40.0  # most contracts a trader will take in one go
+MAX_FILLS = 2  # most hits a trader makes each time it acts
 MAKER_SOFT = 0.6  # a market maker stops offering new risk once it has used this share of its risk limit, so it always has room to keep quoting
 RESERVE_FRAC = 0.20  # share of its starting bankroll a trader never commits as cash
 TICKS = 12  # steps of simulated time inside one round
@@ -30,6 +33,11 @@ W0, LAMBDA, W_MAX = 0.25, 0.5, 0.75  # cautious starting weight on a syndicate's
 # the shared rulebook: limits no strategy can step outside, whatever a trader decides for itself
 RULES = dict(max_risk=100.0, kelly=0.25, size=100.0, thr_min=0.01, half_min=0.01, edge_max=0.06)
 ADAPT_EVERY = 40  # settled trades of one kind between a trader reviewing its own strategy
+
+
+def ramp(hours: float) -> float:
+    """How much of a game's risk limit can be used this far from kickoff: money arrives as the game gets closer, like a real market."""
+    return 0.15 if hours > 24 else 0.3 if hours > 12 else 0.5 if hours > 6 else 0.75 if hours > 2 else 1.0
 
 
 def abide(p: dict) -> dict:
@@ -278,6 +286,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             main = g["ref"].get("spread" if kind == "spread" else "total")
             k = ckey(gid, kind, line)
             markets[k] = {"gid": gid, "sport": g["sport"], "kind": kind, "line": line, "ref": p_ref(gid, kind, line),
+                          "ramp": ramp((_pdate(g["start_utc"]) - now).total_seconds() / 3600),
                           "near": kind == "ml" or (main is not None and abs(line - main) <= 2)}
     by_gid: dict[str, list[str]] = {}
     for k, mk in markets.items():
@@ -297,6 +306,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     # ---- every syndicate's model view of every market, and the one shared way a view becomes a fair price
     eng_p: dict[tuple[str, str], float] = {}
     marks = []
+    prev_views: dict[str, dict | None] = {}
     for gid, keys in by_gid.items():
         g, (d, ml) = games[gid], refs[gid]
         views = {"lines": [], "r": [], "e": {}}
@@ -311,9 +321,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             for k in keys:
                 eng_p[(s["id"], k)] = p_engine(dist, d, ml, markets[k]["kind"], markets[k]["line"])
             views["e"][s["id"]] = [round(eng_p[(s["id"], ckey(gid, kd, ln))], 4) for kd, ln in views["lines"]]
-        old = g.get("views")
-        if views["lines"] and (not old or old.get("r") != views["r"] or old.get("lines") != views["lines"]):
-            marks.append({"ts": _iso(now), "game_id": gid, "lines": views["lines"], "r": views["r"]})
+        prev_views[gid] = g.get("views")
         g["views"] = views if views["lines"] else None
     weights = {(sid, sp): syn_weight(s, sp) for sid, s in syns.items() for sp in espn.SPORTS}
 
@@ -368,6 +376,23 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             c = pcache[(mid, gid)] = (vm, vt, risk.worst(vm), risk.worst(vt))
         return c
 
+    syn_members: dict[str, list[str]] = {}
+    for m in members.values():
+        syn_members.setdefault(m["syndicate_id"], []).append(m["id"])
+    scache: dict[tuple[str, str], tuple] = {}
+
+    def spos(sid: str, gid: str) -> tuple:
+        """The syndicate's whole book on a game: its traders' positions added together (so one trader's long can offset another's short)."""
+        c = scache.get((sid, gid))
+        if c is None:
+            vm, vt = np.zeros(len(grids[gid].mx)), np.zeros(len(grids[gid].tx))
+            for mid in syn_members[sid]:
+                if (mid, gid) in lots_g:
+                    a, b, _, _ = pos(mid, gid)
+                    vm, vt = vm + a, vt + b
+            c = scache[(sid, gid)] = (vm, vt, risk.worst(vm), risk.worst(vt))
+        return c
+
     def trisk(mid: str) -> float:
         v = tcache.get(mid)
         if v is None:
@@ -383,8 +408,11 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         vm, vt, rm, rt = pos(m["id"], mk["gid"])
         u = (mk["ov"] - px) if side == "buy" else (px - mk["ov"])
         slack = max(0.0, total_limit(m) * (MAKER_SOFT if soft else 1.0) - trisk(m["id"]))
-        lim = min(m["params"]["max_risk"], rm + rt + slack)
-        return risk.room(vm if mk["dim"] == "m" else vt, u, lim - (rt if mk["dim"] == "m" else rm))
+        lim = min(m["params"]["max_risk"] * mk["ramp"], rm + rt + slack)
+        q = risk.room(vm if mk["dim"] == "m" else vt, u, lim - (rt if mk["dim"] == "m" else rm))
+        sm, st_, srm, srt = spos(m["syndicate_id"], mk["gid"])
+        q2 = risk.room(sm if mk["dim"] == "m" else st_, u, SYN_GAME * mk["ramp"] - (srt if mk["dim"] == "m" else srm))
+        return min(q, q2)
 
     def cash_room(m: dict, k: str, side: str, px: float) -> float:
         """Contracts it can trade on this side: closing what it holds needs no cash, opening needs the unit cost and keeps the reserve."""
@@ -393,6 +421,9 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         free = max(0.0, m["cash"] - RESERVE_FRAC * m["start_units"])
         return closing + free / (px if side == "buy" else 1 - px)
 
+    prev_ts = _pdate(meta["round"]["ts"]) if meta.get("round") and meta["round"].get("ts") else now - timedelta(minutes=10)
+    t0 = max(prev_ts, now - timedelta(minutes=30))
+    clock = {"ts": _iso(now)}  # trades are stamped across the time since the last round, one slice per step
     modified: dict[str, dict] = {}
     new_trades: list[dict] = []
     last_px: dict[str, float] = {}
@@ -430,7 +461,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     def fill(buyer: dict, seller: dict, maker: dict, mk: dict, k: str, px: float, qty: float) -> dict:
         cb = close_lots(buyer, mk, k, False, px, qty, "maker" if buyer is maker else "taker")
         cs = close_lots(seller, mk, k, True, px, qty, "maker" if seller is maker else "taker")
-        tr = {"id": f"r{rnd}-{len(new_trades)}", "ts": _iso(now), "round": rnd, "game_id": mk["gid"], "kind": mk["kind"], "line": mk["line"],
+        tr = {"id": f"r{rnd}-{len(new_trades)}", "ts": clock["ts"], "round": rnd, "game_id": mk["gid"], "kind": mk["kind"], "line": mk["line"],
               "price": px, "qty": qty, "buyer": buyer["id"], "seller": seller["id"], "maker": maker["id"], "ref_p": round(mk["ref"], 4),
               "rem_b": round(qty - cb, 6), "rem_s": round(qty - cs, 6), "settled": False, "outcome": None, "close_p": None}
         new_trades.append(tr)
@@ -444,6 +475,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             who["stats"][f"vol_{role}"] += qty * (px if who is buyer else 1 - px)
             net[(who["id"], k)] = net.get((who["id"], k), 0.0) + side_qty
             pcache.pop((who["id"], mk["gid"]), None)
+            scache.pop((who["syndicate_id"], mk["gid"]), None)
             tcache.pop(who["id"], None)
             games_of.setdefault(who["id"], set()).add(mk["gid"])
         if tr["rem_b"] > 1e-9:
@@ -467,7 +499,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             bid, ask = max(0.01, float(np.floor((c - p["half"]) * 100) / 100)), min(0.99, float(np.ceil((c + p["half"]) * 100) / 100))
             if bid >= ask:
                 continue
-            size = p["size"] * taper * (1.0 if on else 0.5)
+            size = p["size"] * taper * (1.0 if on else 0.5) * max(0.3, mk["ramp"])
             qb = min(size, room_for(m, mk, "buy", bid, True), cash_room(m, k, "buy", bid))
             qa = min(size, room_for(m, mk, "sell", ask, True), cash_room(m, k, "sell", ask))
             if qb >= 5:
@@ -495,10 +527,15 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             elif b and b[0] - pf >= thr:
                 cands.append((b[0] - pf, k, "sell", pf, thr, on))
         cands.sort(reverse=True)
+        fills = 0
         for edge, k, side, pf, thr, on in cands:
+            if fills >= MAX_FILLS:
+                break
             book = asks[k] if side == "buy" else bids[k]
             mk = markets[k]
             for _ in range(6):  # walk the book while it still pays
+                if fills >= MAX_FILLS:
+                    break
                 q = best(book, m["id"])
                 if not q:
                     break
@@ -512,7 +549,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 kelly_q = p["kelly"] * f * bankroll / unit * (1.0 if on else 0.5)
                 maker = members[q[2]]
                 m_side = "sell" if side == "buy" else "buy"
-                qty = min(kelly_q, q[1], room_for(m, mk, side, px), cash_room(m, k, side, px),
+                qty = min(kelly_q, TAKE_CLIP, q[1], room_for(m, mk, side, px), cash_room(m, k, side, px),
                           room_for(maker, mk, m_side, px, True), cash_room(maker, k, m_side, px))
                 qty = round(qty, 2)
                 if qty < 1:
@@ -522,6 +559,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                     break
                 buyer, seller = (m, maker) if side == "buy" else (maker, m)
                 fill(buyer, seller, maker, mk, k, px, qty)
+                fills += 1
                 q[1] = round(q[1] - qty, 2)
 
     # ---- time flows: traders arrive in random order over a number of ticks, refresh their quotes, and hit each other's
@@ -531,6 +569,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         if m["role"] in ("maker", "both"):
             post_quotes(m)
     for tick in range(ticks):
+        clock["ts"] = _iso(t0 + (now - t0) * ((tick + 1) / (ticks + 1)))
         rng.shuffle(order)
         for m in order:
             if tick > 0 and rng.random() > ACT_PROB:
@@ -540,6 +579,23 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             if m["role"] in ("taker", "both"):
                 take(m)
     open_all = open_trades + new_trades
+
+    # ---- the exchange's own price for each contract: size-weighted mid of the best bid and ask, else the last trade
+    eco: dict[str, float | None] = {}
+    for k in markets:
+        b, a = (bids[k][0] if bids[k] else None), (asks[k][0] if asks[k] else None)
+        eco[k] = round((b[0] * a[1] + a[0] * b[1]) / (a[1] + b[1]), 4) if b and a and a[1] + b[1] > 0 else last_px.get(k)
+    for gid, g in games.items():
+        v = g.get("views")
+        if not v or gid not in by_gid:
+            continue
+        v["x"] = [eco.get(ckey(gid, kd, ln)) for kd, ln in v["lines"]]
+        old = prev_views.get(gid)
+        prior = (old or {}).get("x") or [None] * len(v["x"])
+        moved = (not old or old.get("r") != v["r"] or old.get("lines") != v["lines"]
+                 or any((a is None) != (b is None) or (a is not None and abs(a - b) >= 0.005) for a, b in zip(v["x"], prior)))
+        if moved:
+            marks.append({"ts": _iso(now), "game_id": gid, "lines": v["lines"], "r": v["r"], "e": v["x"]})
 
     # ---- mark to market
     unreal: dict[str, float] = {}
@@ -567,12 +623,12 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     for m in members.values():
         adapt(m, _iso(now))
 
-    # ---- the book the page shows: [kind, line, fair, best bid, best ask, last trade, first trade this round, bid size, ask size]
+    # ---- the book the page shows: [kind, line, fair, best bid, best ask, last trade, first trade this round, bid size, ask size, exchange price]
     by_game: dict[str, list] = {}
     for k, mk in markets.items():
         b, a = (bids[k][0] if bids[k] else None), (asks[k][0] if asks[k] else None)
         by_game.setdefault(mk["gid"], []).append([mk["kind"], mk["line"], round(mk["ref"], 3), b and b[0], a and a[0], last_px.get(k), first_px.get(k),
-                                                  b and b[1], a and a[1]])
+                                                  b and b[1], a and a[1], eco.get(k)])
     for gid, rows in by_game.items():
         games[gid]["book"] = rows
 
