@@ -7,9 +7,9 @@ const nice = (v: number) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 
 
 /** A plain SVG line chart: several series on shared numeric axes, optional dots, an optional zero line and vertical marker. */
 export function LineChart({
-  series, dots = [], height = 220, zero = false, xLabel, yLabel, xFmt, yFmt, vline,
+  series, dots = [], height = 220, zero = false, xLabel, yLabel, xFmt, yFmt, vline, legend = true,
 }: {
-  series: Series[]; dots?: Dot[]; height?: number; zero?: boolean; xLabel?: string; yLabel?: string; xFmt?: (x: number) => string; yFmt?: (y: number) => string; vline?: number;
+  series: Series[]; dots?: Dot[]; height?: number; zero?: boolean; xLabel?: string; yLabel?: string; xFmt?: (x: number) => string; yFmt?: (y: number) => string; vline?: number; legend?: boolean;
 }) {
   const all = [...series.flatMap((s) => s.pts), ...dots.map((d) => [d.x, d.y] as [number, number])];
   if (all.length < 2) return <p className="rounded-lg border border-border bg-surface px-3 py-6 text-center text-xs text-muted">Nothing to chart yet.</p>;
@@ -18,7 +18,7 @@ export function LineChart({
   if (zero) { y0 = Math.min(y0, 0); y1 = Math.max(y1, 0); }
   const pad = (y1 - y0) * 0.08 || 1;
   y0 -= pad; y1 += pad;
-  const W = 900, H = height, L = 52, R = 12, T = 8, B = 22;
+  const W = 900, H = height, L = 56, R = 14, T = 10, B = 26;
   const x = (v: number) => L + ((v - x0) / Math.max(1e-9, x1 - x0)) * (W - L - R);
   const y = (v: number) => T + (1 - (v - y0) / Math.max(1e-9, y1 - y0)) * (H - T - B);
   const yf = yFmt ?? nice, xf = xFmt ?? ((v: number) => String(Math.round(v)));
@@ -29,27 +29,30 @@ export function LineChart({
   return (
     <div>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full rounded-lg border border-border bg-surface">
-        {[0, 0.5, 1].map((f) => {
+        {[0, 0.25, 0.5, 0.75, 1].map((f) => {
           const v = y0 + (y1 - y0) * f;
           return (
             <g key={f}>
-              <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} stroke="currentColor" className="text-border" strokeWidth="0.5" />
-              <text x={L - 6} y={y(v) + 3} textAnchor="end" className="fill-muted" fontSize="10">{yf(v)}</text>
+              <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} stroke="currentColor" className="text-border" strokeWidth="0.6" />
+              <text x={L - 6} y={y(v) + 4} textAnchor="end" className="fill-muted" fontSize="12">{yf(v)}</text>
             </g>
           );
         })}
-        {[0, 0.5, 1].map((f) => (
-          <text key={f} x={L + (W - L - R) * f} y={H - 6} textAnchor={f === 0 ? "start" : f === 1 ? "end" : "middle"} className="fill-muted" fontSize="10">{xf(x0 + (x1 - x0) * f)}</text>
+        {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+          <g key={f}>
+            <line x1={L + (W - L - R) * f} x2={L + (W - L - R) * f} y1={T} y2={H - B} stroke="currentColor" className="text-border" strokeWidth="0.3" />
+            <text x={L + (W - L - R) * f} y={H - 6} textAnchor={f === 0 ? "start" : f === 1 ? "end" : "middle"} className="fill-muted" fontSize="12">{xf(x0 + (x1 - x0) * f)}</text>
+          </g>
         ))}
         {zero && y0 < 0 && y1 > 0 && <line x1={L} x2={W - R} y1={y(0)} y2={y(0)} stroke="currentColor" className="text-muted" strokeDasharray="3 3" />}
         {vline !== undefined && vline >= x0 && vline <= x1 && <line x1={x(vline)} x2={x(vline)} y1={T} y2={H - B} stroke="currentColor" className="text-accent" strokeDasharray="2 3" />}
         {series.map((s) => (
-          <polyline key={s.id} fill="none" stroke={s.color} strokeWidth="1.6" points={path(s)}>
+          <polyline key={s.id} fill="none" stroke={s.color} strokeWidth="2.2" strokeLinejoin="round" points={path(s)}>
             <title>{s.name}</title>
           </polyline>
         ))}
         {dots.map((d, i) => (
-          <circle key={i} cx={x(d.x)} cy={y(d.y)} r={d.r ?? 2.5} fill={d.color} fillOpacity="0.75">
+          <circle key={i} cx={x(d.x)} cy={y(d.y)} r={(d.r ?? 2.5) * 1.5} fill={d.color} fillOpacity="0.75" stroke="#0b1220" strokeWidth="0.8">
             {d.tip && <title>{d.tip}</title>}
           </circle>
         ))}
@@ -57,7 +60,7 @@ export function LineChart({
           <text x={W - R} y={T + 8} textAnchor="end" className="fill-muted" fontSize="10">{[yLabel, xLabel].filter(Boolean).join(" vs ")}</text>
         )}
       </svg>
-      {series.length > 1 && (
+      {legend && series.length > 1 && (
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted">
           {series.map((s) => (
             <span key={s.id}>

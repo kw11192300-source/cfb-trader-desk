@@ -132,6 +132,28 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
           </p>
         </div>
 
+        {sel && selRow && (
+          <section className="mb-6 rounded-lg border border-border bg-surface p-4">
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+              <div>
+                <p className="text-base font-semibold text-foreground">{label(sel, game as ExGame)}</p>
+                <p className="text-[11px] text-muted">{desc(sel.kind, sel.line)}</p>
+              </div>
+              <div className="flex items-baseline gap-4">
+                <span className="text-4xl font-semibold text-foreground">{Math.round((selRow[9] ?? selRow[2]) * 100)}%</span>
+                <span className="text-xs text-muted">DraftKings {Math.round(selRow[2] * 100)}% · last trade {cents(selRow[5] ?? vol[`${sel.kind}|${sel.line}`]?.last)}</span>
+              </div>
+            </div>
+            <LineChart series={series} dots={dots} height={340} legend={false} xFmt={fmtTime} yFmt={(v) => `${v.toFixed(0)}¢`} />
+            <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] text-muted">
+              <span><span className="mr-1 inline-block h-0.5 w-4 align-middle" style={{ background: "#a78bfa" }} />DraftKings</span>
+              <span><span className="mr-1 inline-block h-0.5 w-4 align-middle" style={{ background: "#34d399" }} />Exchange price</span>
+              <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ background: "#38bdf8" }} />Trades (bigger dot, bigger trade)</span>
+              {!mainSel && <span>Only the main lines keep a price history, so this line shows its trades.</span>}
+            </div>
+          </section>
+        )}
+
         <div className="mb-8 grid gap-6 lg:grid-cols-5">
           <section className="lg:col-span-3">
             {GROUPS.map(([kind, title]) => {
@@ -186,15 +208,7 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
           <section className="lg:col-span-2">
             {sel && selRow ? (
               <div className="rounded-lg border border-border bg-surface p-3">
-                <p className="text-sm font-semibold text-foreground">{label(sel, game as ExGame)}</p>
-                <p className="mb-2 text-[11px] text-muted">{desc(sel.kind, sel.line)}</p>
-                <div className="mb-3 flex items-baseline gap-4">
-                  <span className="text-3xl font-semibold text-foreground">{Math.round((selRow[9] ?? selRow[2]) * 100)}%</span>
-                  <span className="text-xs text-muted">DraftKings {Math.round(selRow[2] * 100)}% · last trade {cents(selRow[5] ?? vol[`${sel.kind}|${sel.line}`]?.last)}</span>
-                </div>
-                <LineChart series={series} dots={dots} height={150} xFmt={fmtTime} yFmt={(v) => v.toFixed(0)} />
-                {!mainSel && <p className="mt-1 text-[10px] text-muted">Only the main lines keep a price history; other lines show their trades.</p>}
-                <p className="mb-1 mt-4 text-[10px] uppercase tracking-wide text-muted">Order book</p>
+                <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">Order book · {label(sel, game as ExGame)}</p>
                 <div className="font-mono text-[11px]">
                   {[...(selRow[10]?.[1] ?? [])].reverse().map(([p, q]) => (
                     <div key={`a${p}`} className="relative flex justify-between px-2 py-0.5">
