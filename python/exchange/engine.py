@@ -8,6 +8,7 @@ reserve that is never committed. Trades happen at the maker's price. A push refu
 from __future__ import annotations
 
 import random
+import time
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -99,6 +100,9 @@ def reset(store) -> None:
     record; every syndicate's learned model weight back to the cautious start. Fitted ratings and the labs' published models are kept."""
     for t in ("ex_trades", "ex_snapshots", "ex_marks", "ex_games", "ex_meta"):
         store.clear(t)
+    fits = [r["fitted_at"] for r in store.rows("ex_ratings") if r["key"].split("|")[0] in espn.SPORTS and r.get("fitted_at")]
+    if fits:  # the ratings survive a reset, so the record of when they were fitted does too
+        store.upsert("ex_meta", [{"key": "ratings", "value": {"ts": max(fits), "sports": espn.SPORTS}}])
     old = {s["id"]: s for s in store.rows("ex_syndicates")}
     syns, mems = roster()
     for s in syns:
@@ -120,6 +124,7 @@ def fit_ratings(store, sports: list[str], days: int = 420) -> None:
         store.upsert("ex_ratings", rows)
         print(f"  {sp}: {len(games)} finished games -> {', '.join(r['key'] for r in rows)}", flush=True)
     agent_manage.refit_portable(store, hist)  # agent models that learn from ESPN results alone are refit with the same fresh histories
+    store.upsert("ex_meta", [{"key": "ratings", "value": {"ts": _iso(_now()), "sports": list(hist)}}])
     store.save()
 
 
@@ -172,6 +177,7 @@ def syn_weight(s: dict, sport: str) -> float:
 
 
 def run_round(store, sports: list[str], seed: int | None = None, verbose: bool = True, ticks: int = TICKS) -> dict:
+    t_start = time.time()
     now = _now()
     meta = {r["key"]: r["value"] for r in store.rows("ex_meta")}
     rnd = int((meta.get("round") or {}).get("n", 0)) + 1
@@ -255,6 +261,11 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 st["num"] += (o - r) * (e - r)
                 st["den"] += (e - r) ** 2
                 st["n"] += 1
+                cal = syns[sid]["learn"].setdefault("calib", {}).setdefault(g["sport"], {"model": [[0, 0.0] for _ in range(10)], "market": [[0, 0.0] for _ in range(10)]})
+                for who, pr in (("model", e), ("market", r)):
+                    b = cal[who][min(9, int(pr * 10))]
+                    b[0] += 1
+                    b[1] += o
         n_learned += 1
 
     # ---- settle: what each side still holds pays out; what was netted off earlier was already banked
@@ -294,6 +305,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             if close_p is not None:
                 c = (close_p - t["price"]) if side == "buyer" else (t["price"] - close_p)
                 st["clv_sum"] += c
+                st["clv_sq"] = st.get("clv_sq", 0.0) + c * c
                 st["clv_n"] += 1
                 st[f"clv_{role}_sum"] = st.get(f"clv_{role}_sum", 0.0) + c
                 st[f"clv_{role}_n"] = st.get(f"clv_{role}_n", 0) + 1
@@ -711,6 +723,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         s["learn"] = s.get("learn") or {}
         s["learn"]["w"] = {sp: round(weights[(sid, sp)], 3) for sp in espn.SPORTS}
         if rnd % SNAP_EVERY == 0:
+            snaps += [{"ts": _iso(now), "subject": f"w:{sid}:{sp}", "equity": round(weights[(sid, sp)], 4), "realized": None, "open_risk": None} for sp in espn.SPORTS]
             ms = [m for m in members.values() if m["syndicate_id"] == sid]
             snaps.append({"ts": _iso(now), "subject": f"syn:{sid}", "equity": round(sum(m["equity"] for m in ms), 3),
                           "realized": round(sum(m["realized"] for m in ms), 3), "open_risk": round(sum(m["open_risk"] for m in ms), 3)})
@@ -749,7 +762,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     if marks:
         store.insert("ex_marks", marks)
     store.upsert("ex_meta", [{"key": "round", "value": {"n": rnd, "ts": _iso(now), "markets": len(markets), "games": len(by_gid),
-                                                         "new_trades": len(new_trades), "settled": stats["settled"], "ticks": ticks}}])
+                                                         "new_trades": len(new_trades), "settled": stats["settled"], "ticks": ticks,
+                                                         "secs": round(time.time() - t_start, 1), "errors": [s["id"] for s in syns.values() if ((s.get("learn") or {}).get("agent") or {}).get("error")]}}])
     store.save()
     out = {"round": rnd, "games_new": n_new, "games_listed": len(by_gid), "markets": len(markets), "new_trades": len(new_trades), **stats,
            "learned": n_learned, "open": len(open_all)}

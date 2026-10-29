@@ -1,10 +1,13 @@
-import { EquityChart, LeaderTable, MoneyLegend, SyndicateHeader, TradeList } from "@/components/SyndicateParts";
+import Link from "next/link";
+
+import { EquityChart, HealthStrip, LeaderTable, MoneyLegend, SyndicateHeader, TradeList } from "@/components/SyndicateParts";
 import { getExchange, getExchangeGamesByIds, getExchangeSnapshots, getExchangeTrades, summarize } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
-export default async function SyndicatesPage() {
-  const { syndicates, members, meta, configured } = await getExchange();
+export default async function SyndicatesPage({ searchParams }: { searchParams: Promise<{ rank?: string }> }) {
+  const rankClv = (await searchParams).rank === "clv";
+  const { syndicates, members, meta, ratingsMeta, configured } = await getExchange();
   if (!configured || !syndicates.length) {
     return (
       <div className="min-h-screen">
@@ -19,6 +22,12 @@ export default async function SyndicatesPage() {
   const [snaps, trades] = await Promise.all([getExchangeSnapshots("syn:"), getExchangeTrades({ limit: 40 })]);
   const games = await getExchangeGamesByIds([...new Set(trades.map((t) => t.game_id))]);
   const { members: mrows, syndicates: srows } = summarize(syndicates, members);
+  // closing-line value is the better judge early on: rank by how far above zero we are sure it is, not by the raw average
+  const lcb = (r: { clv: number | null; clvSe: number | null }) => (r.clv == null ? -9 : r.clv - 1.0 * (r.clvSe ?? 0.05));
+  if (rankClv) {
+    mrows.sort((a, b) => lcb(b) - lcb(a));
+    srows.sort((a, b) => lcb(b) - lcb(a));
+  }
   const names = Object.fromEntries(members.map((m) => [m.id, `${syndicates.find((s) => s.id === m.syndicate_id)?.name ?? ""} · ${m.name}`]));
   const colors = Object.fromEntries(syndicates.map((s) => [s.id, s.color]));
   const sNames = Object.fromEntries(syndicates.map((s) => [s.id, s.name]));
@@ -35,10 +44,17 @@ export default async function SyndicatesPage() {
           plays out over twelve steps in which traders refresh quotes and hit each other&rsquo;s. Open positions are valued at DraftKings&rsquo; price (via ESPN) until they settle. No real money,
           no sportsbook, nothing connected to your bets.
         </p>
+        <HealthStrip round={meta} ratings={ratingsMeta} labs={syndicates.filter((s) => s.engine === "agent").map((s) => ({ name: s.name, error: s.learn?.agent?.error, version: s.learn?.agent?.version }))} />
+        <div className="mb-3 flex items-center gap-2 text-[11px]">
+          <span className="text-muted">Rank by</span>
+          <Link href="/syndicates" className={`rounded px-2.5 py-1 ${!rankClv ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>Equity</Link>
+          <Link href="/syndicates?rank=clv" className={`rounded px-2.5 py-1 ${rankClv ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>Closing-line value</Link>
+          <span className="text-muted">{rankClv ? "Sorted by the low end of each 68% range, so a big average on a few trades does not win." : "Equity moves with DraftKings lines before games finish; CLV is the steadier measure."}</span>
+        </div>
         <LeaderTable rows={srows} linkBase="/syndicates" title="Syndicates" />
         <MoneyLegend />
         <EquityChart snaps={snaps} colors={colors} names={sNames} start={start} />
-        <LeaderTable rows={mrows} title="Every trader" />
+        <LeaderTable rows={mrows} linkBase="/syndicates/traders" showSyn title="Every trader" />
         <TradeList trades={trades} games={games} names={names} />
       </main>
     </div>

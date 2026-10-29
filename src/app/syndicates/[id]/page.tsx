@@ -3,9 +3,10 @@ import { notFound } from "next/navigation";
 
 import LocalDateTime from "@/components/LocalDateTime";
 import { scenarioPnl, scenarios } from "@/lib/syndicateGame";
+import { LineChart } from "@/components/SyndicateCharts";
 import { EquityChart, LeaderTable, MoneyLegend, SyndicateHeader, TradeList } from "@/components/SyndicateParts";
 import {
-  fairOf, getExchange, getExchangeSnapshots, getExchangeTrades, getGamesFull, getSyndicateOpenTrades, label, openLots, payoff, pct, ramp, summarize, SYN_GAME_LIMIT,
+  fairOf, getExchange, getExchangeSnapshots, getExchangeTrades, getGamesFull, getSyndicateOpenTrades, getWeightHistory, label, openLots, payoff, pct, ramp, summarize, SYN_GAME_LIMIT,
 } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,8 @@ export default async function SyndicatePage({ params }: { params: Promise<{ id: 
   const syn = syndicates.find((s) => s.id === id);
   if (!syn) notFound();
   const mine = members.filter((m) => m.syndicate_id === id);
-  const [snaps, trades, open] = await Promise.all([
+  const [weightHist, snaps, trades, open] = await Promise.all([
+    getWeightHistory(id),
     getExchangeSnapshots("mem:" + id + "-"),
     getExchangeTrades({ syndicate: id, limit: 40 }),
     getSyndicateOpenTrades(id),
@@ -79,7 +81,7 @@ export default async function SyndicatePage({ params }: { params: Promise<{ id: 
           {syn.name}
         </h2>
         <p className="mb-6 mt-1 max-w-3xl text-xs text-muted">{syn.tagline}</p>
-        <LeaderTable rows={mrows.map((r) => ({ ...r, color: colors[r.id] ?? r.color }))} title="Traders" />
+        <LeaderTable rows={mrows.map((r) => ({ ...r, color: colors[r.id] ?? r.color }))} linkBase="/syndicates/traders" showSyn title="Traders" />
         <MoneyLegend />
 
         {syn.engine === "agent" && (
@@ -276,6 +278,38 @@ export default async function SyndicatePage({ params }: { params: Promise<{ id: 
           )}
           <p className="mt-1 text-[11px] text-muted">Long means holding the yes side (home wins, home covers, over); short means holding the other side. Price is the average paid by the long legs or received by the short legs.</p>
         </section>
+
+        {(() => {
+          const sports = ["nfl", "cfb", "nhl", "nba", "cbb"];
+          const pal: Record<string, string> = { nfl: "#38bdf8", cfb: "#fb923c", nhl: "#22d3ee", nba: "#f472b6", cbb: "#facc15" };
+          const wser = sports.filter((s) => (weightHist[s]?.length ?? 0) > 1).map((s) => ({ id: s, name: s.toUpperCase(), color: pal[s], pts: weightHist[s].map(([t, v]) => [t, v * 100] as [number, number]), step: true }));
+          const cal = syn.learn?.calib ?? {};
+          const bin = (who: "model" | "market") => Array.from({ length: 10 }, (_, i) => {
+            const n = Object.values(cal).reduce((a, c) => a + c[who][i][0], 0), w = Object.values(cal).reduce((a, c) => a + c[who][i][1], 0);
+            return { i, n, rate: n > 0 ? w / n : null };
+          });
+          const mb = bin("model"), kb = bin("market");
+          const total = mb.reduce((a, b) => a + b.n, 0);
+          const calSeries = [
+            { id: "ideal", name: "Perfect", color: "#64748b", pts: [[0, 0], [100, 100]] as [number, number][] },
+            { id: "model", name: "This syndicate's model", color: syn.color, pts: mb.filter((b) => b.n >= 3).map((b) => [b.i * 10 + 5, b.rate! * 100] as [number, number]) },
+            { id: "market", name: "DraftKings", color: "#a78bfa", pts: kb.filter((b) => b.n >= 3).map((b) => [b.i * 10 + 5, b.rate! * 100] as [number, number]) },
+          ].filter((s) => s.pts.length > 1);
+          return (
+            <section className="mb-8 grid gap-4 lg:grid-cols-2">
+              <div>
+                <h3 className="mb-1 text-sm font-semibold text-foreground">Model weight over time</h3>
+                <p className="mb-2 text-[11px] text-muted">The share of this syndicate&rsquo;s own view that reaches its prices, by sport. It rises only when the model beats DraftKings on finished games.</p>
+                {wser.length > 0 ? <LineChart series={wser} height={200} yFmt={(v) => `${v.toFixed(0)}%`} xFmt={(t) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" })} /> : <p className="rounded-lg border border-border bg-surface px-3 py-6 text-center text-xs text-muted">Fills in over the first few rounds.</p>}
+              </div>
+              <div>
+                <h3 className="mb-1 text-sm font-semibold text-foreground">Calibration</h3>
+                <p className="mb-2 text-[11px] text-muted">When it said 70%, did it happen 70% of the time? Points on the grey line are perfectly calibrated. Uses the three main lines of every finished game ({total} so far); bins with fewer than 3 are left out.</p>
+                {calSeries.length > 1 ? <LineChart series={calSeries} height={200} xLabel="said (%)" yFmt={(v) => `${v.toFixed(0)}%`} xFmt={(v) => `${v.toFixed(0)}%`} /> : <p className="rounded-lg border border-border bg-surface px-3 py-6 text-center text-xs text-muted">Needs finished games to draw.</p>}
+              </div>
+            </section>
+          );
+        })()}
 
         <section className="mb-8">
           <p className="mb-2 text-xs text-muted">

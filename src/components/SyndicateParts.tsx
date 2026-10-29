@@ -44,7 +44,15 @@ export function SyndicateHeader({ active, round }: { active: "board" | "markets"
   );
 }
 
-export function LeaderTable({ rows, linkBase, title }: { rows: Row[]; linkBase?: string; title: string }) {
+/** Green or red only when the whole 95% range sits on one side of zero; grey while the sample is too small to tell. */
+function clvTone(r: Row): string {
+  if (r.clv == null) return "text-muted";
+  if (r.clvSe == null) return "text-muted";
+  const lo = r.clv - 1.96 * r.clvSe, hi = r.clv + 1.96 * r.clvSe;
+  return lo > 0 ? "text-up" : hi < 0 ? "text-down" : "text-muted";
+}
+
+export function LeaderTable({ rows, linkBase, title, showSyn = false }: { rows: Row[]; linkBase?: string; title: string; showSyn?: boolean }) {
   return (
     <section className="mb-8">
       <h2 className="mb-2 text-sm font-semibold text-foreground">{title}</h2>
@@ -81,7 +89,7 @@ export function LeaderTable({ rows, linkBase, title }: { rows: Row[]; linkBase?:
                   ) : (
                     r.name
                   )}
-                  {!linkBase && <span className="ml-2 text-muted">{r.syndicate}{r.note ? ` · ${r.note}` : ""}</span>}
+                  {(!linkBase || showSyn) && <span className="ml-2 text-muted">{r.syndicate}{r.note ? ` · ${r.note}` : ""}</span>}
                 </td>
                 <td className="px-3 py-1.5 text-right">{r.bankroll.toFixed(1)}</td>
                 <td className={`px-3 py-1.5 text-right ${tone(r.realized)}`}>{u(r.realized)}</td>
@@ -90,7 +98,10 @@ export function LeaderTable({ rows, linkBase, title }: { rows: Row[]; linkBase?:
                 <td className={`px-3 py-1.5 text-right ${tone(r.roi)}`}>{r.volume > 0 ? `${(r.roi * 100).toFixed(1)}%` : "–"}</td>
                 <td className="px-3 py-1.5 text-right text-muted">{r.openRisk.toFixed(1)}</td>
                 <td className="px-3 py-1.5 text-right text-muted">{r.trades}</td>
-                <td className={`px-3 py-1.5 text-right ${r.clv == null ? "text-muted" : tone(r.clv)}`}>{r.clv == null ? "–" : `${(r.clv * 100).toFixed(1)}¢`}</td>
+                <td className={`px-3 py-1.5 text-right ${clvTone(r)}`} title={r.clvN ? `${r.clvN} settled sides${r.clvSe != null ? `; 95% range ${((r.clv! - 1.96 * r.clvSe) * 100).toFixed(1)}¢ to ${((r.clv! + 1.96 * r.clvSe) * 100).toFixed(1)}¢` : ""}` : undefined}>
+                  {r.clv == null ? "–" : `${r.clv >= 0 ? "+" : ""}${(r.clv * 100).toFixed(1)}¢`}
+                  {r.clv != null && r.clvSe != null && <span className="ml-1 text-[10px] text-muted">±{(1.96 * r.clvSe * 100).toFixed(1)}</span>}
+                </td>
                 <td className={`px-3 py-1.5 text-right ${tone(r.makerPnl)}`}>{u(r.makerPnl)}</td>
                 <td className={`px-3 py-1.5 text-right ${tone(r.takerPnl)}`}>{u(r.takerPnl)}</td>
                 <td className="px-3 py-1.5 text-right text-muted">{r.maxDd.toFixed(1)}</td>
@@ -213,5 +224,32 @@ export function MoneyLegend() {
       <span className="text-foreground">Open P&amp;L</span> is what the open positions would make or lose if closed at DraftKings&rsquo; price right now: it moves with the lines and is not money yet.{" "}
       <span className="text-foreground">Equity</span> is bankroll plus open P&amp;L.
     </p>
+  );
+}
+
+const ago = (iso: string | undefined | null): { text: string; mins: number } => {
+  if (!iso) return { text: "never", mins: Infinity };
+  const mins = Math.max(0, (Date.now() - new Date(iso).getTime()) / 60000);
+  return { text: mins < 1 ? "just now" : mins < 90 ? `${Math.round(mins)} min ago` : mins < 2880 ? `${Math.round(mins / 60)} h ago` : `${Math.round(mins / 1440)} d ago`, mins };
+};
+
+/** Is the exchange running? Last round and its health, the last ratings fit, and any lab whose model is failing. */
+export function HealthStrip({ round, ratings, labs }: { round: { n: number; ts: string; new_trades: number; games: number; secs?: number; errors?: string[] } | null; ratings: { ts: string } | null; labs: { name: string; error?: string | null; version?: number }[] }) {
+  const r = ago(round?.ts), f = ago(ratings?.ts);
+  const roundTone = r.mins < 25 ? "bg-up" : r.mins < 60 ? "bg-warn" : "bg-down";
+  const ratingsTone = f.mins < 9 * 60 ? "bg-up" : f.mins < 24 * 60 ? "bg-warn" : "bg-down";
+  const broken = labs.filter((l) => l.error);
+  return (
+    <div className="mb-6 flex flex-wrap items-center gap-x-6 gap-y-1 rounded-lg border border-border bg-surface px-3 py-2 text-[11px] text-muted">
+      <span className="flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${roundTone}`} /> Last round <span className="text-foreground">{round ? `#${round.n}, ${r.text}` : "none yet"}</span>{round?.secs ? ` (${round.secs.toFixed(0)} s)` : ""}</span>
+      {round && <span>{round.games} games listed · {round.new_trades} new trades that round</span>}
+      <span className="flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${ratingsTone}`} /> Ratings fitted <span className="text-foreground">{f.text}</span></span>
+      {labs.length > 0 && (
+        <span className="flex items-center gap-1.5">
+          <span className={`h-2 w-2 rounded-full ${broken.length ? "bg-down" : "bg-up"}`} />
+          Labs {broken.length ? <span className="text-down">{broken.map((b) => b.name).join(", ")} failing</span> : <span className="text-foreground">all models running</span>}
+        </span>
+      )}
+    </div>
   );
 }

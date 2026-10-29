@@ -13,6 +13,7 @@ export type ExSyndicate = {
   learn: {
     w?: Record<string, number>;
     stats?: Record<string, { n: number }>;
+    calib?: Record<string, { model: [number, number][]; market: [number, number][] }>;
     agent?: {
       lines?: boolean;
       version?: number;
@@ -31,6 +32,7 @@ export type ExMemberStats = {
   pnl_maker: number;
   pnl_taker: number;
   clv_sum: number;
+  clv_sq?: number;
   clv_n: number;
   peak: number;
   max_dd: number;
@@ -95,18 +97,20 @@ export type ExGame = {
 };
 export type ExMark = { ts: string; game_id: string; lines: [string, number][]; r: number[]; e: (number | null)[] | null };
 export type ExSnap = { ts: string; subject: string; equity: number };
-export type ExMeta = { n: number; ts: string; markets: number; games: number; new_trades: number; settled: number } | null;
+export type ExMeta = { n: number; ts: string; markets: number; games: number; new_trades: number; settled: number; secs?: number; errors?: string[] } | null;
+export type ExRatingsMeta = { ts: string; sports: string[] } | null;
 
 export const equityOf = (m: ExMember): number => m.equity ?? m.cash + m.locked;
 
-export async function getExchange(): Promise<{ syndicates: ExSyndicate[]; members: ExMember[]; meta: ExMeta; configured: boolean }> {
+export async function getExchange(): Promise<{ syndicates: ExSyndicate[]; members: ExMember[]; meta: ExMeta; ratingsMeta: ExRatingsMeta; configured: boolean }> {
   const [s, m, meta] = await Promise.all([
     supabase.from("ex_syndicates").select("*"),
     supabase.from("ex_members").select("*"),
-    supabase.from("ex_meta").select("value").eq("key", "round").maybeSingle(),
+    supabase.from("ex_meta").select("key,value"),
   ]);
-  if (s.error || m.error) return { syndicates: [], members: [], meta: null, configured: false };
-  return { syndicates: (s.data ?? []) as ExSyndicate[], members: (m.data ?? []) as ExMember[], meta: (meta.data?.value ?? null) as ExMeta, configured: true };
+  if (s.error || m.error) return { syndicates: [], members: [], meta: null, ratingsMeta: null, configured: false };
+  const mv = Object.fromEntries(((meta.data ?? []) as { key: string; value: unknown }[]).map((r) => [r.key, r.value]));
+  return { syndicates: (s.data ?? []) as ExSyndicate[], members: (m.data ?? []) as ExMember[], meta: (mv.round ?? null) as ExMeta, ratingsMeta: (mv.ratings ?? null) as ExRatingsMeta, configured: true };
 }
 
 export async function getExchangeTrades(opts: { member?: string; syndicate?: string; limit?: number } = {}): Promise<ExTrade[]> {
@@ -167,6 +171,8 @@ export type Row = {
   trades: number;
   volume: number;
   clv: number | null;
+  /** standard error of the average CLV, when the spread is known */
+  clvSe: number | null;
   clvN: number;
   makerPnl: number;
   takerPnl: number;
@@ -174,6 +180,12 @@ export type Row = {
   winRate: number | null;
   note: string;
 };
+
+function clvSe(sum: number, sq: number, n: number): number | null {
+  if (n < 2 || sq <= 0) return null;
+  const mean = sum / n;
+  return Math.sqrt(Math.max(0, sq / n - mean * mean) / n);
+}
 
 /** One summary row per member, and one per syndicate (its members added up), in the same shape so the same table renders both. */
 export function summarize(syndicates: ExSyndicate[], members: ExMember[]): { members: Row[]; syndicates: Row[] } {
@@ -190,7 +202,7 @@ export function summarize(syndicates: ExSyndicate[], members: ExMember[]): { mem
     return {
       id, name, syndicate, color, bankroll, open: equity - bankroll, equity, pnl: equity - start, realized, roi: volume > 0 ? realized / volume : 0,
       openRisk: ms.reduce((a, m) => a + (m.open_risk ?? 0), 0), trades: sum((s) => s.n_maker + s.n_taker), volume,
-      clv: clvN > 0 ? sum((s) => s.clv_sum) / clvN : null, clvN, makerPnl: sum((s) => s.pnl_maker), takerPnl: sum((s) => s.pnl_taker),
+      clv: clvN > 0 ? sum((s) => s.clv_sum) / clvN : null, clvSe: clvSe(sum((s) => s.clv_sum), sum((s) => s.clv_sq ?? 0), clvN), clvN, makerPnl: sum((s) => s.pnl_maker), takerPnl: sum((s) => s.pnl_taker),
       maxDd: Math.max(0, ...st.map((s) => s.max_dd)), winRate: decided > 0 ? sum((s) => s.wins) / decided : null, note,
     };
   };
@@ -278,4 +290,18 @@ export async function getGamesFull(ids: string[]): Promise<Record<string, ExGame
   if (!ids.length) return {};
   const { data } = await supabase.from("ex_games").select("id,sport,start_utc,state,completed,home,away,home_score,away_score,ref,book").in("id", ids);
   return Object.fromEntries(((data ?? []) as ExGame[]).map((g) => [g.id, g]));
+}
+
+export async function getTraderOpenTrades(memberId: string): Promise<ExTrade[]> {
+  const { data } = await supabase.from("ex_trades").select("*").eq("settled", false).or(`buyer.eq.${memberId},seller.eq.${memberId}`).order("ts", { ascending: false }).limit(3000);
+  return (data ?? []) as ExTrade[];
+}
+
+/** The price history of the model-weight snapshots for a syndicate: sport -> [time, weight][] */
+export async function getWeightHistory(syndicate: string, days = 30): Promise<Record<string, [number, number][]>> {
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const { data } = await supabase.from("ex_snapshots").select("ts,subject,equity").like("subject", `w:${syndicate}:%`).gte("ts", since).order("ts").limit(5000);
+  const out: Record<string, [number, number][]> = {};
+  for (const r of (data ?? []) as { ts: string; subject: string; equity: number }[]) (out[r.subject.split(":")[2]] ??= []).push([new Date(r.ts).getTime(), Number(r.equity)]);
+  return out;
 }
