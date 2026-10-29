@@ -31,6 +31,7 @@ IMPACT_Q = 50.0  # contracts that count as a full-size trade
 FLOW_DECAY = 0.6  # how much of that market move is still felt a round later
 SHARP_CLV = 0.02  # average closing-line value (2 cents) that makes a taker fully "sharp"
 SHARP_N = 10.0  # effective trades of evidence before a taker's record counts in full
+MM_REACT = 2.0  # a market maker moves its own view of a game this many times harder than a follower when its quote is hit
 MAKER_SOFT = 0.6  # a market maker stops offering new risk once it has used this share of its risk limit, so it always has room to keep quoting
 RESERVE_FRAC = 0.20  # share of its starting bankroll a trader never commits as cash
 TICKS = 12  # steps of simulated time inside one round
@@ -38,7 +39,7 @@ ACT_PROB = 0.6  # chance a trader acts on a given tick after the first
 BAND = 0.12  # no fair price strays further than this from the DraftKings price
 W0, LAMBDA, W_MAX = 0.25, 0.5, 0.75  # cautious starting weight on a syndicate's own model, how much evidence it takes to move it, its ceiling
 # the shared rulebook: limits no strategy can step outside, whatever a trader decides for itself
-RULES = dict(max_risk=100.0, kelly=0.25, size=100.0, thr_min=0.01, half_min=0.01, edge_max=0.06)
+RULES = dict(max_risk=100.0, kelly=0.25, size=100.0, thr_min=0.01, half_min=0.006, edge_max=0.06)
 ADAPT_EVERY = 40  # settled trades of one kind between a trader reviewing its own strategy
 
 
@@ -332,11 +333,17 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             main = g["ref"].get("spread" if kind == "spread" else "total")
             k = ckey(gid, kind, line)
             markets[k] = {"gid": gid, "sport": g["sport"], "kind": kind, "line": line, "ref": p_ref(gid, kind, line),
+                          "hrs": (_pdate(g["start_utc"]) - now).total_seconds() / 3600,
                           "ramp": ramp((_pdate(g["start_utc"]) - now).total_seconds() / 3600),
                           "near": kind == "ml" or (main is not None and abs(line - main) <= 2)}
     by_gid: dict[str, list[str]] = {}
     for k, mk in markets.items():
         by_gid.setdefault(mk["gid"], []).append(k)
+    prev_eco: dict[str, float] = {}  # the exchange's own price last round: a market maker's starting point carries what the crowd has already learned
+    for gid in by_gid:
+        for row in games[gid].get("book") or []:
+            if len(row) > 9 and row[9] is not None:
+                prev_eco[ckey(gid, row[0], row[1])] = row[9]
     # one grid of possible results per game, wide enough for every line anyone holds as well as every line on offer
     grids: dict[str, risk.Grid] = {}
     glines: dict[str, set] = {}
@@ -406,6 +413,10 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     def fair(m: dict, k: str) -> float:
         mk = markets[k]
         sid = m["syndicate_id"]
+        if m["params"].get("mm"):  # a market maker has no model: it blends the reference prices and lets order flow move it from there
+            r, ks, pe = mk["ref"], kal.get(mk["gid"], {}).get((mk["kind"], mk["line"])), prev_eco.get(k)
+            f = 0.5 * r + 0.3 * ks[2] + 0.2 * pe if ks and pe is not None else 0.6 * r + 0.4 * ks[2] if ks else 0.8 * r + 0.2 * pe if pe is not None else r
+            return clip(f, r - BAND, r + BAND)
         e = eng_p.get((sid, k), mk["ref"])
         w = float(np.clip(m["params"].get("trust", 1.0) * weights[(sid, mk["sport"])], 0.0, W_MAX))
         return clip(mk["ref"] + w * (e - mk["ref"]), mk["ref"] - BAND, mk["ref"] + BAND)
@@ -437,6 +448,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
 
     # market moves caused by sharp flow: a shift in each game's expected margin and total that everyone who follows the flow adds to their fair prices
     flow: dict[str, list[float]] = {}
+    mmb: dict[tuple[str, str], list[float]] = {}  # a market maker's own read of a game, built from who hit its quotes this round
+    tox: dict[tuple[str, str], float] = {}  # recent one-sided fills on a contract: the maker quotes wider on it for a while
     delta: dict[str, float] = {}
     sd_of = {"nhl": (2.3, 2.4), **{sp: v[:2] for sp, v in pricing.SIGMA.items()}}
 
@@ -449,10 +462,15 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             delta[k] = d1.p(mk["kind"], mk["line"]) - d0.p(mk["kind"], mk["line"])
         for m in members.values():
             f = m["params"].get("follow", 0.5)
+            bel = mmb.get((m["id"], gid)) if m["params"].get("mm") else None
+            bd: dict[str, float] = {}
+            if bel:
+                db = Dist(d0.sport, d0.m + bel[0], d0.t + bel[1])
+                bd = {k: db.p(markets[k]["kind"], markets[k]["line"]) - d0.p(markets[k]["kind"], markets[k]["line"]) for k in by_gid[gid]}
             for k in by_gid[gid]:
                 if (m["id"], k) in base_fairs:
                     r = markets[k]["ref"]
-                    fairs[(m["id"], k)] = clip(base_fairs[(m["id"], k)] + f * delta[k], r - BAND, r + BAND)
+                    fairs[(m["id"], k)] = clip(base_fairs[(m["id"], k)] + f * delta[k] + bd.get(k, 0.0), r - BAND, r + BAND)
 
     for gid in by_gid:
         pv = (prev_views.get(gid) or {}).get("flow")
@@ -589,6 +607,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             who["stats"][f"vol_{role}"] += qty * (px if who is buyer else 1 - px)
             net[(who["id"], k)] = net.get((who["id"], k), 0.0) + side_qty
             pcache.pop((who["id"], mk["gid"]), None)
+            dcache.pop((who["id"], mk["gid"]), None)
             scache.pop((who["syndicate_id"], mk["gid"]), None)
             tcache.pop(who["id"], None)
             games_of.setdefault(who["id"], set()).add(mk["gid"])
@@ -599,6 +618,19 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         last_px[k] = px
         first_px.setdefault(k, px)
         taker = buyer if maker is seller else seller
+        cap = (px - mk["ref"]) if maker is seller else (mk["ref"] - px)  # what the maker earned against DraftKings at the moment of the fill
+        ms = maker["stats"]
+        ms["cap_sum"], ms["cap_q"] = ms.get("cap_sum", 0.0) + qty * cap, ms.get("cap_q", 0.0) + qty
+        if maker["params"].get("mm"):  # a market maker learns from who hit it: the game is probably a little further their way
+            sd_m, sd_t = sd_of[mk["sport"]]
+            imp = (1.0 if taker is buyer else -1.0) * MM_REACT * maker["params"].get("eta", 1.0) * IMPACT * (0.5 + sharp(taker["id"], mk["sport"])) * min(1.0, qty / IMPACT_Q)
+            b = mmb.setdefault((maker["id"], mk["gid"]), [0.0, 0.0])
+            if mk["kind"] == "total":
+                b[1] = float(np.clip(b[1] + imp * sd_t, -0.25 * sd_t, 0.25 * sd_t))
+            else:
+                b[0] = float(np.clip(b[0] + imp * sd_m, -0.25 * sd_m, 0.25 * sd_m))
+            tox[(maker["id"], k)] = tox.get((maker["id"], k), 0.0) + 1.0
+            refresh(mk["gid"])
         sh = sharp(taker["id"], mk["sport"])
         if sh > 0.02:  # a trader with a record hit this: everyone following the flow marks the game a little their way
             sd_m, sd_t = sd_of[mk["sport"]]
@@ -611,17 +643,69 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             refresh(mk["gid"])
         return tr
 
+    sens_cache: dict[tuple[str, str, float], float] = {}
+
+    def sens_of(gid: str, kind: str, line: float) -> float:
+        """How much a contract's price moves per point the game's expected margin (or total) moves."""
+        key = (gid, kind, line)
+        v = sens_cache.get(key)
+        if v is None:
+            d0 = refs[gid][0]
+            up, dn = (Dist(d0.sport, d0.m, d0.t + 0.5), Dist(d0.sport, d0.m, d0.t - 0.5)) if kind == "total" else (Dist(d0.sport, d0.m + 0.5, d0.t), Dist(d0.sport, d0.m - 0.5, d0.t))
+            v = sens_cache[key] = up.p(kind, line) - dn.p(kind, line)
+        return v
+
+    smax_cache: dict[tuple[str, str], float] = {}
+
+    def smax(gid: str, dim: str) -> float:
+        key = (gid, dim)
+        v = smax_cache.get(key)
+        if v is None:
+            v = smax_cache[key] = max([abs(sens_of(gid, markets[k]["kind"], markets[k]["line"])) for k in by_gid[gid] if markets[k]["dim"] == dim] + [1e-6])
+        return v
+
+    dcache: dict[tuple[str, str], tuple[float, float]] = {}
+
+    def delta_exp(mid: str, gid: str) -> tuple[float, float]:
+        """A trader's position on a game as probability change per point of margin and per point of total: flat when long and short offset across lines."""
+        c = dcache.get((mid, gid))
+        if c is None:
+            dm = dt = 0.0
+            for t in lots_g.get((mid, gid), []):
+                q = (t["rem_b"] if t["buyer"] == mid else 0.0) - (t["rem_s"] if t["seller"] == mid else 0.0)
+                s = sens_of(gid, t["kind"], t["line"]) * q
+                if t["kind"] == "total":
+                    dt += s
+                else:
+                    dm += s
+            c = dcache[(mid, gid)] = (dm, dt)
+        return c
+
     def post_quotes(m: dict) -> None:
         """Cancel and re-post this trader's quotes: a bid and an ask either side of its fair price, leaned away from any position it holds.
         Each side is sized on its own against the risk limits, so a one-sided fill can never push a maker past them."""
         p = m["params"]
         taper = max(0.0, 1 - trisk(m["id"]) / max(1e-9, total_limit(m) * MAKER_SOFT))
+        mm = bool(p.get("mm"))
+        tmult = 1.0
+        if mm:  # widen when the maker's own fills have been closing against it, tighten when they have been harmless
+            n_ = m["stats"].get("clv_maker_n", 0)
+            avg_ = m["stats"].get("clv_maker_sum", 0.0) / n_ if n_ >= 20 else 0.0
+            tmult = 1.0 + p.get("tox", 1.0) * float(np.clip(-avg_ / 0.02, 0.0, 1.5)) if avg_ < 0 else (0.85 if avg_ > 0.01 else 1.0)
         for k, on in mine[m["id"]]:
             bids[k] = [q for q in bids[k] if q[2] != m["id"]]
             asks[k] = [q for q in asks[k] if q[2] != m["id"]]
             mk = markets[k]
-            c = fairs[(m["id"], k)] - 2.0 * p["half"] * net.get((m["id"], k), 0.0) / max(1.0, p["size"])  # a full-size position moves both quotes two half-spreads
-            bid, ask = max(0.01, float(np.floor((c - p["half"]) * 100) / 100)), min(0.99, float(np.ceil((c + p["half"]) * 100) / 100))
+            if mm:  # lean against the whole book on the game, not just this line, and quote wider where it has just been hit
+                dm_, dt_ = delta_exp(m["id"], mk["gid"])
+                s0 = smax(mk["gid"], mk["dim"])
+                inv = (dm_ if mk["dim"] == "m" else dt_) / max(1e-9, p["size"] * s0) * (sens_of(mk["gid"], mk["kind"], mk["line"]) / s0)
+                c = fairs[(m["id"], k)] - 2.0 * p["half"] * p.get("inv", 1.0) * inv
+                half = p["half"] * tmult * (1.3 if mk["hrs"] < 1 else 1.0) + 0.004 * tox.get((m["id"], k), 0.0)
+            else:
+                c = fairs[(m["id"], k)] - 2.0 * p["half"] * net.get((m["id"], k), 0.0) / max(1.0, p["size"])  # a full-size position moves both quotes two half-spreads
+                half = p["half"]
+            bid, ask = max(0.01, float(np.floor((c - half) * 100) / 100)), min(0.99, float(np.ceil((c + half) * 100) / 100))
             if bid >= ask:
                 continue
             size = p["size"] * taper * (1.0 if on else 0.5) * max(0.3, mk["ramp"])
@@ -696,6 +780,13 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     for tick in range(ticks):
         clock["ts"] = _iso(t0 + (now - t0) * ((tick + 1) / (ticks + 1)))
         rng.shuffle(order)
+        if tick > 0 and (mmb or tox):  # between steps a market maker's read of a game relaxes back toward the reference prices
+            for key in list(mmb):
+                mmb[key] = [x * 0.93 for x in mmb[key]]
+            for key in list(tox):
+                tox[key] *= 0.8
+            for gid in {g for (_, g) in mmb}:
+                refresh(gid)
         for m in order:
             if tick > 0 and rng.random() > ACT_PROB:
                 continue

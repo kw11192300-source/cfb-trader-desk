@@ -57,7 +57,7 @@ export function LeaderTable({ rows, linkBase, title, showSyn = false }: { rows: 
     <section className="mb-8">
       <h2 className="mb-2 text-sm font-semibold text-foreground">{title}</h2>
       <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full min-w-[980px] text-xs">
+        <table className="w-full min-w-[1060px] text-xs">
           <thead className="bg-surface text-left text-muted">
             <tr>
               <th className="px-3 py-2">#</th>
@@ -70,6 +70,7 @@ export function LeaderTable({ rows, linkBase, title, showSyn = false }: { rows: 
               <th className="px-3 py-2 text-right" title="Worst-case loss on open positions, across every possible result - not the cash tied up">At risk</th>
               <th className="px-3 py-2 text-right">Trades</th>
               <th className="px-3 py-2 text-right" title="Average of (closing fair price - price paid), in cents per contract, over settled trades">CLV</th>
+              <th className="px-3 py-2 text-right" title="How far inside DraftKings' price the quotes were filled, in cents per contract: the spread a market maker earns before anything moves">Spread cap.</th>
               <th className="px-3 py-2 text-right">Maker P&amp;L</th>
               <th className="px-3 py-2 text-right">Taker P&amp;L</th>
               <th className="px-3 py-2 text-right" title="Largest drop from the peak">Max DD</th>
@@ -102,6 +103,7 @@ export function LeaderTable({ rows, linkBase, title, showSyn = false }: { rows: 
                   {r.clv == null ? "–" : `${r.clv >= 0 ? "+" : ""}${(r.clv * 100).toFixed(1)}¢`}
                   {r.clv != null && r.clvSe != null && <span className="ml-1 text-[10px] text-muted">±{(1.96 * r.clvSe * 100).toFixed(1)}</span>}
                 </td>
+                <td className={`px-3 py-1.5 text-right ${r.capture == null ? "text-muted" : tone(r.capture)}`}>{r.capture == null ? "–" : `${r.capture >= 0 ? "+" : ""}${(r.capture * 100).toFixed(2)}¢`}</td>
                 <td className={`px-3 py-1.5 text-right ${tone(r.makerPnl)}`}>{u(r.makerPnl)}</td>
                 <td className={`px-3 py-1.5 text-right ${tone(r.takerPnl)}`}>{u(r.takerPnl)}</td>
                 <td className="px-3 py-1.5 text-right text-muted">{r.maxDd.toFixed(1)}</td>

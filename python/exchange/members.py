@@ -22,7 +22,7 @@ TRADERS_PER = 5
 TRADER_UNITS = SYNDICATE_UNITS / TRADERS_PER
 NAMES = ["Avery", "Blake", "Casey", "Drew", "Emery", "Finley", "Gray", "Harper", "Indigo", "Jules", "Kai", "Logan", "Morgan", "Nico", "Oakley", "Parker",
          "Quinn", "Reese", "Sage", "Tatum", "Uma", "Val", "Wren", "Xan", "Yael", "Zion", "Arden", "Bryn", "Cleo", "Dale", "Eden", "Flynn", "Gale", "Hollis",
-         "Ivy", "Jordan", "Kit", "Lane", "Marlow", "Nova", "Onyx", "Phoenix", "Remy", "Sky", "Teagan", "Ulric", "Vesper", "Wynn", "Yarrow", "Zeke", "Rune", "Sloane", "Tove", "Ash", "Bell", "Cove", "Dune", "Fern", "Glen", "Hale", "Ike", "Jett", "Kerry", "Lark", "Moss", "Noor", "Orin"]
+         "Ivy", "Jordan", "Kit", "Lane", "Marlow", "Nova", "Onyx", "Phoenix", "Remy", "Sky", "Teagan", "Ulric", "Vesper", "Wynn", "Yarrow", "Zeke", "Rune", "Sloane", "Tove", "Ash", "Bell", "Cove", "Dune", "Fern", "Glen", "Hale", "Ike", "Jett", "Kerry", "Lark", "Moss", "Noor", "Orin", "Pace", "Quill", "Rhys", "Sol", "Tarn", "Ulla", "Vance", "Wick", "Xia", "Yves", "Zora", "Alma", "Bram", "Cyra", "Dov"]
 # (role, number of focus sports): two market makers (a specialist and a generalist), two takers, one who does both
 SEATS = [("maker", 2), ("maker", 3), ("taker", 2), ("taker", 1), ("both", 2)]
 
@@ -55,6 +55,10 @@ SYNDICATES = [
          tagline="A research agent with everything: results, player data and market lines, free to combine them however it finds works."),
     dict(id="kalshi", name="Kalshi Followers", engine="kalshi", color="#10b981",
          tagline="No model: treats Kalshi's real-money prices as the truth and trades whatever gap there is between Kalshi and DraftKings."),
+    dict(id="mmt", name="Tight Book", engine="mm", color="#14b8a6", mmstyle="tight",
+         tagline="Pure market makers: quote both sides of every line tight and fast, earn the spread, stay flat, and move their price as order flow reveals where the game is."),
+    dict(id="mmc", name="Careful Book", engine="mm", color="#6366f1", mmstyle="careful",
+         tagline="Pure market makers who quote wider and smaller, back off after being picked off, and rebuild their price from who is trading against them."),
 ]
 
 
@@ -68,6 +72,13 @@ def roster() -> tuple[list[dict], list[dict]]:
         picks = [pool[0:2], pool[2:5], pool[3:5], pool[0:1], pool[1:3]]  # between them the five traders cover every sport
         for i, ((role, _), focus) in enumerate(zip(SEATS, picks)):
             params = {**strategy(s["id"], i, role), "focus": focus}
+            if s.get("mmstyle"):  # a dedicated market maker: quotes everything, never takes, no model
+                role, focus = "maker", SPORTS[:]
+                r = random.Random(f"{s['id']}-mm-{i}")
+                tight = s["mmstyle"] == "tight"
+                params.update(focus=focus, mm=True, half=round(r.uniform(0.008, 0.012) if tight else r.uniform(0.018, 0.026), 4),
+                              size=round(r.uniform(90, 100) if tight else r.uniform(55, 75)), tox=0.5 if tight else 1.0, eta=round(r.uniform(0.7, 1.0) if tight else r.uniform(1.1, 1.5), 2),
+                              inv=1.0 if tight else 1.5)
             if s["id"] == "pace":
                 params["kinds"] = ["total"]
             mems.append({"id": f"{s['id']}-{i + 1}", "syndicate_id": s["id"], "name": NAMES[si * TRADERS_PER + i], "role": role, "staking": "kelly",

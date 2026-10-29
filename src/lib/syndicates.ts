@@ -43,6 +43,9 @@ export type ExMemberStats = {
   sharp?: Record<string, number>;
   /** its record as a taker: decayed sum of closing-line value (s), weight (w), trades (n), by sport */
   flow?: Record<string, { s: number; w: number; n: number }>;
+  /** spread captured by this trader's quotes against DraftKings at the moment of each fill: sum of qty x capture, and contracts */
+  cap_sum?: number;
+  cap_q?: number;
 };
 export type ExMember = {
   id: string;
@@ -183,6 +186,8 @@ export type Row = {
   /** standard error of the average CLV, when the spread is known */
   clvSe: number | null;
   clvN: number;
+  /** average cents per contract the quotes captured against DraftKings when filled, or null if no quote has been filled */
+  capture: number | null;
   makerPnl: number;
   takerPnl: number;
   maxDd: number;
@@ -211,7 +216,7 @@ export function summarize(syndicates: ExSyndicate[], members: ExMember[]): { mem
     return {
       id, name, syndicate, color, bankroll, open: equity - bankroll, equity, pnl: equity - start, realized, roi: volume > 0 ? realized / volume : 0,
       openRisk: ms.reduce((a, m) => a + (m.open_risk ?? 0), 0), trades: sum((s) => s.n_maker + s.n_taker), volume,
-      clv: clvN > 0 ? sum((s) => s.clv_sum) / clvN : null, clvSe: clvSe(sum((s) => s.clv_sum), sum((s) => s.clv_sq ?? 0), clvN), clvN, makerPnl: sum((s) => s.pnl_maker), takerPnl: sum((s) => s.pnl_taker),
+      clv: clvN > 0 ? sum((s) => s.clv_sum) / clvN : null, clvSe: clvSe(sum((s) => s.clv_sum), sum((s) => s.clv_sq ?? 0), clvN), clvN, capture: sum((s) => s.cap_q ?? 0) > 0 ? sum((s) => s.cap_sum ?? 0) / sum((s) => s.cap_q ?? 0) : null, makerPnl: sum((s) => s.pnl_maker), takerPnl: sum((s) => s.pnl_taker),
       maxDd: Math.max(0, ...st.map((s) => s.max_dd)), winRate: decided > 0 ? sum((s) => s.wins) / decided : null, note,
     };
   };
