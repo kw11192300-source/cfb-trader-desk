@@ -54,7 +54,8 @@ export function LeaderTable({ rows, linkBase, title }: { rows: Row[]; linkBase?:
               <th className="px-3 py-2">#</th>
               <th className="px-3 py-2">Name</th>
               <th className="px-3 py-2 text-right">Equity</th>
-              <th className="px-3 py-2 text-right">P&amp;L</th>
+              <th className="px-3 py-2 text-right" title="Equity minus starting units. Open trades are marked at the current DraftKings price, so this moves before any game finishes">P&amp;L (marked)</th>
+              <th className="px-3 py-2 text-right" title="Profit from games that have finished and settled">Settled</th>
               <th className="px-3 py-2 text-right" title="Realized profit divided by units put at risk">ROI/vol</th>
               <th className="px-3 py-2 text-right">Open</th>
               <th className="px-3 py-2 text-right">Trades</th>
@@ -82,6 +83,7 @@ export function LeaderTable({ rows, linkBase, title }: { rows: Row[]; linkBase?:
                 </td>
                 <td className="px-3 py-1.5 text-right">{r.equity.toFixed(1)}</td>
                 <td className={`px-3 py-1.5 text-right ${tone(r.pnl)}`}>{u(r.pnl)}</td>
+                <td className={`px-3 py-1.5 text-right ${tone(r.realized)}`}>{u(r.realized)}</td>
                 <td className={`px-3 py-1.5 text-right ${tone(r.roi)}`}>{r.volume > 0 ? `${(r.roi * 100).toFixed(1)}%` : "–"}</td>
                 <td className="px-3 py-1.5 text-right text-muted">{r.openRisk.toFixed(1)}</td>
                 <td className="px-3 py-1.5 text-right text-muted">{r.trades}</td>

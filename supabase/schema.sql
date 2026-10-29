@@ -1111,7 +1111,8 @@ create table if not exists ex_syndicates (
   engine text not null,
   color text,
   tagline text,
-  start_units numeric not null
+  start_units numeric not null,
+  learn jsonb not null default '{}'
 );
 create table if not exists ex_members (
   id text primary key,
@@ -1145,6 +1146,8 @@ create table if not exists ex_games (
   ref jsonb,
   ref_open jsonb,
   book jsonb,
+  views jsonb,
+  learned boolean not null default false,
   updated_at timestamptz
 );
 create index if not exists ex_games_open_idx on ex_games (completed);

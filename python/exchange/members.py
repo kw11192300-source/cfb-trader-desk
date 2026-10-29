@@ -1,15 +1,32 @@
-"""The roster: eight syndicates, five members each, 200 units per member (1,000 per syndicate).
+"""The roster: eight syndicates with 10,000 units each, split into five sport desks of 2,000.
 
-A syndicate is a rating system (what it believes a fair price is); its members are traders with different jobs and staking plans:
-  makers  post a bid and an ask around their fair price and wait to be hit
-  takers  hit someone else's quote when it is off from their fair price by more than a threshold
-  ref_w   how much of the DraftKings baseline goes into their fair price (0 = bottom-up, only their own ratings; 1 = top-down, the market)
-  staking flat / kelly (fraction of full Kelly) / pct (share of bankroll) / edge (scales with the edge) - every trade capped at max_risk
+Every trader has the same goal (beat the closing DraftKings price, which in the long run is the same as making money) and works inside the
+same rulebook; each builds its own strategy inside it:
+
+  rulebook   (engine.RULES) fair price is DraftKings' no-vig price nudged toward the syndicate's model by a weight the syndicate learns
+             from settled games, and never more than 12 cents from DraftKings; at most 100 units (1% of the syndicate's bankroll) on one game
+             and market type; quarter Kelly at most; at most 70% of a desk's bankroll tied up; never both sides of the same line;
+             a trader asks for at least a 1-cent edge and quotes at least 1 cent each side
+  strategy   (per trader) how big an edge it demands, how tight it quotes, how hard it bets, how far it trusts its syndicate's model - set at
+             the start, then reviewed from its own results: takes that close worse than they were paid raise the edge it demands, quotes that
+             get picked off widen, and good results tighten it up
+A contract pays 1 unit, so a 40-cent contract bought 100 times risks 40 units.
 """
 from __future__ import annotations
 
-START_UNITS = 200.0
-MAX_RISK = 8.0  # units risked on one trade; a hard stop under the 5-10 guidance
+import random
+
+SYNDICATE_UNITS = 10_000.0
+DESK_SPORTS = ["nfl", "cfb", "nhl", "nba", "cbb"]
+DESK_UNITS = SYNDICATE_UNITS / len(DESK_SPORTS)
+
+def strategy(sid: str, sport: str) -> dict:
+    """Each trader starts with its own take on the shared rulebook - how big an edge it wants, how tight it quotes, how hard it bets, how far it
+    trusts its syndicate's model - and then adapts it from its own results (engine.adapt). The rulebook itself (engine.RULES) caps all of it."""
+    r = random.Random(f"{sid}-{sport}")
+    return dict(max_risk=100.0, thr=round(r.uniform(0.012, 0.03), 3), half=round(r.uniform(0.01, 0.025), 3), kelly=round(r.uniform(0.1, 0.25), 2),
+                size=round(r.uniform(60, 100)), skew=round(r.uniform(0.0001, 0.0004), 5), trust=round(r.uniform(0.7, 1.3), 2))
+
 
 SYNDICATES = [
     dict(id="elo", name="Elo Works", engine="elo", color="#2563eb", tagline="Margin Elo: every result moves a team's rating, the off-season pulls it back toward average."),
@@ -19,37 +36,21 @@ SYNDICATES = [
     dict(id="tape", name="Tape Readers", engine="tape", color="#0891b2", tagline="No ratings: follows DraftKings line movement and bets that steam keeps going."),
     dict(id="fade", name="Fade Club", engine="fade", color="#dc2626", tagline="No ratings: bets that big line moves overshoot and fade them."),
     dict(id="pace", name="Pace Lab", engine="pace", color="#ca8a04", tagline="Totals specialists - scoring environment from the ratings, with no view on sides."),
-    dict(id="mm", name="Liquidity Partners", engine="ref", color="#475569", tagline="Pure market makers: quote tight around the DraftKings price and earn the spread."),
-]
-
-TRADER_TYPES = [
-    dict(key="flat", name="Flat Taker", role="taker", staking="flat", flat=3.0, ref_w=0.3, thr=0.03),
-    dict(key="kelly", name="Kelly Bottom-Up", role="taker", staking="kelly", kelly=0.25, ref_w=0.0, thr=0.04),
-    dict(key="ev", name="+EV Hunter", role="taker", staking="edge", ref_w=0.5, thr=0.02),
-    dict(key="quote", name="Quoter", role="maker", staking="pct", pct=0.02, ref_w=0.5, half=0.025, size=12.0, skew=0.002),
-    dict(key="dual", name="Two-Way", role="both", staking="kelly", kelly=0.15, ref_w=0.25, thr=0.035, half=0.035, size=8.0, skew=0.003),
-]
-MM_TYPES = [
-    dict(key="tight", name="Tight Quoter", role="maker", staking="pct", pct=0.02, ref_w=1.0, half=0.012, size=10.0, skew=0.004),
-    dict(key="mid", name="Mid Quoter", role="maker", staking="pct", pct=0.02, ref_w=1.0, half=0.022, size=16.0, skew=0.003),
-    dict(key="wide", name="Wide Quoter", role="maker", staking="pct", pct=0.02, ref_w=1.0, half=0.04, size=30.0, skew=0.002),
-    dict(key="skew", name="Inventory Skewer", role="maker", staking="pct", pct=0.02, ref_w=1.0, half=0.02, size=14.0, skew=0.01),
-    dict(key="lean", name="Lean Quoter", role="both", staking="flat", flat=2.0, ref_w=0.85, thr=0.05, half=0.025, size=10.0, skew=0.004),
+    dict(id="mm", name="Liquidity Partners", engine="ref", color="#475569", tagline="The control group: no model at all, so they quote and trade straight off the DraftKings price."),
 ]
 
 
 def roster() -> tuple[list[dict], list[dict]]:
     syns, mems = [], []
     for s in SYNDICATES:
-        types = MM_TYPES if s["id"] == "mm" else TRADER_TYPES
-        syns.append({"id": s["id"], "name": s["name"], "engine": s["engine"], "color": s["color"], "tagline": s["tagline"], "start_units": START_UNITS * len(types)})
-        for t in types:
-            params = {k: v for k, v in t.items() if k not in ("key", "name", "role", "staking")}
-            params.update(max_risk=MAX_RISK)
+        syns.append({"id": s["id"], "name": s["name"], "engine": s["engine"], "color": s["color"], "tagline": s["tagline"],
+                     "start_units": SYNDICATE_UNITS, "learn": {}})
+        for sp in DESK_SPORTS:
+            params = {**strategy(s["id"], sp), "sports": [sp]}
             if s["id"] == "pace":
                 params["kinds"] = ["total"]
-            mems.append({"id": f"{s['id']}-{t['key']}", "syndicate_id": s["id"], "name": t["name"], "role": t["role"], "staking": t["staking"],
-                         "params": params, "start_units": START_UNITS, "cash": START_UNITS, "locked": 0.0, "realized": 0.0,
+            mems.append({"id": f"{s['id']}-{sp}", "syndicate_id": s["id"], "name": f"{sp.upper()} desk", "role": "both", "staking": "kelly",
+                         "params": params, "start_units": DESK_UNITS, "cash": DESK_UNITS, "locked": 0.0, "realized": 0.0,
                          "stats": {"n_maker": 0, "n_taker": 0, "vol_maker": 0.0, "vol_taker": 0.0, "pnl_maker": 0.0, "pnl_taker": 0.0,
-                                   "clv_sum": 0.0, "clv_n": 0, "peak": START_UNITS, "max_dd": 0.0, "wins": 0, "losses": 0, "biggest": 0.0}})
+                                   "clv_sum": 0.0, "clv_n": 0, "peak": DESK_UNITS, "max_dd": 0.0, "wins": 0, "losses": 0, "biggest": 0.0}})
     return syns, mems

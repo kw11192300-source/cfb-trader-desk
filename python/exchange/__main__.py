@@ -1,4 +1,4 @@
-"""python -m exchange init | ratings | round | status   (add --local to use the JSON file instead of Supabase)"""
+"""python -m exchange init | ratings | round | live | status   (add --local to use the JSON file instead of Supabase)"""
 from __future__ import annotations
 
 import argparse
@@ -10,11 +10,13 @@ from .store import FileStore, SbStore
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["init", "ratings", "round", "status"])
+    ap.add_argument("cmd", choices=["init", "ratings", "round", "live", "status"])
     ap.add_argument("--local", action="store_true")
     ap.add_argument("--sports", default=",".join(SPORTS))
     ap.add_argument("--days", type=int, default=420)
     ap.add_argument("--rounds", type=int, default=1)
+    ap.add_argument("--ticks", type=int, default=engine.TICKS)
+    ap.add_argument("--every", type=int, default=120, help="live: seconds between rounds")
     a = ap.parse_args()
     store = FileStore() if a.local else SbStore()
     sports = a.sports.split(",")
@@ -25,7 +27,13 @@ def main() -> None:
         engine.fit_ratings(store, sports, a.days)
     elif a.cmd == "round":
         for _ in range(a.rounds):
-            engine.run_round(store, sports)
+            engine.run_round(store, sports, ticks=a.ticks)
+    elif a.cmd == "live":  # keeps going on this machine until stopped: a round every --every seconds
+        import time
+
+        while True:
+            engine.run_round(store, sports, ticks=a.ticks)
+            time.sleep(a.every)
     else:
         mem = sorted(store.rows("ex_members"), key=lambda m: -m.get("equity", m["cash"]))
         for m in mem:

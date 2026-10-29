@@ -2,7 +2,16 @@ import { supabase } from "./supabase";
 
 // The Syndicates exchange is paper-only and keeps to its own ex_ tables (supabase/schema.sql); nothing else in the site reads or writes them.
 
-export type ExSyndicate = { id: string; name: string; engine: string; color: string; tagline: string; start_units: number };
+export type ExSyndicate = {
+  id: string;
+  name: string;
+  engine: string;
+  color: string;
+  tagline: string;
+  start_units: number;
+  /** w: how much of its own model each sport's fair price uses, learned from settled games */
+  learn: { w?: Record<string, number>; stats?: Record<string, { n: number }> } | null;
+};
 export type ExMemberStats = {
   n_maker: number;
   n_taker: number;
@@ -24,7 +33,7 @@ export type ExMember = {
   name: string;
   role: "maker" | "taker" | "both";
   staking: string;
-  params: Record<string, number | string[]>;
+  params: Record<string, number | string[] | (string | number)[][]>;
   start_units: number;
   cash: number;
   locked: number;

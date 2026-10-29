@@ -29,20 +29,29 @@ export default async function SyndicatePage({ params }: { params: Promise<{ id: 
         </h2>
         <p className="mb-6 mt-1 max-w-3xl text-xs text-muted">{syn.tagline}</p>
         <LeaderTable rows={mrows.map((r) => ({ ...r, color: colors[r.id] ?? r.color }))} title="Traders" />
-        <section className="mb-8 grid gap-2 text-xs text-muted sm:grid-cols-2 lg:grid-cols-3">
-          {mine.map((m) => (
-            <div key={m.id} className="rounded-lg border border-border bg-surface px-3 py-2">
-              <p className="font-medium text-foreground">{m.name}</p>
-              <p>
-                {m.role === "both" ? "Maker + taker" : m.role === "maker" ? "Maker" : "Taker"} · {m.staking} staking · {Math.round(Number(m.params.ref_w ?? 0) * 100)}% market weight
-              </p>
-              <p>
-                {m.role !== "maker" ? `edge needed ${(Number(m.params.thr ?? 0) * 100).toFixed(0)}¢` : ""}
-                {m.role !== "taker" ? `${m.role === "both" ? " · " : ""}quotes ±${(Number(m.params.half ?? 0) * 100).toFixed(1)}¢` : ""}
-                {` · max ${m.params.max_risk}u per play`}
-              </p>
-            </div>
-          ))}
+        <section className="mb-8">
+          <p className="mb-2 text-xs text-muted">
+            Model weight is how much of this syndicate&rsquo;s own view goes into its prices (the rest is DraftKings). It starts at 25% and moves only as settled games show
+            whether the model beat the market:{" "}
+            {["nfl", "cfb", "nhl", "nba", "cbb"].map((sp) => `${sp.toUpperCase()} ${Math.round((syn.learn?.w?.[sp] ?? 0.25) * 100)}%`).join(" · ")}
+          </p>
+          <div className="grid gap-2 text-xs text-muted sm:grid-cols-2 lg:grid-cols-3">
+            {mine.map((m) => (
+              <div key={m.id} className="rounded-lg border border-border bg-surface px-3 py-2">
+                <p className="font-medium text-foreground">{m.name}</p>
+                <p>
+                  Wants {(Number(m.params.thr ?? 0) * 100).toFixed(1)}¢ edge · quotes ±{(Number(m.params.half ?? 0) * 100).toFixed(1)}¢ · {Math.round(Number(m.params.kelly ?? 0) * 100)}% Kelly ·{" "}
+                  trusts the model {Number(m.params.trust ?? 1).toFixed(1)}×
+                </p>
+                {Array.isArray(m.params.log) && m.params.log.length > 0 && (
+                  <p className="mt-1 text-[11px]">
+                    Last change: {String((m.params.log as (string | number)[][])[0][1]) === "thr" ? "edge wanted" : "quote width"}{" "}
+                    {(Number((m.params.log as (string | number)[][])[0][2]) * 100).toFixed(2)}¢ → {(Number((m.params.log as (string | number)[][])[0][3]) * 100).toFixed(2)}¢
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
         </section>
         <EquityChart snaps={snaps} colors={colors} names={memberNames} start={start} />
         <TradeList trades={trades} games={games} names={names} />

@@ -28,9 +28,12 @@ export default async function SyndicatesPage() {
       <SyndicateHeader active="board" round={meta} />
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
         <p className="mb-6 max-w-3xl text-xs leading-relaxed text-muted">
-          Eight syndicates, each with its own rating system and five traders, start with 1,000 units (200 each). Every contract pays 100¢ if its side wins: the buyer
-          posts the price, the seller posts the rest, so nobody can lose more than they put up. Makers post bid/ask quotes, takers hit them, and everyone is
-          marked against the DraftKings price (via ESPN). No real money, no sportsbook, nothing connected to your bets.
+          Eight syndicates, each with its own rating system, start with 10,000 units split across five sport desks (NFL, CFB, NHL, NBA, CBB). A contract pays 1 unit
+          if its side wins: the buyer posts the price, the seller posts the rest, so nobody can lose more than they put up. Every trader shares one goal (beat the
+          closing DraftKings price) and one rulebook (fair value anchored to DraftKings and never more than 12¢ away, at most 100 units on a game and market, quarter Kelly
+          at most), then builds its own strategy inside it: how big an edge it demands, how tight it quotes, how far it trusts its syndicate&rsquo;s model. Each round
+          plays out over twelve steps in which traders refresh quotes and hit each other&rsquo;s. Everything is marked against DraftKings (via ESPN). No real money,
+          no sportsbook, nothing connected to your bets.
         </p>
         <LeaderTable rows={srows} linkBase="/syndicates" title="Syndicates" />
         <EquityChart snaps={snaps} colors={colors} names={sNames} start={start} />
