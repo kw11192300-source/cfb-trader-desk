@@ -51,6 +51,19 @@ export default async function VolumePage({ searchParams }: { searchParams: Promi
   const gaps = board.flatMap((g) => (g.book ?? []).filter((r) => r[9] != null).map((r) => ({ g, r, d: (r[9]! - r[2]) * 100 })))
     .filter((x) => Math.abs(x.d) >= 1).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, 12);
 
+  // main lines where another price disagrees with DraftKings: Kalshi, the exchange, the house, and the syndicates' own views weighted by what they have earned
+  const wOf = (sid: string, sport: string) => syndicates.find((s) => s.id === sid)?.learn?.w?.[sport] ?? 0.25;
+  const ideas = board.flatMap((g) => (g.views?.lines ?? []).map((ln, i) => {
+    const dk = g.views!.r![i];
+    const ks = g.views!.kal?.find((x) => x[0] === ln[0] && x[1] === ln[1])?.[2] ?? null;
+    const ex = g.views!.x?.[i] ?? null;
+    const es = Object.entries(g.views!.e ?? {}).filter(([, v]) => v[i] != null);
+    const house = g.views!.e?.house?.[i] ?? null;
+    const view = es.length > 0 ? dk + es.reduce((a, [sid, v]) => a + wOf(sid, g.sport) * (v[i] - dk), 0) / es.length : null;
+    const gaps = [ks, ex, house, view].map((v) => (v == null ? 0 : (v - dk) * 100));
+    return { g, ln, dk, ks, ex, house, view, big: gaps.reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a), 0) };
+  })).filter((x) => Math.abs(x.big) >= 2).sort((a, b) => Math.abs(b.big) - Math.abs(a.big)).slice(0, 15);
+
   const sharpRows = members.flatMap((m) => Object.entries(m.stats.flow ?? {}).map(([sport, f]) => ({
     m, sport, avg: f.w > 0 ? f.s / f.w : 0, n: f.n, score: m.stats.sharp?.[sport] ?? 0,
   }))).filter((r) => r.n >= 1).sort((a, b) => b.score - a.score || b.avg - a.avg).slice(0, 12);
@@ -164,6 +177,32 @@ export default async function VolumePage({ searchParams }: { searchParams: Promi
             </table>
           </div>
           <p className="mt-1 text-[11px] text-muted">The exchange price is the size-weighted middle of the best bid and ask, or the last trade. Gaps show where the crowd of syndicates, after weighing their own models and following sharp flow, thinks DraftKings is off.</p>
+        </section>
+
+        <section className="mb-8">
+          <h3 className="mb-2 text-sm font-semibold text-foreground">Ideas board: where other prices disagree with DraftKings</h3>
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full min-w-[720px] text-xs">
+              <thead className="bg-surface text-left text-muted">
+                <tr><th className="px-3 py-2">Main line</th><th className="px-3 py-2 text-right">DraftKings</th><th className="px-3 py-2 text-right">Kalshi</th><th className="px-3 py-2 text-right">Exchange</th><th className="px-3 py-2 text-right">House model</th><th className="px-3 py-2 text-right" title="What the syndicates collectively price: DraftKings moved toward each syndicate's own view by the weight that syndicate has earned, averaged">Syndicates blended</th><th className="px-3 py-2 text-right">Biggest gap</th></tr>
+              </thead>
+              <tbody className="font-mono">
+                {ideas.length === 0 && <tr><td colSpan={7} className="px-3 py-3 font-sans text-muted">Everything is within two points of DraftKings.</td></tr>}
+                {ideas.map((x) => (
+                  <tr key={`${x.g.id}${x.ln[0]}${x.ln[1]}`} className="border-t border-border">
+                    <td className="px-3 py-1.5 font-sans text-foreground"><span className="mr-2 text-[10px] text-muted">{SPORT[x.g.sport]}</span><Link href={`${gameHref(x.g.id)}?c=${x.ln[0]}|${x.ln[1]}`} className="hover:text-accent">{x.g.away.abbr} @ {x.g.home.abbr} · {label({ kind: x.ln[0], line: x.ln[1] }, x.g)}</Link></td>
+                    <td className="px-3 py-1.5 text-right text-muted">{pct(x.dk)}</td>
+                    <td className="px-3 py-1.5 text-right">{pct(x.ks)}</td>
+                    <td className="px-3 py-1.5 text-right">{pct(x.ex)}</td>
+                    <td className="px-3 py-1.5 text-right">{pct(x.house)}</td>
+                    <td className="px-3 py-1.5 text-right">{pct(x.view)}</td>
+                    <td className={`px-3 py-1.5 text-right ${x.big > 0 ? "text-up" : "text-down"}`}>{x.big > 0 ? "+" : ""}{x.big.toFixed(1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-1 text-[11px] text-muted">A starting point for digging, not a signal: a price is only worth listening to once it has a record. The blended column moves DraftKings toward each syndicate&rsquo;s view by the model weight that syndicate has earned from finished games, then averages, so it stays close to DraftKings until some of them prove themselves.</p>
         </section>
 
         <section className="mb-8">

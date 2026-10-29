@@ -58,6 +58,11 @@ export default async function TraderPage({ params }: { params: Promise<{ id: str
 
   const sharp = Object.entries(st.flow ?? {}).sort((a, b) => (st.sharp?.[b[0]] ?? 0) - (st.sharp?.[a[0]] ?? 0));
   const log = (Array.isArray(m.params.log) ? m.params.log : []) as (string | number)[][];
+  const cl = (role: "maker" | "taker") => {
+    const n = (st as unknown as Record<string, number | undefined>)[`clv_${role}_n`] ?? 0;
+    const s = (st as unknown as Record<string, number | undefined>)[`clv_${role}_sum`] ?? 0;
+    return n ? `${s / n >= 0 ? "+" : ""}${((s / n) * 100).toFixed(1)}¢ (${n})` : "–";
+  };
   const tiles: [string, string, string?][] = [
     ["Bankroll", bankroll.toFixed(1)],
     ["Realized P&L", u(m.realized), tone(m.realized)],
@@ -65,6 +70,8 @@ export default async function TraderPage({ params }: { params: Promise<{ id: str
     ["Equity", equity.toFixed(1)],
     ["At risk", (m.open_risk ?? 0).toFixed(1)],
     ["CLV", clv == null ? "–" : `${clv >= 0 ? "+" : ""}${(clv * 100).toFixed(1)}¢${se != null ? ` ±${(1.96 * se * 100).toFixed(1)}` : ""}`],
+    ["Quote CLV · adverse selection", cl("maker")],
+    ["Hit CLV", cl("taker")],
   ];
 
   return (
@@ -79,7 +86,7 @@ export default async function TraderPage({ params }: { params: Promise<{ id: str
           {m.role === "both" ? "Maker and taker" : m.role === "maker" ? "Market maker" : "Taker"} · focus {Array.isArray(m.params.focus) ? (m.params.focus as string[]).map((x) => x.toUpperCase()).join(", ") : "all sports"}
           {" · "}{st.n_maker} quotes filled, {st.n_taker} quotes hit
         </p>
-        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
           {tiles.map(([k, v, c]) => (
             <div key={k} className="rounded-lg border border-border bg-surface px-3 py-2">
               <p className="text-[10px] uppercase tracking-wide text-muted">{k}</p>

@@ -227,6 +227,20 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
                     </div>
                   ))}
                 </div>
+                {(() => {
+                  const bl = selRow[10]?.[0] ?? [], al = selRow[10]?.[1] ?? [];
+                  if (bl.length + al.length < 2) return null;
+                  let cb = 0, ca = 0;
+                  const bp: [number, number][] = [...bl].sort((a, b) => b[0] - a[0]).map(([p, q]) => [p * 100, (cb += q)] as [number, number]).reverse();
+                  const ap: [number, number][] = [...al].sort((a, b) => a[0] - b[0]).map(([p, q]) => [p * 100, (ca += q)] as [number, number]);
+                  return (
+                    <>
+                      <p className="mb-1 mt-4 text-[10px] uppercase tracking-wide text-muted">Depth: total size at this price or better</p>
+                      <LineChart legend={false} height={130} yFmt={(v) => v.toFixed(0)} xFmt={(v) => `${v.toFixed(0)}¢`}
+                        series={[{ id: "bids", name: "Bids", color: "#34d399", pts: bp, step: true }, { id: "asks", name: "Asks", color: "#f87171", pts: ap, step: true }].filter((s) => s.pts.length > 0)} />
+                    </>
+                  );
+                })()}
                 <p className="mb-1 mt-4 text-[10px] uppercase tracking-wide text-muted">Recent trades in this contract</p>
                 {selTrades.length === 0 ? (
                   <p className="text-[11px] text-muted">None yet.</p>
