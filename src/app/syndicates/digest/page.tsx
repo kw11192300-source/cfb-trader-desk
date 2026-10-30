@@ -82,8 +82,8 @@ export default async function DigestPage({ searchParams }: { searchParams: Promi
                     {d.sharp.length === 0 && <li className="text-muted">None recorded.</li>}
                     {d.sharp.map((x, i) => (
                       <li key={i} className="flex justify-between gap-2">
-                        <span className="truncate text-foreground">{x.who} <span className="text-muted">· {x.teams} · {label({ kind: x.kind, line: x.line }, { home: { abbr: x.teams.split(" @ ")[1] }, away: { abbr: x.teams.split(" @ ")[0] } } as never)} at {pct(x.price)} × {x.qty.toFixed(0)}</span></span>
-                        <span className="font-mono text-up">+{(x.clv * 100).toFixed(1)}¢</span>
+                        <span className="text-foreground">{x.who} <span className="text-muted">· {x.teams} · {x.side ? (x.side === "buy" ? "bought " : "sold ") : ""}{label({ kind: x.kind, line: x.line }, { home: { abbr: x.teams.split(" @ ")[1] }, away: { abbr: x.teams.split(" @ ")[0] } } as never)} {x.side === "sell" ? "yes " : ""}at {pct(x.price)}{x.close != null ? ` → closed ${pct(x.close)}` : ""} × {x.qty.toFixed(0)}</span></span>
+                        <span className="shrink-0 font-mono text-up">+{(x.clv * 100).toFixed(1)}¢</span>
                       </li>
                     ))}
                   </ul>

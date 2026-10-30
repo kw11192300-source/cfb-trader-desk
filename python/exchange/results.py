@@ -55,7 +55,7 @@ def game_result(g: dict, trades: list[dict], members: dict) -> dict:
         taker_is_buyer = t["maker"] == t["seller"]
         if cp is not None:
             tclv = (cp - px) if taker_is_buyer else (px - cp)
-            top.append({"taker": t["buyer"] if taker_is_buyer else t["seller"], "kind": t["kind"], "line": t["line"], "price": px, "qty": q, "clv": round(tclv, 4), "score": q * tclv})
+            top.append({"taker": t["buyer"] if taker_is_buyer else t["seller"], "kind": t["kind"], "line": t["line"], "price": px, "qty": q, "clv": round(tclv, 4), "side": "buy" if taker_is_buyer else "sell", "close": round(cp, 4), "score": q * tclv})
     top.sort(key=lambda x: -x["score"])
     # the closing prices of the game's three main lines from every source, with how each came out, for judging the exchange against DraftKings
     closing = None
@@ -87,7 +87,7 @@ def backfill_closing(store) -> int:
     members = {m["id"]: m for m in store.rows("ex_members")}
     n = 0
     for r in store.rows("ex_results"):
-        if r.get("closing"):
+        if r.get("closing") and all("close" in x for x in (r.get("top") or [])):
             continue
         gs = store.rows("ex_games", {"id": r["id"]})
         if not gs or not gs[0].get("views"):

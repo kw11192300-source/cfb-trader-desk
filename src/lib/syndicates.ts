@@ -386,7 +386,7 @@ export type Digest = {
   syndicates: { id: string; name: string; pnl: number; traded: number; trades: number; clv: number | null; clv_n: number }[];
   best_traders: { id: string; name: string; syn: string; pnl: number }[];
   worst_traders: { id: string; name: string; syn: string; pnl: number }[];
-  sharp: { who: string; teams: string; game: string; kind: string; line: number; price: number; qty: number; clv: number }[];
+  sharp: { who: string; teams: string; game: string; kind: string; line: number; price: number; qty: number; clv: number; side?: "buy" | "sell"; close?: number }[];
   games_top: { id: string; teams: string; sport: string; score: string; contracts: number; winner: string | null; win_pnl: number }[];
   labs: { id: string; name: string; version: number; notes: string }[];
   weights: { name: string; sport: string; w: number }[];
