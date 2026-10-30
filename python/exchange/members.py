@@ -63,11 +63,14 @@ SYNDICATES = [
          tagline="Pure market makers who quote wider and smaller, back off after being picked off, and rebuild their price from who is trading against them."),
     dict(id="main", name="Main Street", engine="public", color="#f97316", public=True,
          tagline="Public money: recreational bettors who lean to favorites, overs and underdog moneylines, pile in during the last few hours before a game, and pay a few cents over fair for it. Not sharp - the flow the market makers live on."),
+    dict(id="labk", name="Maker Lab", engine="agent", color="#38bdf8", agent={"lines": True, "mode": "maker"}, mmstyle="lab",
+         tagline="A research agent that builds the market-making playbook: where to quote, how wide, and where to lean from what the sharp accounts and public money are doing. It earns the spread and builds positions on the sharp side."),
 ]
 
 
 def roster() -> tuple[list[dict], list[dict]]:
     syns, mems = [], []
+    ni = 0  # running index into NAMES, so a syndicate added later never reuses a name
     for si, s in enumerate(SYNDICATES):
         units = PUBLIC_UNITS if s.get("public") else SYNDICATE_UNITS
         syns.append({"id": s["id"], "name": s["name"], "engine": s["engine"], "color": s["color"], "tagline": s["tagline"],
@@ -76,12 +79,13 @@ def roster() -> tuple[list[dict], list[dict]]:
             for i, style in enumerate(PUBLIC_STYLES):
                 r = random.Random(f"{s['id']}-{i}")
                 tu = PUBLIC_UNITS / len(PUBLIC_STYLES)
-                mems.append({"id": f"{s['id']}-{i + 1}", "syndicate_id": s["id"], "name": NAMES[si * TRADERS_PER + i], "role": "taker", "staking": "flat",
+                mems.append({"id": f"{s['id']}-{i + 1}", "syndicate_id": s["id"], "name": NAMES[ni + i], "role": "taker", "staking": "flat",
                              "params": dict(public=True, style=style, focus=SPORTS[:], max_risk=200.0, tol=round(r.uniform(0.015, 0.03), 3), act=round(r.uniform(0.7, 1.4), 2),
                                             sizem=round(r.uniform(0.8, 1.6), 2), kelly=0.0, size=0.0, thr=0.0, half=0.0),
                              "start_units": tu, "cash": tu, "locked": 0.0, "realized": 0.0, "equity": tu, "open_risk": 0.0, "updated_at": None,
                              "stats": {"n_maker": 0, "n_taker": 0, "vol_maker": 0.0, "vol_taker": 0.0, "pnl_maker": 0.0, "pnl_taker": 0.0,
                                        "clv_sum": 0.0, "clv_n": 0, "peak": tu, "max_dd": 0.0, "wins": 0, "losses": 0, "biggest": 0.0}})
+            ni += len(PUBLIC_STYLES)
             continue
         pool = SPORTS[:]
         random.Random(s["id"]).shuffle(pool)
@@ -92,14 +96,18 @@ def roster() -> tuple[list[dict], list[dict]]:
                 role, focus = "maker", SPORTS[:]
                 r = random.Random(f"{s['id']}-mm-{i}")
                 tight = s["mmstyle"] == "tight"
-                params.update(focus=focus, mm=True, half=round(r.uniform(0.008, 0.012) if tight else r.uniform(0.015, 0.019), 4),
-                              size=round(r.uniform(90, 100) if tight else r.uniform(55, 75)), tox=0.5 if tight else 1.0, eta=round(r.uniform(0.7, 1.0) if tight else r.uniform(1.1, 1.5), 2),
-                              inv=1.0 if tight else 1.5)
+                lab = s["mmstyle"] == "lab"
+                params.update(focus=focus, mm=True, half=round(r.uniform(0.011, 0.015) if lab else r.uniform(0.008, 0.012) if tight else r.uniform(0.015, 0.019), 4),
+                              size=round(r.uniform(70, 90) if lab else r.uniform(90, 100) if tight else r.uniform(55, 75)), tox=0.8 if lab else 0.5 if tight else 1.0,
+                              eta=round(r.uniform(0.8, 1.2) if lab else r.uniform(0.7, 1.0) if tight else r.uniform(1.1, 1.5), 2), inv=1.0 if (tight or lab) else 1.5)
+                if lab:
+                    params["lab"] = True  # its quotes come from the lab's published policy, not from the trader's own strategy
             if s["id"] == "pace":
                 params["kinds"] = ["total"]
-            mems.append({"id": f"{s['id']}-{i + 1}", "syndicate_id": s["id"], "name": NAMES[si * TRADERS_PER + i], "role": role, "staking": "kelly",
+            mems.append({"id": f"{s['id']}-{i + 1}", "syndicate_id": s["id"], "name": NAMES[ni], "role": role, "staking": "kelly",
                          "params": params, "start_units": TRADER_UNITS, "cash": TRADER_UNITS, "locked": 0.0, "realized": 0.0,
                          "equity": TRADER_UNITS, "open_risk": 0.0, "updated_at": None,
                          "stats": {"n_maker": 0, "n_taker": 0, "vol_maker": 0.0, "vol_taker": 0.0, "pnl_maker": 0.0, "pnl_taker": 0.0,
                                    "clv_sum": 0.0, "clv_n": 0, "peak": TRADER_UNITS, "max_dd": 0.0, "wins": 0, "losses": 0, "biggest": 0.0}})
+            ni += 1
     return syns, mems

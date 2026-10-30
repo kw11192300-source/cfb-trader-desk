@@ -30,7 +30,13 @@ def main() -> None:
     elif a.cmd == "backtest":
         if not (PACK_DIR / "espn_nba.pkl").exists():
             manage.build_pack(store)
-        print(bt.table(bt.run(Path(a.a).read_text(encoding="utf-8"), sports=sports, folds=a.folds)))
+        code = Path(a.a).read_text(encoding="utf-8")
+        if "def quote(" in code:  # a maker policy is replayed against the recorded trades instead of backtested on games
+            from . import makerbt
+
+            print(makerbt.table(makerbt.run(code)))
+        else:
+            print(bt.table(bt.run(code, sports=sports, folds=a.folds)))
     elif a.cmd == "publish":
         manage.publish(store, a.a, a.b, a.notes, a.skip_backtest)
     elif a.cmd == "refit":

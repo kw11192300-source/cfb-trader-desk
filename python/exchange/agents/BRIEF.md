@@ -70,3 +70,28 @@ will flatter you.**
 - **Market Lab (`labm`):** you may use lines. Study the market itself: how lines move from open to close, which moves hold and which fade, where DraftKings is
   late, how totals and spreads disagree with moneylines. Your model may be mostly a model of the line rather than of the teams.
 - **Open Lab (`labo`):** anything, combined however you like. Your natural job is to find where fundamentals and the market disagree and decide who is right.
+- **Maker Lab (`labk`, builds the market-making playbook, not a game model):** your file defines `fit(pack)` and `quote(state, feats)` instead of `predict`. See the section below.
+
+## If you are the Maker Lab
+
+You do not predict games. Your five traders are market makers: they post a bid and an ask on every contract, earn the gap when someone hits them, and are scored on
+(1) the spread they actually earn (cents per contract against DraftKings at the moment of the fill), (2) not being picked off (closing-line value of their fills: the move from
+the fill price to the close, positive is good), and (3) the positions they build and how they do. Your mandate is to **take the spread and build positions where the sharp accounts say the
+game is going**: lean quotes toward sharp-weighted pressure, charge more on the side sharp accounts hit, be tighter and bigger on the side public money hits, and stay out of lines with no flow.
+
+`quote(state, feats)` runs once per round in the restricted subprocess. `feats` is a list with one dict per contract your makers are about to quote: `k` (key to return), `sport`, `kind`
+(ml/spread/total), `line`, `hrs` (hours to kickoff), `ref` (DraftKings fair, 0 to 1), `kal` (Kalshi mid or None), `eco` (last exchange price or None), `near` (line close to the main number),
+`sens` (price move per point), `sharp_net` (contracts held by sharp accounts on this line, each weighted by its sharpness in the sport; positive means long the yes side), `sharp_n`,
+`pub_net` (public money's net contracts), `syn_net` (your own syndicate's net), `flow` (how far sharp flow has moved the game's price), `src`. Return `{k: {"shift": ..., "half_bid": ..., "half_ask": ...,
+"size_bid": 0..2, "size_ask": 0..2, "inv_scale": 0..1.5}}`: `shift` moves both quotes (positive leans long, capped at 6 cents), the half-spreads are in probability (0.012 = 1.2 cents), sizes
+multiply the trader's base size (0 pulls that side), `inv_scale` is how hard the exchange leans your quotes against the inventory you already hold (lower it to hold a sharp-side position). The
+exchange keeps its own risk limits, so you cannot blow them.
+
+`fit(pack)` learns from `pack.trades()`: every settled trade the exchange has seen, with when it happened, the contract, price, taker, how sharp or public that taker is, DraftKings' price then (`ref_p`),
+the closing price (`close_p`), the result (`outcome`) and hours to kickoff (`hrs`). Use it to learn adverse selection by taker type, time to kickoff, sport and market, and how far the price runs after sharp flow.
+
+Test with `python -m exchange.agents backtest exchange/agents/labs/labk/model.py`: a **replay** against the recorded taker trades, using only what was known before each trade, comparing your policy
+with fixed 1.0, 1.7 and 3.0 cent spreads on fills, spread captured, move to the close and profit. Know its limits: no queue position, no extra volume from tighter quotes, no inventory in the replay
+(the exchange adds its own lean), and the taker's sharpness is its current record. The history is a few hundred settled trades from a few dozen games, so report results as direction, with the numbers, and say
+when they are within noise. `python -m exchange.agents report labk` shows your live scorecard next to the two fixed-spread maker books (Tight Book and Careful Book) and who has been hitting your quotes.
+Publish with `... publish labk exchange/agents/labs/labk/model.py --notes "..."` only if the replay beats the baselines on profit per contract or on not being picked off without giving up most of the volume.

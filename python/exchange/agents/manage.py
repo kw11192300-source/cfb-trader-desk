@@ -11,7 +11,7 @@ import numpy as np
 from .. import espn
 from . import backtest as bt
 from . import sandbox
-from .pack import PACK_DIR, SPORTS, catalog, write_closing, write_games
+from .pack import PACK_DIR, SPORTS, catalog, write_closing, write_games, write_trades
 
 MAX_STATE_MB = 6
 
@@ -50,6 +50,7 @@ def build_pack(store, days: int = 420, sports: list[str] | None = None) -> None:
         write_games(sp, games)
         print(f"  {sp}: {len(games)} finished games", flush=True)
     print(f"  closing lines for {write_closing(store)} watched games")
+    print(f"  {write_trades(store)} settled trades (for the maker lab)")
     catalog()
     print(f"pack ready in {PACK_DIR} (CATALOG.md lists the other data files)")
 
@@ -98,26 +99,46 @@ def publish(store, sid: str, file: str, notes: str, skip_backtest: bool = False)
     s = syndicate(store, sid)
     code = Path(file).read_text(encoding="utf-8")
     meta = sandbox.call(code, "meta", timeout=60)
-    if not (meta["has_fit"] and meta["has_predict"]):
+    maker = s["learn"]["agent"].get("mode") == "maker"
+    if maker and not (meta["has_fit"] and meta["has_quote"]):
+        raise SystemExit("a maker policy must define fit(pack) and quote(state, feats)")
+    if not maker and not (meta["has_fit"] and meta["has_predict"]):
         raise SystemExit("model must define fit(pack) and predict(state, games)")
     if not (PACK_DIR / "espn_nba.pkl").exists():
         print("building the data pack first...")
         build_pack(store)
     print("fitting on the full pack...", flush=True)
     state = fit_and_store(store, sid, code, s)
-    slate = _slate(store, sid, s)
-    preds = sandbox.call(code, "predict", timeout=300, state=state, games=slate) if slate else {}
-    problems = check_predictions(preds, slate)
-    cover = sum(1 for g in slate if g["id"] in preds) / max(1, len(slate))
-    print(f"live slate: {len(slate)} games, {cover:.0%} covered, {len(problems)} problems")
-    if problems:
-        raise SystemExit("not published:\n" + "\n".join(problems[:10]))
     summary = None
-    if not skip_backtest:
-        print("backtesting (3 walk-forward folds per sport)...", flush=True)
-        res = bt.run(code)
-        print(bt.table(res))
-        summary = {sp: {k: v for k, v in r.items() if k in ("n", "coverage", "model", "elo", "ridge", "error", "skipped")} for sp, r in res.items()}
+    if maker:
+        probe = [{"k": "probe", "sport": "nba", "kind": "spread", "line": -3.5, "hrs": 5.0, "ref": 0.5, "kal": None, "eco": None, "near": True, "sens": 0.03, "sharp_net": 12.0, "sharp_n": 2,
+                  "pub_net": -8.0, "syn_net": 0.0, "flow": 0.0, "src": "dk"}]
+        out = sandbox.call(code, "quote", timeout=60, state=state, feats=probe)
+        o = out.get("probe") or {}
+        bad = [k for k, v in o.items() if not isinstance(v, (int, float)) or v != v]
+        if not o or bad or abs(o.get("shift", 0)) > 0.06 or not (0 <= o.get("half_bid", 0.01) <= 0.1) or not (0 <= o.get("half_ask", 0.01) <= 0.1):
+            raise SystemExit(f"not published: the policy returned an implausible quote {o}")
+        print(f"policy answers a probe contract: {o}")
+        if not skip_backtest:
+            from . import makerbt
+
+            print("replaying against the recorded trades...", flush=True)
+            res = makerbt.run(code)
+            print(makerbt.table(res))
+            summary = res
+    else:
+        slate = _slate(store, sid, s)
+        preds = sandbox.call(code, "predict", timeout=300, state=state, games=slate) if slate else {}
+        problems = check_predictions(preds, slate)
+        cover = sum(1 for g in slate if g["id"] in preds) / max(1, len(slate))
+        print(f"live slate: {len(slate)} games, {cover:.0%} covered, {len(problems)} problems")
+        if problems:
+            raise SystemExit("not published:\n" + "\n".join(problems[:10]))
+        if not skip_backtest:
+            print("backtesting (3 walk-forward folds per sport)...", flush=True)
+            res = bt.run(code)
+            print(bt.table(res))
+            summary = {sp: {k: v for k, v in r.items() if k in ("n", "coverage", "model", "elo", "ridge", "error", "skipped")} for sp, r in res.items()}
     old, _ = load(store, sid)
     version = (old["version"] if old else 0) + 1
     history = ([{"v": version, "ts": _now(), "notes": notes}] + (old["history"] if old else []))[:25]
@@ -161,6 +182,7 @@ def refit_portable(store, hist: dict[str, list[dict]]) -> None:
 
         for sp, games in hist.items():
             wg(sp, games, Path(d))
+        write_trades(store, Path(d))  # the maker lab learns from the exchange's own settled trades
         for sid in ids:
             refit(store, sid, only_portable=True, root=Path(d))
 
@@ -173,6 +195,9 @@ def report(store, sid: str) -> None:
     trades = [t for t in store.rows("ex_trades") if t["buyer"].startswith(sid + "-") or t["seller"].startswith(sid + "-")]
     print(f"== {s['name']} ({sid})  model v{a.get('version', 0)}  mandate: {'may use market lines' if a.get('lines') else 'market-blind'}")
     print(f"notes: {a.get('notes')}   published: {a.get('published_at')}   last error: {a.get('error')}")
+    if a.get("mode") == "maker":
+        _maker_report(store, sid, s, ms)
+        return
     eq = sum(m.get("equity") or m["cash"] + m["locked"] for m in ms)
     cn = sum(m["stats"]["clv_n"] for m in ms)
     print(f"equity {eq:.1f} (start {s['start_units']:.0f}); settled P&L {sum(m['realized'] for m in ms):+.1f}; trades {len(trades)}; CLV {sum(m['stats']['clv_sum'] for m in ms) / cn * 100:+.2f}c over {cn} settled sides" if cn else
@@ -206,3 +231,35 @@ def report(store, sid: str) -> None:
         for sp, r in a["backtest"].items():
             if "model" in r:
                 print(f"  {sp}: {r['model']['margin_mae']} / {r['elo']['margin_mae']} / {r['ridge']['margin_mae']}   total {r['model']['total_mae']} / {r['elo']['total_mae']} / {r['ridge']['total_mae']}  coverage {r['coverage']}")
+
+
+def _maker_report(store, sid: str, s: dict, ms: list[dict]) -> None:
+    """How a maker lab is doing next to the two fixed-spread maker books: spread earned, how far the market moved against its fills, inventory, and who it trades against."""
+    print("a maker lab is scored on the spread it earns, on not being picked off (closing-line value of its fills), and on the positions it builds.")
+    peers = {x["id"]: [m for m in store.rows("ex_members") if m["syndicate_id"] == x["id"]] for x in store.rows("ex_syndicates") if x["id"] in (sid, "mmt", "mmc")}
+    print(f"{'':<18}{'fills':>7}{'volume':>9}{'spread captured':>17}{'fill CLV':>10}{'maker P&L':>11}{'at risk':>9}")
+    for pid, pm in peers.items():
+        st = [m["stats"] for m in pm]
+        q = sum(x.get("cap_q", 0.0) for x in st)
+        cap = sum(x.get("cap_sum", 0.0) for x in st) / q * 100 if q else 0.0
+        n = sum(x.get("clv_maker_n", 0) for x in st)
+        clv = sum(x.get("clv_maker_sum", 0.0) for x in st) / n * 100 if n else 0.0
+        print(f"{pid:<18}{sum(x['n_maker'] for x in st):>7}{sum(x['vol_maker'] for x in st):>9.0f}{cap:>+16.2f}c{clv:>+9.2f}c{sum(x['pnl_maker'] for x in st):>+11.1f}{sum(m.get('open_risk') or 0 for m in pm):>9.1f}")
+    byid = {m["id"]: m for m in store.rows("ex_members")}
+    mine = [t for t in store.rows("ex_trades") if t["maker"].startswith(sid + "-")]
+    kinds = {"public": 0.0, "sharp (0.3+ in the sport)": 0.0, "other": 0.0}
+    for t in mine:
+        tk = byid.get(t["buyer"] if t["maker"] == t["seller"] else t["seller"])
+        if not tk:
+            continue
+        sh = float((tk["stats"].get("sharp") or {}).get(t["game_id"].split(":")[0], 0.0))
+        kinds["public" if tk["params"].get("public") else "sharp (0.3+ in the sport)" if sh >= 0.3 else "other"] += t["qty"]
+    tot = sum(kinds.values()) or 1.0
+    print("who hit the lab's quotes (share of contracts): " + ", ".join(f"{k} {v / tot:.0%}" for k, v in kinds.items()))
+    print(f"published v{s['learn']['agent'].get('version', 0)}: {s['learn']['agent'].get('notes')}")
+    bt = s["learn"]["agent"].get("backtest")
+    if bt and "policy" in bt:
+        print("last replay (policy vs fixed spreads on the same recorded trades):")
+        from . import makerbt
+
+        print(makerbt.table(bt))

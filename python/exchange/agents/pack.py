@@ -50,6 +50,17 @@ class Pack:
             df = df[df["start"] < self.asof]
         return df.reset_index(drop=True)
 
+    def trades(self) -> pd.DataFrame:
+        """Every settled trade the exchange has seen (kept for 120 days): when, on which contract, at what price, who took it and how sharp or public that taker is,
+        DraftKings' price at the time (ref_p), the closing price (close_p) and the result (outcome 1, 0 or 0.5). For maker research."""
+        f = self.root / "exchange_trades.pkl"
+        if not f.exists():
+            return pd.DataFrame()
+        df = pd.read_pickle(f)
+        if self.asof is not None and len(df):
+            df = df[df["ts"] < self.asof]
+        return df.reset_index(drop=True)
+
     def path(self, *parts: str) -> Path:
         return DATA_DIR.joinpath(*parts)
 
@@ -84,6 +95,28 @@ def write_closing(store, root: Path = PACK_DIR) -> int:
                      "kalshi": (g.get("views") or {}).get("kal")})
     root.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_pickle(root / "closing_lines.pkl")
+    return len(rows)
+
+
+def write_trades(store, root: Path = PACK_DIR) -> int:
+    """Settled trades for the maker lab: one row per trade with the taker's current sharpness in the sport."""
+    members = {m["id"]: m for m in store.rows("ex_members")}
+    starts = {g["id"]: g["start_utc"] for g in store.rows("ex_games")}
+    rows = []
+    for t in store.rows("ex_trades", {"settled": True}):
+        if t.get("outcome") is None or t["game_id"] not in starts:
+            continue
+        taker = t["buyer"] if t["maker"] == t["seller"] else t["seller"]
+        m = members.get(taker)
+        if not m:
+            continue
+        sport = t["game_id"].split(":")[0]
+        ts, st = pd.Timestamp(t["ts"]), pd.Timestamp(starts[t["game_id"]])
+        rows.append({"id": t["id"], "ts": ts, "game_id": t["game_id"], "sport": sport, "kind": t["kind"], "line": t["line"], "price": t["price"], "qty": t["qty"], "taker": taker,
+                     "taker_buys": taker == t["buyer"], "taker_sharp": float((m["stats"].get("sharp") or {}).get(sport, 0.0)), "taker_public": bool(m["params"].get("public")),
+                     "maker": t["maker"], "ref_p": t.get("ref_p"), "close_p": t.get("close_p"), "outcome": t["outcome"], "start": st, "hrs": (st - ts).total_seconds() / 3600})
+    root.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_pickle(root / "exchange_trades.pkl")
     return len(rows)
 
 

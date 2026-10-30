@@ -87,7 +87,7 @@ def adapt(m: dict, now: str) -> None:
     """Each trader reviews its own results and adjusts its own strategy: if the trades it takes keep closing worse than it paid it asks for a
     bigger edge; if its quotes keep getting picked off it widens them; if both are doing well it tightens up to trade more."""
     st, p = m["stats"], m["params"]
-    if p.get("public"):
+    if p.get("public") or p.get("lab"):
         return
     for role, field, up, down, lo_clv in (("taker", "thr", 0.0, 0.01, "thr_min"), ("maker", "half", 0.0, 0.008, "half_min")):
         n, tot = st.get(f"clv_{role}_n", 0), st.get(f"clv_{role}_sum", 0.0)
@@ -492,7 +492,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             continue
         a = (s.get("learn") or {}).setdefault("agent", {})
         code, state = rat.get(f"agent-code:{sid}"), rat.get(f"agent-state:{sid}")
-        if not code or not state or not by_gid:
+        if a.get("mode") == "maker" or not code or not state or not by_gid:
             continue
         slate = [agent_manage.game_payload(games[gid], bool(a.get("lines"))) for gid in by_gid]
         try:
@@ -542,7 +542,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         if any(m["params"].get("public") for m in ms_):
             syn_cap[sid_] = PUBLIC_CAP
             continue
-        if any(m["params"].get("mm") for m in ms_):  # pure market makers aim to stay flat, so their risk is not a bet on a model
+        if any(m["params"].get("mm") for m in ms_) and syns[sid_]["engine"] != "agent":  # pure market makers aim to stay flat, so their risk is not a bet on a model
             syn_cap[sid_] = CAP_FULL
             continue
         n_ = sum(m["stats"].get("clv_n", 0) for m in ms_)
@@ -880,27 +880,36 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             n_ = m["stats"].get("clv_maker_n", 0)
             avg_ = m["stats"].get("clv_maker_sum", 0.0) / n_ if n_ >= 20 else 0.0
             tmult = 1.0 + p.get("tox", 1.0) * float(np.clip(-avg_ / 0.02, 0.0, 1.5)) if avg_ < 0 else (0.85 if avg_ > 0.01 else 1.0)
+        polm = pol.get(m["syndicate_id"]) or {}
         for k, on in mine[m["id"]]:
             bids[k] = [q for q in bids[k] if q[2] != m["id"]]
             asks[k] = [q for q in asks[k] if q[2] != m["id"]]
             mk = markets[k]
+            pl = polm.get(k)
             if mm:  # lean against the whole book on the game, not just this line, and quote wider where it has just been hit
                 dm_, dt_ = delta_exp(m["id"], mk["gid"])
                 pm_, pt_ = delta_pub(m["id"], mk["gid"])  # inventory taken from public bettors is not a signal, so it is leaned against less
                 dm_, dt_ = dm_ - relief(dm_, pm_), dt_ - relief(dt_, pt_)
                 s0 = smax(mk["gid"], mk["dim"])
                 inv = (dm_ if mk["dim"] == "m" else dt_) / max(1e-9, p["size"] * s0) * (sens_of(mk["gid"], mk["kind"], mk["line"]) / s0)
-                c = fairs[(m["id"], k)] - 2.0 * p["half"] * p.get("inv", 1.0) * inv
+                c = fairs[(m["id"], k)] - 2.0 * p["half"] * p.get("inv", 1.0) * inv * (float(np.clip(pl.get("inv_scale", 1.0), 0.0, 1.5)) if pl else 1.0)
                 half = max(RULES["half_min"], p["half"] * patience(m)) * tmult * (1.3 if mk["hrs"] < 1 else 1.0) + 0.004 * tox.get((m["id"], k), 0.0)
             else:
                 c = fairs[(m["id"], k)] - 2.0 * p["half"] * net.get((m["id"], k), 0.0) / max(1.0, p["size"])  # a full-size position moves both quotes two half-spreads
                 half = max(RULES["half_min"], p["half"] * patience(m))
-            bid, ask = max(0.01, float(np.floor((c - half) * 100) / 100)), min(0.99, float(np.ceil((c + half) * 100) / 100))
+            hb = ha = half
+            sz_b = sz_a = 1.0
+            if pl:  # the lab's policy: a shift of the middle, a half-spread and a size for each side
+                c += float(np.clip(pl.get("shift", 0.0), -0.06, 0.06))
+                hb = float(np.clip(pl.get("half_bid", half), RULES["half_min"], RULES["edge_max"]))
+                ha = float(np.clip(pl.get("half_ask", half), RULES["half_min"], RULES["edge_max"]))
+                sz_b, sz_a = float(np.clip(pl.get("size_bid", 1.0), 0.0, 2.0)), float(np.clip(pl.get("size_ask", 1.0), 0.0, 2.0))
+            bid, ask = max(0.01, float(np.floor((c - hb) * 100) / 100)), min(0.99, float(np.ceil((c + ha) * 100) / 100))
             if bid >= ask:
                 continue
             size = p["size"] * taper * (1.0 if on else 0.5) * max(0.3, mk["ramp"])
-            qb = min(size, room_for(m, mk, "buy", bid, True), cash_room(m, k, "buy", bid))
-            qa = min(size, room_for(m, mk, "sell", ask, True), cash_room(m, k, "sell", ask))
+            qb = min(size * sz_b, room_for(m, mk, "buy", bid, True), cash_room(m, k, "buy", bid))
+            qa = min(size * sz_a, room_for(m, mk, "sell", ask, True), cash_room(m, k, "sell", ask))
             if qb >= 5:
                 bids[k].append([bid, round(qb, 2), m["id"]])
                 bids[k].sort(key=lambda x: -x[0])
@@ -1062,6 +1071,45 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             buyer, seller = (m, maker) if side == "buy" else (maker, m)
             fill(buyer, seller, maker, mk, k, px, qty)
             q[1] = round(q[1] - qty, 2)
+
+    # ---- the Maker Lab: its published policy turns what the market and the other accounts are doing into quotes, once per round, in a restricted subprocess
+    pol: dict[str, dict] = {}
+    for sid, s in syns.items():
+        a = (s.get("learn") or {}).get("agent") or {}
+        if s["engine"] != "agent" or a.get("mode") != "maker":
+            continue
+        code, state = rat.get(f"agent-code:{sid}"), rat.get(f"agent-state:{sid}")
+        if not code or not state:
+            continue
+        sh_net: dict[str, float] = {}
+        sh_n: dict[str, int] = {}
+        pb_net: dict[str, float] = {}
+        own_net: dict[str, float] = {}
+        for (mid, k), q in net.items():
+            if abs(q) < 0.5 or k not in markets:
+                continue
+            mm_ = members[mid]
+            if mm_["syndicate_id"] == sid:
+                own_net[k] = own_net.get(k, 0.0) + q
+            elif mm_["params"].get("public"):
+                pb_net[k] = pb_net.get(k, 0.0) + q
+            else:
+                s_ = sharp(mid, markets[k]["sport"])
+                if s_ >= piles.MIN_SHARP:
+                    sh_net[k] = sh_net.get(k, 0.0) + q * s_
+                    sh_n[k] = sh_n.get(k, 0) + 1
+        feats = []
+        for k, mk in markets.items():
+            kr = kal.get(mk["gid"], {}).get((mk["kind"], mk["line"]))
+            feats.append({"k": k, "sport": mk["sport"], "kind": mk["kind"], "line": mk["line"], "hrs": round(mk["hrs"], 2), "ref": round(mk["ref"], 4), "kal": None if not kr else kr[2],
+                          "eco": prev_eco.get(k), "near": bool(mk["near"]), "sens": round(sens_of(mk["gid"], mk["kind"], mk["line"]), 5), "sharp_net": round(sh_net.get(k, 0.0), 2),
+                          "sharp_n": sh_n.get(k, 0), "pub_net": round(pb_net.get(k, 0.0), 2), "syn_net": round(own_net.get(k, 0.0), 2),
+                          "flow": round(delta.get(k, 0.0), 4), "src": mk["src"]})
+        try:
+            pol[sid] = agent_sandbox.call(code["code"], "quote", timeout=180, state=state["state"], feats=feats)
+            a["error"] = None
+        except agent_sandbox.ModelError as e:
+            a["error"] = str(e)[-300:]
 
     # ---- time flows: traders arrive in random order over a number of ticks, refresh their quotes, and hit each other's
     order = list(members.values())

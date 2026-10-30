@@ -37,13 +37,15 @@ try:
     spec.loader.exec_module(mod)
     fn = req["fn"]
     if fn == "meta":
-        out = {"portable": bool(getattr(mod, "PORTABLE", False)), "has_fit": hasattr(mod, "fit"), "has_predict": hasattr(mod, "predict")}
+        out = {"portable": bool(getattr(mod, "PORTABLE", False)), "has_fit": hasattr(mod, "fit"), "has_predict": hasattr(mod, "predict"), "has_quote": hasattr(mod, "quote")}
     elif fn == "fit":
         from exchange.agents.pack import Pack
         p = req["pack"]
         out = mod.fit(Pack(p["root"], p.get("asof"), p.get("lines_ok", True)))
     elif fn == "predict":
         out = mod.predict(req["state"], req["games"])
+    elif fn == "quote":
+        out = mod.quote(req["state"], req["feats"])
     else:
         raise ValueError("unknown fn " + fn)
     json.dump({"ok": True, "out": out}, open(d + "/result.json", "w"), default=float)
