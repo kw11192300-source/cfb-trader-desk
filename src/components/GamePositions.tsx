@@ -114,7 +114,7 @@ function Payoff({ game, lots, dim, colorOf, nameOf, showAll }: { game: ExGame; l
 
 function Ladder({ game, lots, dim, colorOf, nameOf }: { game: ExGame; lots: Lot[]; dim: Dim; colorOf: (o: string) => string; nameOf: (o: string) => string }) {
   const ls = lots.filter((l) => (dim === "t") === (l.kind === "total"));
-  const keys = [...new Set(ls.map((l) => `${l.kind}|${l.line}`))].map((k) => ({ kind: k.split("|")[0] as Lot["kind"], line: Number(k.split("|")[1]) })).sort((a, b) => (a.kind === b.kind ? a.line - b.line : a.kind === "ml" ? -1 : 1));
+  const keys = [...new Set(ls.map((l) => `${l.kind}|${l.line}`))].map((k) => ({ kind: k.split("|")[0] as Lot["kind"], line: Number(k.split("|")[1]) })).sort((a, b) => (a.kind === "total" || b.kind === "total" ? (a.kind === b.kind ? a.line - b.line : a.kind === "total" ? 1 : -1) : (a.kind === "ml" ? 0 : a.line) - (b.kind === "ml" ? 0 : b.line))); // the moneyline is a spread of zero, so it sits between -1.5 and +1.5
   if (!keys.length) return null;
   const rows = keys.map((k) => {
     const net: Record<string, number> = {};
@@ -127,19 +127,21 @@ function Ladder({ game, lots, dim, colorOf, nameOf }: { game: ExGame; lots: Lot[
   const lt = dim === "t" ? "Under" : game.away.abbr, rt = dim === "t" ? "Over" : game.home.abbr;
   return (
     <div>
-      <div className="mb-1 grid grid-cols-[132px_minmax(0,1fr)_minmax(0,1fr)] items-center gap-0 text-[10px] uppercase tracking-wide text-muted">
-        <span>line · DK price</span><span className="pr-2 text-right">&larr; backs {lt}</span><span className="pl-2">backs {rt} &rarr;</span>
+      <div className="mb-1 grid grid-cols-[minmax(0,1fr)_132px_minmax(0,1fr)] items-center text-[10px] uppercase tracking-wide text-muted">
+        <span className="pr-3 text-right">&larr; backs {lt}</span><span className="text-center">line · DK price</span><span className="pl-3">backs {rt} &rarr;</span>
       </div>
-      <div className="space-y-px">
+      <div>
         {rows.map((r) => (
-          <div key={`${r.kind}${r.line}`} className="grid grid-cols-[132px_minmax(0,1fr)_minmax(0,1fr)] items-center py-[2px] text-[11px]">
-            <span className="font-mono text-foreground" title={label(r, game)}>{label(r, game).replace(`${game.home.abbr} `, "").replace(" to win", "")} <span className="text-muted">· {pct(fairOf(game, r.kind, r.line))}</span></span>
-            <div className="flex items-center justify-end gap-1.5 border-r border-muted/60 pr-0">
+          <div key={`${r.kind}${r.line}`} className="grid grid-cols-[minmax(0,1fr)_132px_minmax(0,1fr)] items-center py-[2px] text-[11px]">
+            <div className="flex items-center justify-end gap-1.5">
               <span className="font-mono text-[10px] text-muted">{r.short > 0.3 ? r.short.toFixed(0) : ""}</span>
               <div className="flex h-3.5 flex-row-reverse" style={{ width: `${(r.short / max) * 82}%` }}>
                 {r.neg.map(([o, q]) => <div key={o} style={{ width: `${(-q / r.short) * 100}%`, background: colorOf(o) }} title={`${nameOf(o)}: ${(-q).toFixed(0)} backing ${lt}`} className="h-full border-l border-background first:border-l-0" />)}
               </div>
             </div>
+            <span className={`border-x border-border bg-surface py-0.5 text-center font-mono ${r.kind === "ml" ? "font-semibold text-accent" : "text-foreground"}`} title={label(r, game)}>
+              {label(r, game).replace(`${game.home.abbr} `, "").replace(" to win", "")} <span className="text-muted">· {pct(fairOf(game, r.kind, r.line))}</span>
+            </span>
             <div className="flex items-center gap-1.5">
               <div className="flex h-3.5" style={{ width: `${(r.long / max) * 82}%` }}>
                 {r.pos.map(([o, q]) => <div key={o} style={{ width: `${(q / r.long) * 100}%`, background: colorOf(o) }} title={`${nameOf(o)}: ${q.toFixed(0)} backing ${rt}`} className="h-full border-l border-background first:border-l-0" />)}
