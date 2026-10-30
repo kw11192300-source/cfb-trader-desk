@@ -2,7 +2,8 @@ import Link from "next/link";
 
 import { bandsFor } from "@/lib/positions";
 import { lotPnl } from "@/lib/syndicateGame";
-import { type ExGame, fairOf, label, type Lot, pct } from "@/lib/syndicates";
+import { SharpMoney, TIERS, tierOf } from "@/components/SharpMoney";
+import { type ExGame, type ExMember, fairOf, label, type Lot, pct } from "@/lib/syndicates";
 
 export type SynInfo = { id: string; name: string; color: string; engine: string };
 type Dim = "m" | "t";
@@ -113,13 +114,13 @@ function Payoff({ game, lots, dim, colorOf, nameOf, showAll }: { game: ExGame; l
   );
 }
 
-function Ladder({ game, lots, dim, colorOf, nameOf }: { game: ExGame; lots: Lot[]; dim: Dim; colorOf: (o: string) => string; nameOf: (o: string) => string }) {
+function Ladder({ game, lots, dim, colorOf, nameOf, by }: { game: ExGame; lots: Lot[]; dim: Dim; colorOf: (o: string) => string; nameOf: (o: string) => string; by: "owner" | "holder" }) {
   const ls = lots.filter((l) => (dim === "t") === (l.kind === "total"));
   const keys = [...new Set(ls.map((l) => `${l.kind}|${l.line}`))].map((k) => ({ kind: k.split("|")[0] as Lot["kind"], line: Number(k.split("|")[1]) })).sort((a, b) => (a.kind === "total" || b.kind === "total" ? (a.kind === b.kind ? b.line - a.line : a.kind === "total" ? 1 : -1) : (a.kind === "ml" ? 0 : a.line) - (b.kind === "ml" ? 0 : b.line))); // the moneyline is a spread of zero, so it sits between -1.5 and +1.5
   if (!keys.length) return null;
   const rows = keys.map((k) => {
     const net: Record<string, number> = {};
-    for (const l of ls) if (l.kind === k.kind && l.line === k.line) net[l.owner] = (net[l.owner] ?? 0) + l.qty;
+    for (const l of ls) if (l.kind === k.kind && l.line === k.line) net[by === "holder" ? l.holder : l.owner] = (net[by === "holder" ? l.holder : l.owner] ?? 0) + l.qty;
     const pos = Object.entries(net).filter(([, q]) => q > 0.3).sort((a, b) => b[1] - a[1]);
     const neg = Object.entries(net).filter(([, q]) => q < -0.3).sort((a, b) => a[1] - b[1]);
     return { ...k, pos, neg, long: pos.reduce((a, [, q]) => a + q, 0), short: neg.reduce((a, [, q]) => a - q, 0) };
@@ -194,8 +195,9 @@ function Heat({ game, lots, dim, colorOf, nameOf }: { game: ExGame; lots: Lot[];
 }
 
 /** The game page's picture of every syndicate's book: who wins and loses at each result, who is on which side of each line, and a grid of both. */
-export function GamePositions({ game, lots, syns, dim, colorBy, showAll, hrefFor }: { game: ExGame; lots: Lot[]; syns: SynInfo[]; dim: Dim; colorBy: "syn" | "type"; showAll: boolean; hrefFor: (o: { pv?: Dim; col?: "syn" | "type"; all?: boolean }) => string }) {
+export function GamePositions({ game, lots, syns, members, dim, colorBy, showAll, hrefFor }: { game: ExGame; lots: Lot[]; syns: SynInfo[]; members: ExMember[]; dim: Dim; colorBy: "syn" | "type" | "sharp"; showAll: boolean; hrefFor: (o: { pv?: Dim; col?: "syn" | "type" | "sharp"; all?: boolean }) => string }) {
   const info = Object.fromEntries(syns.map((s) => [s.id, s]));
+  const mem = Object.fromEntries(members.map((m) => [m.id, m]));
   const colorOf = (o: string) => (colorBy === "type" ? TYPES[typeOf(info[o]?.engine ?? "")].color : info[o]?.color ?? "#888");
   const nameOf = (o: string) => info[o]?.name ?? o;
   const present = [...new Set(lots.map((l) => typeOf(info[l.owner]?.engine ?? "")))];
@@ -218,9 +220,16 @@ export function GamePositions({ game, lots, syns, dim, colorBy, showAll, hrefFor
             <span className="text-muted">Color by</span>
             <Link href={hrefFor({ col: "syn" })} scroll={false} className={chip(colorBy === "syn")}>Syndicate</Link>
             <Link href={hrefFor({ col: "type" })} scroll={false} className={chip(colorBy === "type")}>Type of firm</Link>
+            <Link href={hrefFor({ col: "sharp" })} scroll={false} className={chip(colorBy === "sharp")}>Sharpness</Link>
           </div>
         </div>
       </div>
+      {colorBy === "sharp" && (
+        <p className="mb-2 flex flex-wrap gap-x-4 text-[11px] text-muted">
+          <span>The ladder below splits each bar by trader, colored by how sharp that trader is in {game.sport.toUpperCase()}:</span>
+          {(["sharp", "leaning", "slight", "none", "public"] as const).map((t) => <span key={t}><span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: TIERS[t].color }} />{TIERS[t].name}</span>)}
+        </p>
+      )}
       {colorBy === "type" && (
         <p className="mb-2 flex flex-wrap gap-x-4 text-[11px] text-muted">
           {present.map((t) => <span key={t}><span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: TYPES[t].color }} />{TYPES[t].name}</span>)}
@@ -231,7 +240,7 @@ export function GamePositions({ game, lots, syns, dim, colorBy, showAll, hrefFor
         with the shaded hill showing how likely each result is by DraftKings&rsquo; price. Below it, each bar is a line on this game: how many contracts back each side, split by who holds them. The grid at the bottom reads the same books at the results that matter for the lines actually held.
       </p>
       <Payoff game={game} lots={lots} dim={dim} colorOf={colorOf} nameOf={nameOf} showAll={showAll} />
-      <div className="mt-6"><Ladder game={game} lots={lots} dim={dim} colorOf={colorOf} nameOf={nameOf} /></div>
+      <div className="mt-6"><Ladder game={game} lots={lots} dim={dim} by={colorBy === "sharp" ? "holder" : "owner"} colorOf={colorBy === "sharp" ? (h) => (mem[h] ? TIERS[tierOf(mem[h], game.sport)].color : "#888") : colorOf} nameOf={colorBy === "sharp" ? (h) => `${mem[h]?.name ?? h} (${mem[h] ? TIERS[tierOf(mem[h], game.sport)].name : ""})` : nameOf} /></div>
       <div className="mt-6"><Heat game={game} lots={lots} dim={dim} colorOf={colorOf} nameOf={nameOf} /></div>
     </section>
   );

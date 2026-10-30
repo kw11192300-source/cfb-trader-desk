@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import LocalDateTime from "@/components/LocalDateTime";
 import { PositionCards } from "@/components/PositionCards";
+import { rankIn, sharpOf } from "@/components/SharpMoney";
 import { EquityChart, SyndicateHeader, TradeFilters, TradeList } from "@/components/SyndicateParts";
 import { scenarioPnl, scenarios, yesNo } from "@/lib/syndicateGame";
 import { fairOf, getExchange, getExchangeSnapshots, getExchangeTrades, getGamesFull, getTraderOpenTrades, label, openLots, pct, ramp, TRADER_GAME_LIMIT, type ExGame, type Lot } from "@/lib/syndicates";
@@ -125,7 +126,7 @@ export default async function TraderPage({ params, searchParams }: { params: Pro
             <h3 className="mb-1 text-sm font-semibold text-foreground">Sharpness by sport</h3>
             {sharp.length === 0 ? <p>No track record yet. It builds as the games this trader hit finish; until then nobody&rsquo;s hits move the market.</p> : (
               <table className="w-full text-[11px]">
-                <thead className="text-left"><tr><th className="py-0.5 font-medium">Sport</th><th className="py-0.5 text-right font-medium">Avg CLV</th><th className="py-0.5 text-right font-medium">Settled hits</th><th className="py-0.5 pl-3 font-medium">Sharpness</th></tr></thead>
+                <thead className="text-left"><tr><th className="py-0.5 font-medium">Sport</th><th className="py-0.5 text-right font-medium">Avg CLV</th><th className="py-0.5 text-right font-medium">Settled hits</th><th className="py-0.5 pl-3 font-medium">Sharpness</th><th className="py-0.5 pl-2 text-right font-medium" title="Rank among every trader with a record in that sport">Rank</th></tr></thead>
                 <tbody className="font-mono">
                   {sharp.map(([sp, f]) => (
                     <tr key={sp} className="border-t border-border">
@@ -133,6 +134,7 @@ export default async function TraderPage({ params, searchParams }: { params: Pro
                       <td className={`py-0.5 text-right ${f.s > 0 ? "text-up" : "text-down"}`}>{f.w > 0 ? `${((f.s / f.w) * 100).toFixed(1)}¢` : "–"}</td>
                       <td className="py-0.5 text-right">{f.n}</td>
                       <td className="py-0.5 pl-3"><div className="h-1.5 w-24 rounded bg-surface-raised"><div className="h-1.5 rounded bg-accent" style={{ width: `${(st.sharp?.[sp] ?? 0) * 100}%` }} /></div></td>
+                      <td className="py-0.5 pl-2 text-right text-muted">{rankIn(members, m, sp) ? `#${rankIn(members, m, sp)} of ${members.filter((x) => sharpOf(x, sp) > 0.02).length}` : "–"}</td>
                     </tr>
                   ))}
                 </tbody>

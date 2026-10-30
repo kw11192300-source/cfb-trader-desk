@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import LocalDateTime from "@/components/LocalDateTime";
 import { LineChart, type Dot, type Series } from "@/components/SyndicateCharts";
 import { GamePositions } from "@/components/GamePositions";
+import { SharpMoney } from "@/components/SharpMoney";
 import { SyndicateHeader, TradeList } from "@/components/SyndicateParts";
 import { scenarioPnl, scenarios, takerOf, yesNo } from "@/lib/syndicateGame";
 import { fairOf, getExchange, getExchangeGame, getGameMarks, getGameTrades, getResult, label, openLots, payoff, ramp, SYN_GAME_LIMIT, type ExGame, type ExTrade, type Lot } from "@/lib/syndicates";
@@ -97,7 +98,7 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
   const toSeries = (p: Record<string, number[]>, xs: number[]): Series[] =>
     Object.entries(p).map(([sid, ys]) => ({ id: sid, name: synName[sid] ?? sid, color: color[sid] ?? "#888", pts: xs.map((x, i) => [x, ys[i]] as [number, number]), step: true }));
   const hrs = (new Date(game.start_utc).getTime() - Date.now()) / 3600000;
-  const pv = sp.pv === "t" ? "t" : "m", colBy = sp.col === "type" ? "type" : "syn";
+  const pv = sp.pv === "t" ? "t" : "m", colBy = sp.col === "type" ? "type" : sp.col === "sharp" ? "sharp" : "syn";
   const href = (c?: string, syn?: string) => {
     const q = new URLSearchParams();
     if (c) q.set("c", c);
@@ -308,6 +309,7 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
           game={game as ExGame}
           lots={lots}
           syns={syndicates.map((x) => ({ id: x.id, name: x.name, color: x.color, engine: x.engine }))}
+          members={members}
           dim={pv}
           colorBy={colBy}
           showAll={sp.all === "1"}
@@ -321,6 +323,8 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
             return `/syndicates/games/${encodeURIComponent(game.id)}?${q}`;
           }}
         />
+
+        <SharpMoney game={game as ExGame} lots={lots} members={members} synName={synName} synColor={color} />
 
         <details className="mb-8 rounded-lg border border-border">
           <summary className="cursor-pointer px-3 py-2 text-xs text-muted hover:text-foreground">Every position, trader by trader</summary>
