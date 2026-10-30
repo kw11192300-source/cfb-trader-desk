@@ -33,7 +33,7 @@ W_FLOOR_EXCH = 0.5  # with no market to anchor to, a syndicate trusts its own mo
 CUTOFF_MIN = 3
 SNAP_EVERY = 3  # rounds between equity snapshots
 VOID_AFTER_DAYS = 6
-TOTAL_FRAC = 0.30  # worst-case loss, summed over a trader's games, may not pass this share of its bankroll
+TOTAL_FRAC = 0.50  # worst-case loss, summed over a trader's games, may not pass this share of its bankroll (the football ramp and the maker lab's limits filled the old 30% in one round)
 SYN_GAME = 150.0  # a syndicate's combined worst case on one game, all its traders together, at the kickoff end of the ramp
 TAKE_CLIP = 40.0  # most contracts a trader will take in one go
 MAX_FILLS = 2  # most hits a trader makes each time it acts
@@ -43,7 +43,7 @@ FLOW_DECAY = 0.6  # how much of that market move is still felt a round later
 SHARP_CLV = 0.02  # average closing-line value (2 cents) that makes a taker fully "sharp"
 SHARP_N = 10.0  # effective trades of evidence before a taker's record counts in full
 MM_REACT = 2.0  # a market maker moves its own view of a game this many times harder than a follower when its quote is hit
-MAKER_SOFT = 0.6  # a market maker stops offering new risk once it has used this share of its risk limit, so it always has room to keep quoting
+MAKER_SOFT = 0.7  # a market maker stops offering new risk once it has used this share of its risk limit, so it always has room to keep quoting
 RESERVE_FRAC = 0.20  # share of its starting bankroll a trader never commits as cash
 TICKS = 12  # steps of simulated time inside one round
 ACT_PROB = 0.6  # chance a trader acts on a given tick after the first
@@ -69,7 +69,7 @@ def ramp(hours: float, sport: str = "") -> float:
     """How much of a game's risk limit can be used this far from kickoff: money arrives as the game gets closer, like a real market. Football (a weekly slate whose lines
     are posted days ahead and move all week) opens up much earlier than the daily sports."""
     if sport in ("nfl", "cfb"):
-        return 0.35 if hours > 120 else 0.5 if hours > 72 else 0.7 if hours > 48 else 0.85 if hours > 24 else 1.0
+        return 0.5 if hours > 120 else 0.65 if hours > 72 else 0.75 if hours > 48 else 0.9 if hours > 24 else 1.0
     return 0.1 if hours > 72 else 0.15 if hours > 24 else 0.3 if hours > 12 else 0.5 if hours > 6 else 0.75 if hours > 2 else 1.0
 
 
@@ -853,6 +853,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         return c
 
     pdcache: dict[tuple[str, str], tuple[float, float]] = {}
+    qstat = {"posted": 0, "crossed": 0, "no_room_bid": 0, "no_room_ask": 0, "makers_full": 0}  # why quotes did or did not go up, kept in the round record
 
     def delta_pub(mid: str, gid: str) -> tuple[float, float]:
         """The part of a maker's position on a game (in the same units as delta_exp) that it took from public bettors."""
@@ -882,6 +883,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         Each side is sized on its own against the risk limits, so a one-sided fill can never push a maker past them."""
         p = m["params"]
         taper = max(0.0, 1 - trisk(m["id"]) / max(1e-9, total_limit(m) * MAKER_SOFT))
+        if taper <= 0:
+            qstat["makers_full"] += 1
         mm = bool(p.get("mm"))
         tmult = 1.0
         if mm:  # widen when the maker's own fills have been closing against it, tighten when they have been harmless
@@ -914,6 +917,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 sz_b, sz_a = float(np.clip(pl.get("size_bid", 1.0), 0.0, 2.0)), float(np.clip(pl.get("size_ask", 1.0), 0.0, 2.0))
             bid, ask = max(0.01, float(np.floor((c - hb) * 100) / 100)), min(0.99, float(np.ceil((c + ha) * 100) / 100))
             if bid >= ask:
+                qstat["crossed"] += 1
                 continue
             size = p["size"] * taper * (1.0 if on else 0.5) * max(0.3, mk["ramp"])
             qb = min(size * sz_b, room_for(m, mk, "buy", bid, True), cash_room(m, k, "buy", bid))
@@ -921,9 +925,15 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             if qb >= 5:
                 bids[k].append([bid, round(qb, 2), m["id"]])
                 bids[k].sort(key=lambda x: -x[0])
+                qstat["posted"] += 1
+            else:
+                qstat["no_room_bid"] += 1
             if qa >= 5:
                 asks[k].append([ask, round(qa, 2), m["id"]])
                 asks[k].sort(key=lambda x: x[0])
+                qstat["posted"] += 1
+            else:
+                qstat["no_room_ask"] += 1
 
     def best(book, me):
         for q in book:
@@ -983,20 +993,23 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     nprng = np.random.default_rng(rnd * 7919 + 13)
     game_w: dict[str, float] = {}
 
-    def pub_time(hrs: float) -> float:
+    def pub_time(hrs: float, sport: str = "") -> float:
+        if sport in ("nfl", "cfb"):  # football bettors bet all week, not just in the last hours: a flatter curve that still builds toward kickoff
+            return 0.0 if hrs < 0 else 1.8 if hrs < 1 else 1.2 if hrs < 3 else 0.8 if hrs < 6 else 0.5 if hrs < 12 else 0.35 if hrs < 24 else 0.25 if hrs < 48 else 0.2 if hrs < 96 else 0.12 if hrs < 168 else 0.06
         return 0.0 if hrs < 0 else 1.8 if hrs < 1 else 1.0 if hrs < 3 else 0.5 if hrs < 6 else 0.2 if hrs < 12 else 0.08 if hrs < 24 else 0.03 if hrs < 48 else 0.01
 
     def gw(gid: str) -> float:
         v = game_w.get(gid)
         if v is None:
             st_ = _pdate(games[gid]["start_utc"])
-            v = pub_time((st_ - now).total_seconds() / 3600)
+            v = pub_time((st_ - now).total_seconds() / 3600, games[gid]["sport"])
             et_ = st_.astimezone(results.ET)
             v *= (1.25 if et_.weekday() >= 5 else 1.0) * (1.2 if 19 <= et_.hour <= 23 else 1.0)  # weekends and primetime draw more
             game_w[gid] = v
         return v
 
     pub_book: dict[str, tuple[list, np.ndarray]] = {}
+    pubstat = {"bets": 0, "no_quote": 0, "too_dear": 0, "no_room": 0, "filled": 0}  # why public bets did or did not trade, kept in the round record
 
     def pub_weights(m: dict) -> tuple[list, np.ndarray]:
         style = m["params"]["style"]
@@ -1061,23 +1074,28 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         for _ in range(n):
             k, side = keys[int(nprng.choice(len(keys), p=w))]
             mk = markets[k]
+            pubstat["bets"] += 1
             q = best(asks[k] if side == "buy" else bids[k], m["id"])
             if not q:
+                pubstat["no_quote"] += 1
                 continue
             px = q[0]
             pf = mk["ref"] + (0.2 * (eng_p.get(("blend", k), mk["ref"]) - mk["ref"]) if p["style"] == "model" else 0.0)
             if (side == "buy" and px > pf + p["tol"]) or (side == "sell" and px < pf - p["tol"]):  # a recreational bettor will pay a few cents over fair, not a terrible price
+                pubstat["too_dear"] += 1
                 continue
             maker = members[q[2]]
             m_side = "sell" if side == "buy" else "buy"
             qty = round(min(float(nprng.integers(3, 16)) * p["sizem"], q[1], room_for(m, mk, side, px), cash_room(m, k, side, px),
                             room_for(maker, mk, m_side, px, True), cash_room(maker, k, m_side, px)), 2)
             if qty < 1:
+                pubstat["no_room"] += 1
                 if q[1] > 0.5 and min(room_for(maker, mk, m_side, px, True), cash_room(maker, k, m_side, px)) < 1:
                     q[1] = 0
                 continue
             buyer, seller = (m, maker) if side == "buy" else (maker, m)
             fill(buyer, seller, maker, mk, k, px, qty)
+            pubstat["filled"] += 1
             q[1] = round(q[1] - qty, 2)
 
     # ---- the Maker Lab: its published policy turns what the market and the other accounts are doing into quotes, once per round, in a restricted subprocess
@@ -1294,7 +1312,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     if marks:
         store.insert("ex_marks", marks)
     store.upsert("ex_meta", [{"key": "round", "value": {"n": rnd, "ts": _iso(now), "markets": len(markets), "games": len(by_gid),
-                                                         "new_trades": len(new_trades), "settled": stats["settled"], "ticks": ticks,
+                                                         "new_trades": len(new_trades), "settled": stats["settled"], "ticks": ticks, "pub": pubstat, "quotes": qstat,
                                                          "secs": round(time.time() - t_start, 1), "errors": [s["id"] for s in syns.values() if ((s.get("learn") or {}).get("agent") or {}).get("error")]}}])
     store.save()
     out = {"round": rnd, "games_new": n_new, "games_listed": len(by_gid), "markets": len(markets), "new_trades": len(new_trades), **stats,

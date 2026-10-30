@@ -297,7 +297,7 @@ export function payoff(trades: ExTrade[], who: (id: string) => string | null, xs
 
 /** The most of a game's risk limit that may be used this far from kickoff (mirrors python/exchange/engine.py ramp). */
 export const ramp = (hours: number, sport = ""): number =>
-  sport === "nfl" || sport === "cfb" ? (hours > 120 ? 0.35 : hours > 72 ? 0.5 : hours > 48 ? 0.7 : hours > 24 ? 0.85 : 1) : hours > 72 ? 0.1 : hours > 24 ? 0.15 : hours > 12 ? 0.3 : hours > 6 ? 0.5 : hours > 2 ? 0.75 : 1;
+  sport === "nfl" || sport === "cfb" ? (hours > 120 ? 0.5 : hours > 72 ? 0.65 : hours > 48 ? 0.75 : hours > 24 ? 0.9 : 1) : hours > 72 ? 0.1 : hours > 24 ? 0.15 : hours > 12 ? 0.3 : hours > 6 ? 0.5 : hours > 2 ? 0.75 : 1;
 export const SYN_GAME_LIMIT = 100;
 export const TRADER_GAME_LIMIT = 100;
 
