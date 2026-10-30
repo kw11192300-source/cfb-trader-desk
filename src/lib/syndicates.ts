@@ -296,8 +296,16 @@ export function payoff(trades: ExTrade[], who: (id: string) => string | null, xs
 }
 
 /** The most of a game's risk limit that may be used this far from kickoff (mirrors python/exchange/engine.py ramp). */
-export const ramp = (hours: number, sport = ""): number =>
-  sport === "nfl" || sport === "cfb" ? (hours > 120 ? 0.5 : hours > 72 ? 0.65 : hours > 48 ? 0.75 : hours > 24 ? 0.9 : 1) : hours > 72 ? 0.1 : hours > 24 ? 0.15 : hours > 12 ? 0.3 : hours > 6 ? 0.5 : hours > 2 ? 0.75 : 1;
+const RAMPS: Record<string, number[]> = {
+  nfl: [0.5, 0.65, 0.75, 0.9, 1, 1, 1, 1, 1], cfb: [0.5, 0.65, 0.75, 0.9, 1, 1, 1, 1, 1],
+  nba: [0.1, 0.1, 0.15, 0.2, 0.4, 0.7, 0.85, 1, 1.2], nhl: [0.1, 0.1, 0.15, 0.2, 0.4, 0.7, 0.85, 1, 1.1], cbb: [0.05, 0.05, 0.08, 0.12, 0.25, 0.5, 0.7, 0.9, 1],
+};
+const RAMP_EDGES = [120, 72, 36, 24, 12, 6, 3, 1];
+export const ramp = (hours: number, sport = ""): number => {
+  const row = RAMPS[sport] ?? RAMPS.nba;
+  const i = RAMP_EDGES.findIndex((e) => hours > e);
+  return i < 0 ? row[row.length - 1] : row[i];
+};
 export const SYN_GAME_LIMIT = 100;
 export const TRADER_GAME_LIMIT = 100;
 

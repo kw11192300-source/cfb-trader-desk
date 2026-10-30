@@ -65,12 +65,21 @@ RULES = dict(max_risk=100.0, kelly=0.25, size=100.0, thr_min=0.01, half_min=0.00
 ADAPT_EVERY = 40  # settled trades of one kind between a trader reviewing its own strategy
 
 
+# share of a game's risk limit that may be used, by hours to kickoff: [more than 120h, 72h, 36h, 24h, 12h, 6h, 3h, 1h, last hour]; the daily sports ramp late, football opens early,
+# and the last hour is allowed past 100% where the flow peaks (not in college basketball, whose games are many and thin)
+RAMPS = {"nfl": (0.5, 0.65, 0.75, 0.9, 1.0, 1.0, 1.0, 1.0, 1.0), "cfb": (0.5, 0.65, 0.75, 0.9, 1.0, 1.0, 1.0, 1.0, 1.0),
+         "nba": (0.10, 0.10, 0.15, 0.20, 0.40, 0.70, 0.85, 1.0, 1.2), "nhl": (0.10, 0.10, 0.15, 0.20, 0.40, 0.70, 0.85, 1.0, 1.1),
+         "cbb": (0.05, 0.05, 0.08, 0.12, 0.25, 0.50, 0.70, 0.90, 1.0)}
+RAMP_EDGES = (120.0, 72.0, 36.0, 24.0, 12.0, 6.0, 3.0, 1.0)
+
+
 def ramp(hours: float, sport: str = "") -> float:
-    """How much of a game's risk limit can be used this far from kickoff: money arrives as the game gets closer, like a real market. Football (a weekly slate whose lines
-    are posted days ahead and move all week) opens up much earlier than the daily sports."""
-    if sport in ("nfl", "cfb"):
-        return 0.5 if hours > 120 else 0.65 if hours > 72 else 0.75 if hours > 48 else 0.9 if hours > 24 else 1.0
-    return 0.1 if hours > 72 else 0.15 if hours > 24 else 0.3 if hours > 12 else 0.5 if hours > 6 else 0.75 if hours > 2 else 1.0
+    """How much of a game's risk limit can be used this far from kickoff: money arrives as the game gets closer, like a real market."""
+    row = RAMPS.get(sport, RAMPS["nba"])
+    for edge, v in zip(RAMP_EDGES, row):
+        if hours > edge:
+            return v
+    return row[-1]
 
 
 def abide(p: dict) -> dict:
