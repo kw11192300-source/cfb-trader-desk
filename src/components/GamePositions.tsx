@@ -141,7 +141,7 @@ function Ladder({ game, lots, dim, colorOf, nameOf }: { game: ExGame; lots: Lot[
               </div>
             </div>
             <span className={`border-x border-border bg-surface py-0.5 text-center font-mono ${r.kind === "ml" ? "font-semibold text-accent" : "text-foreground"}`} title={label(r, game)}>
-              {r.kind === "ml" ? "ML" : label(r, game)} <span className="text-muted">· {pct(fairOf(game, r.kind, r.line))}</span>
+              {r.kind === "ml" ? "ML" : r.kind === "total" ? r.line : label(r, game)} <span className="text-muted">· {pct(fairOf(game, r.kind, r.line))}</span>
             </span>
             <div className="flex items-center gap-1.5">
               <div className="flex h-3.5" style={{ width: `${(r.long / max) * 82}%` }}>
