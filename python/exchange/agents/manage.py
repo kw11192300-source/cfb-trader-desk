@@ -183,6 +183,24 @@ def report(store, sid: str) -> None:
     for sp in SPORTS:
         x = st.get(sp, {"n": 0, "num": 0, "den": 0})
         print(f"  {sp}: weight {w.get(sp, 0.25):.2f}   lines scored {x['n']}   edge-vs-market score {x['num']:+.3f} on {x['den']:.3f}")
+    # the real test: the lab's own price for each finished game's moneyline, main spread and main total, against what happened, next to DraftKings' closing price on the same lines
+    sc: dict[str, list[float]] = {}
+    for r in store.rows("ex_results"):
+        c = r.get("closing")
+        if not c or (c.get("src") or "dk") != "dk" or sid not in (c.get("e") or {}):
+            continue
+        for i, y in enumerate(c["y"]):
+            e = c["e"][sid]
+            if y != 0.5 and i < len(e) and e[i] is not None and c["dk"][i] is not None:
+                sc.setdefault(r["sport"], []).append((c["dk"][i] - y) ** 2 - (e[i] - y) ** 2)
+    print("scored against the market on finished games (your price vs DraftKings' close, Brier; positive means you were closer to what happened):")
+    if not sc:
+        print("  nothing yet: closing prices are recorded as games finish")
+    for sp, d in sc.items():
+        n = len(d)
+        m = sum(d) / n
+        se = (sum((x - m) ** 2 for x in d) / (n - 1) / n) ** 0.5 if n > 2 else 0.0
+        print(f"  {sp}: {n} prices, {m * 1000:+.2f} per 1000" + (f" (z {m / se:+.1f})" if se > 0 else "") + ("  - within noise" if se > 0 and abs(m / se) < 2 else ""))
     if a.get("backtest"):
         print("last backtest (margin MAE: model / elo / ridge):")
         for sp, r in a["backtest"].items():

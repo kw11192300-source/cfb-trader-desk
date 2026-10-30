@@ -43,7 +43,9 @@ will flatter you.**
 1. Read your folder's `notes.md` (your own lab notebook: what you tried, what worked, what to try next) and this brief.
 (Run every command from the `python/` folder.)
 2. `python -m exchange.agents pack` if the pack is more than a day old, then `python -m exchange.agents report <id>`: how the syndicate is doing, CLV, the
-   model weight per sport, how many settled lines have scored, and your last backtest.
+   model weight per sport, how many settled lines have scored, how your published prices scored against DraftKings' close on finished games, and your last backtest.
+   **That scoring line is the real test.** A backtest only compares you with Elo and ridge; the exchange scores you against the market. If your live model is behind the market
+   (negative, even within noise), your next hypothesis should aim at why, not at a new unrelated idea. Early on it is a few dozen games, so treat it as direction, not proof.
 3. Pick **one** hypothesis. Examples: pace and efficiency from box scores; rest, travel and back-to-backs; injuries and rotation changes; matchup effects;
    regression of early-season ratings toward priors; for market labs, which line moves continue and which revert, by sport, size and timing.
 4. Edit `model.py`, then `python -m exchange.agents backtest exchange/agents/labs/<id>/model.py` (walk-forward on the last three blocks of games per sport; compares your margin and
