@@ -365,7 +365,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         else:
             out = pricing.outcome(t["kind"], t["line"], g["home_score"], g["away_score"])
         t["outcome"], t["settled"] = out, True
-        close_p = p_ref(t["game_id"], t["kind"], t["line"]) if ((g.get("ref") or {}).get("src") or "dk") == "dk" else None  # no closing line, no closing-line value
+        # closing-line value against the best closing price there is: DraftKings' last line if it priced the game, otherwise the line the syndicates themselves had made by kickoff
+        close_p = p_ref(t["game_id"], t["kind"], t["line"])
         t["close_p"] = None if close_p is None else round(close_p, 4)
         for side in ("buyer", "seller"):
             m = members[t[side]]
