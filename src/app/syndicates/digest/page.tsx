@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { sideText } from "@/lib/positions";
 import { SyndicateHeader } from "@/components/SyndicateParts";
 import { getDigests, getExchange, label, pct } from "@/lib/syndicates";
 
@@ -80,12 +81,20 @@ export default async function DigestPage({ searchParams }: { searchParams: Promi
                   <h3 className="mb-2 text-sm font-semibold text-foreground">Sharpest hits</h3>
                   <ul className="space-y-1 rounded-lg border border-border bg-surface p-2 text-xs">
                     {d.sharp.length === 0 && <li className="text-muted">None recorded.</li>}
-                    {d.sharp.map((x, i) => (
-                      <li key={i} className="flex justify-between gap-2">
-                        <span className="text-foreground">{x.who} <span className="text-muted">· {x.teams} · {x.side ? (x.side === "buy" ? "bought " : "sold ") : ""}{label({ kind: x.kind, line: x.line }, { home: { abbr: x.teams.split(" @ ")[1] }, away: { abbr: x.teams.split(" @ ")[0] } } as never)} {x.side === "sell" ? "yes " : ""}at {pct(x.price)}{x.close != null ? ` → closed ${pct(x.close)}` : ""} × {x.qty.toFixed(0)}</span></span>
-                        <span className="shrink-0 font-mono text-up">+{(x.clv * 100).toFixed(1)}¢</span>
-                      </li>
-                    ))}
+                    {d.sharp.map((x, i) => {
+                      // in terms of the side actually played: selling "yes" is playing the other team, the under, or the away moneyline, at the mirror price
+                      const [away, home] = x.teams.split(" @ ");
+                      const buy = x.side !== "sell";
+                      const played = sideText({ home: { abbr: home }, away: { abbr: away } } as never, x.kind, x.line, buy ? 1 : -1);
+                      const paid = buy ? x.price : 1 - x.price;
+                      const closed = x.close == null ? null : buy ? x.close : 1 - x.close;
+                      return (
+                        <li key={i} className="flex justify-between gap-2">
+                          <span className="text-foreground">{x.who} <span className="text-muted">· {x.teams} · played </span>{played}<span className="text-muted"> at {pct(paid)}{closed != null ? `, closed ${pct(closed)}` : ""} × {x.qty.toFixed(0)}</span></span>
+                          <span className="shrink-0 font-mono text-up">+{(x.clv * 100).toFixed(1)}¢</span>
+                        </li>
+                      );
+                    })}
                   </ul>
                   <p className="mt-1 text-[11px] text-muted">The hits that beat the closing price by the most, weighted by size.</p>
                 </div>
