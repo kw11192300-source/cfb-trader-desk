@@ -4,7 +4,7 @@ import LocalDateTime from "@/components/LocalDateTime";
 import { rankIn, sharpOf, TIERS, tierOf } from "@/components/SharpMoney";
 import { SyndicateHeader } from "@/components/SyndicateParts";
 import { gameCards } from "@/lib/positions";
-import { fairOf, getAllOpenTrades, getExchange, getGamesFull, type Lot, openLots, pct, TRADER_GAME_LIMIT } from "@/lib/syndicates";
+import { fairOf, getAllOpenTrades, getExchange, getGamesFull, getPiles, type Lot, openLots, pct, TRADER_GAME_LIMIT } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
@@ -14,11 +14,24 @@ const MIN: [string, string, number][] = [["sharp", "Sharp", 0.5], ["leaning", "L
 const SORT: [string, string][] = [["lev", "% of limit"], ["units", "Units at risk"], ["weighted", "Sharpness × size"]];
 const u = (n: number) => `${n > 0.05 ? "+" : ""}${n.toFixed(0)}`;
 const tone = (n: number) => (n > 0.5 ? "text-up" : n < -0.5 ? "text-down" : "text-muted");
-type Params = { sport?: string; min?: string; sort?: string };
+type Params = { sport?: string; min?: string; sort?: string; t?: string };
+const THRS = [3, 5, 10, 20, 40];
+const GROUPS: [string, string][] = [["sport:cfb", "CFB"], ["sport:nfl", "NFL"], ["sport:nhl", "NHL"], ["sport:nba", "NBA"], ["sport:cbb", "CBB"], ["kind:ml", "Moneyline"], ["kind:spread", "Spread"], ["kind:total", "Total"],
+  ["hrs:>24", "More than 24h before"], ["hrs:6-24", "6 to 24h before"], ["hrs:<6", "Under 6h before"], ["top:<0.3", "Sharpest account under 0.3"], ["top:0.3-0.5", "Sharpest account 0.3 to 0.5"], ["top:>=0.5", "Sharpest account 0.5+"],
+  ["against:none", "No sharp account against"], ["against:some", "Some sharp account against"]];
+const COST = 0.015; // roughly the half-spread paid to get in on the exchange
+const cstat = (c: number[] | undefined) => {
+  if (!c || c[0] === 0) return null;
+  const n = c[0], m = c[2] / n, v = Math.max(0, c[3] / n - m * m), se = n > 1 ? Math.sqrt(v / n) : null;
+  const nc = c[6], mc = nc ? c[4] / nc : null, sec = nc > 1 ? Math.sqrt(Math.max(0, c[5] / nc - (mc ?? 0) ** 2) / nc) : null;
+  return { n, hit: c[1] / n, m, se, mc, sec, nc };
+};
+const cents = (x: number) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)}¢`;
 
 export default async function SharpPage({ searchParams }: { searchParams: Promise<Params> }) {
   const sp = await searchParams;
-  const [{ syndicates, members, meta }, open] = await Promise.all([getExchange(), getAllOpenTrades()]);
+  const [{ syndicates, members, meta }, open, rec] = await Promise.all([getExchange(), getAllOpenTrades(), getPiles()]);
+  const tSel = THRS.includes(Number(sp.t)) ? Number(sp.t) : 10;
   const sport = SPORTS.includes(sp.sport ?? "") ? sp.sport! : null;
   const minKey = MIN.find((m) => m[0] === sp.min)?.[0] ?? "leaning";
   const minVal = MIN.find((m) => m[0] === minKey)![2];
@@ -29,7 +42,7 @@ export default async function SharpPage({ searchParams }: { searchParams: Promis
   const games = await getGamesFull([...new Set(open.map((t) => t.game_id))]);
   const q = (o: Partial<Params>) => {
     const p = new URLSearchParams();
-    const all: Params = { sport: sport ?? undefined, min: minKey === "leaning" ? undefined : minKey, sort: sortKey === "lev" ? undefined : sortKey, ...o };
+    const all: Params = { sport: sport ?? undefined, min: minKey === "leaning" ? undefined : minKey, sort: sortKey === "lev" ? undefined : sortKey, t: sp.t, ...o };
     for (const [k, v] of Object.entries(all)) if (v) p.set(k, v);
     return `/syndicates/sharp${p.toString() ? `?${p}` : ""}`;
   };
@@ -185,6 +198,59 @@ export default async function SharpPage({ searchParams }: { searchParams: Promis
             </table>
           </div>
         )}
+
+        <h3 className="mb-1 mt-10 text-sm font-semibold text-foreground">Track record: does following a sharp pile beat the market?</h3>
+        <p className="mb-3 max-w-3xl text-[11px] leading-relaxed text-muted">
+          Every round, the sharp-weighted pile on each line is measured (the number in the table above). The first time a line&rsquo;s pile on one side reaches a size, DraftKings&rsquo; price is recorded; when the game finishes it is scored.
+          <strong> DraftKings moved toward it</strong> is the price check (how the close compared with that price, in the pile&rsquo;s direction, with no luck from the result in it) and <strong>Made</strong> is what a contract on that side earned from that price
+          to the final result. The last column takes off about {COST * 100}¢ for the exchange spread you would pay to get in. A size that holds a positive number there across many games is a candidate threshold. Today there are {rec.openCount} piles waiting
+          on their games, so this fills in as games finish and nothing here is a result yet. Entries at different sizes come from the same piles, so they overlap rather than add up. Ranges are 95%.
+        </p>
+        <div className="mb-6 overflow-x-auto rounded-lg border border-border">
+          <table className="w-full min-w-[720px] text-xs">
+            <thead className="bg-surface text-left text-muted"><tr><th className="px-3 py-2">Pile reaches</th><th className="px-3 py-2 text-right">Scored</th><th className="px-3 py-2 text-right">Right</th><th className="px-3 py-2 text-right">DraftKings moved toward it</th><th className="px-3 py-2 text-right">Made per contract</th><th className="px-3 py-2 text-right">After the spread</th></tr></thead>
+            <tbody className="font-mono">
+              {THRS.map((th) => {
+                const c = cstat(rec.cells[`${th}|all`]);
+                return (
+                  <tr key={th} className={`border-t border-border ${th === tSel ? "bg-surface" : ""}`}>
+                    <td className="px-3 py-1.5 font-sans"><Link href={q({ t: String(th) })} className="text-foreground hover:text-accent">{th}+ sharp-weighted contracts</Link></td>
+                    {c ? (
+                      <>
+                        <td className="px-3 py-1.5 text-right text-muted">{c.n}</td>
+                        <td className="px-3 py-1.5 text-right">{(c.hit * 100).toFixed(0)}%</td>
+                        <td className={`px-3 py-1.5 text-right ${c.mc == null ? "text-muted" : tone(c.mc * 100)}`}>{c.mc == null ? "–" : cents(c.mc)}{c.sec != null && <span className="ml-1 text-[10px] text-muted">±{(196 * c.sec).toFixed(1)}</span>}</td>
+                        <td className={`px-3 py-1.5 text-right ${tone(c.m * 100)}`}>{cents(c.m)}{c.se != null && <span className="ml-1 text-[10px] text-muted">±{(196 * c.se).toFixed(1)}</span>}</td>
+                        <td className={`px-3 py-1.5 text-right ${tone((c.m - COST) * 100)}`}>{cents(c.m - COST)}</td>
+                      </>
+                    ) : <td colSpan={5} className="px-3 py-1.5 text-center text-muted">nothing scored yet</td>}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="mb-2 text-xs text-foreground">Cut by group, for piles of {tSel}+ <span className="text-muted">(pick the size in the table above)</span>:</p>
+        <div className="mb-8 overflow-x-auto rounded-lg border border-border">
+          <table className="w-full min-w-[720px] text-xs">
+            <thead className="bg-surface text-left text-muted"><tr><th className="px-3 py-2">Group</th><th className="px-3 py-2 text-right">Scored</th><th className="px-3 py-2 text-right">Right</th><th className="px-3 py-2 text-right">DraftKings moved toward it</th><th className="px-3 py-2 text-right">Made per contract</th></tr></thead>
+            <tbody className="font-mono">
+              {GROUPS.map(([g, name]) => {
+                const c = cstat(rec.cells[`${tSel}|${g}`]);
+                if (!c) return null;
+                return (
+                  <tr key={g} className="border-t border-border">
+                    <td className="px-3 py-1.5 font-sans text-foreground">{name}</td>
+                    <td className="px-3 py-1.5 text-right text-muted">{c.n}</td>
+                    <td className="px-3 py-1.5 text-right">{(c.hit * 100).toFixed(0)}%</td>
+                    <td className={`px-3 py-1.5 text-right ${c.mc == null ? "text-muted" : tone(c.mc * 100)}`}>{c.mc == null ? "–" : cents(c.mc)}</td>
+                    <td className={`px-3 py-1.5 text-right ${tone(c.m * 100)}`}>{cents(c.m)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </main>
     </div>
   );

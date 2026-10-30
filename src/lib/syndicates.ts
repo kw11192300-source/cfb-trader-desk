@@ -589,3 +589,11 @@ export async function getSignals(): Promise<{ open: Signal[]; done: Signal[] }> 
   const v = (data?.value ?? {}) as { open?: Record<string, Signal>; done?: Signal[] };
   return { open: Object.values(v.open ?? {}), done: v.done ?? [] };
 }
+
+/** Track record of sharp pile-ups (python/exchange/piles.py): totals per size and group, [n, wins, sum pnl, sum pnl^2, sum clv, sum clv^2, n with clv]. */
+export type PileRecent = { game: string; teams: string; sport: string; kind: string; line: number; side: 1 | -1; ref: number; close: number | null; y: number; v: number; n: number; opp: number; top: number; ts: string };
+export async function getPiles(): Promise<{ openCount: number; cells: Record<string, number[]>; recent: PileRecent[] }> {
+  const { data } = await supabase.from("ex_meta").select("value").eq("key", "piles").maybeSingle();
+  const v = (data?.value ?? {}) as { open?: Record<string, unknown>; cells?: Record<string, number[]>; recent?: PileRecent[] };
+  return { openCount: Object.keys(v.open ?? {}).length, cells: v.cells ?? {}, recent: v.recent ?? [] };
+}

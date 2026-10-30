@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
-from . import espn, house, kalshi, pricing, ratings, reliability, results, risk, signals
+from . import espn, house, kalshi, pricing, piles, ratings, reliability, results, risk, signals
 from .agents import manage as agent_manage, sandbox as agent_sandbox
 from .members import roster
 from .pricing import Dist, ckey, clip
@@ -430,6 +430,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     open_trades = still_open
     result_rows = []
     sig = signals.load(meta)
+    pst = piles.load(meta)
     rel = reliability.load(meta)
     rel_changed = False
     for gid, trs in settled_by_game.items():  # the historical record of each finished game, from its whole trade ledger
@@ -437,6 +438,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             rel_changed |= reliability.add_game(rel, gid, games[gid]["sport"], trs, members)
             row = results.game_result(games[gid], trs, members)
             signals.resolve(sig, gid, row.get("closing"))
+            piles.resolve(pst, gid, games[gid])
             result_rows.append(row)
             for mid, v in row["traders"].items():
                 ms_ = members[mid]["stats"]
@@ -1113,6 +1115,19 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         if v.get("src", "dk") == "dk":
             signals.scan(sig, g, v, two_sided, delta, markets, ckey, now, _pdate(g["start_utc"]))
     signals.prune(sig, now)
+    by_k: dict[str, dict] = {}  # the sharp-weighted position on every contract: each account's net contracts times its sharpness in the sport
+    for (mid, k), q in net.items():
+        if abs(q) < 0.5 or k not in markets or members[mid]["params"].get("public"):
+            continue
+        s_ = sharp(mid, markets[k]["sport"])
+        if s_ < piles.MIN_SHARP:
+            continue
+        d_ = by_k.setdefault(k, {"v": 0.0, "long": 0, "short": 0, "top": 0.0})
+        d_["v"] += q * s_
+        d_["long" if q > 0 else "short"] += 1
+        d_["top"] = max(d_["top"], s_)
+    piles.scan(pst, by_k, markets, now)
+    piles.prune(pst, now)
 
     # ---- the exchange's own lines move toward the prices its traders actually reached
     for gid, g in games.items():
@@ -1200,6 +1215,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         store.upsert("ex_trades", list({t["id"]: t for t in changed}.values()))
     store.upsert("ex_members", list(members.values()))
     store.upsert("ex_syndicates", list(syns.values()))
+    if pst["dirty"]:
+        store.upsert("ex_meta", [{"key": "piles", "value": piles.dump(pst)}])
     if sig["dirty"]:
         store.upsert("ex_meta", [{"key": "signals", "value": signals.dump(sig)}])
     if discoveries:
