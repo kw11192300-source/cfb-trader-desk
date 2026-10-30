@@ -199,11 +199,13 @@ export function TradeList({ trades, games, names, title = "Recent trades", moreH
         {moreHref && <Link href={moreHref} className="text-[11px] font-normal text-accent hover:underline">Full trade history, with filters →</Link>}
       </h2>
       <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full min-w-[820px] text-xs">
+        <table className="w-full min-w-[980px] text-xs">
           <thead className="bg-surface text-left text-muted">
             <tr>
               <th className="px-3 py-2">When</th>
+              <th className="px-3 py-2">Sport</th>
               <th className="px-3 py-2">Game</th>
+              <th className="px-3 py-2">Game starts</th>
               <th className="px-3 py-2">Contract</th>
               <th className="px-3 py-2 text-right">Price</th>
               <th className="px-3 py-2 text-right">Fair</th>
@@ -219,9 +221,10 @@ export function TradeList({ trades, games, names, title = "Recent trades", moreH
               const res = t.outcome == null ? "open" : t.outcome === 0.5 ? "push" : t.outcome === 1 ? "yes" : "no";
               return (
                 <tr key={t.id} className="border-t border-border">
-                  <td className="px-3 py-1.5 text-muted">
+                  <td className="whitespace-nowrap px-3 py-1.5 text-muted">
                     <LocalDateTime iso={t.ts} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
                   </td>
+                  <td className="px-3 py-1.5 font-sans text-muted">{(g?.sport ?? t.game_id.split(":")[0]).toUpperCase()}</td>
                   <td className="px-3 py-1.5 font-sans text-foreground">
                     {g ? (
                       <Link href={`/syndicates/games/${encodeURIComponent(t.game_id)}`} className="hover:text-accent">
@@ -230,6 +233,9 @@ export function TradeList({ trades, games, names, title = "Recent trades", moreH
                     ) : (
                       t.game_id
                     )}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-1.5 font-sans text-muted">
+                    {g?.start_utc ? <LocalDateTime iso={g.start_utc} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} /> : "–"}
                   </td>
                   <td className="px-3 py-1.5 font-sans">{label(t, g)}</td>
                   <td className="px-3 py-1.5 text-right">{pct(t.price)}</td>

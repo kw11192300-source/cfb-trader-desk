@@ -130,11 +130,13 @@ export default async function TradesPage({ searchParams }: { searchParams: Promi
           <p className="rounded-lg border border-border bg-surface px-4 py-8 text-center text-sm text-muted">No trades match these filters.</p>
         ) : (
           <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full min-w-[900px] text-xs">
+            <table className="w-full min-w-[1060px] text-xs">
               <thead className="bg-surface text-left text-muted">
                 <tr>
                   <th className="px-3 py-2">When</th>
+                  <th className="px-3 py-2">Sport</th>
                   <th className="px-3 py-2">Game</th>
+                  <th className="px-3 py-2">Game starts</th>
                   <th className="px-3 py-2">Contract</th>
                   {picked && <th className="px-3 py-2">Side</th>}
                   <th className="px-3 py-2 text-right">Price</th>
@@ -158,10 +160,12 @@ export default async function TradesPage({ searchParams }: { searchParams: Promi
                   const iMaker = sd ? t.maker === (sd === "buy" ? t.buyer : t.seller) : false;
                   return (
                     <tr key={t.id} className="border-t border-border">
-                      <td className="px-3 py-1.5 text-muted"><LocalDateTime iso={t.ts} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} /></td>
+                      <td className="whitespace-nowrap px-3 py-1.5 text-muted"><LocalDateTime iso={t.ts} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} /></td>
+                      <td className="px-3 py-1.5 font-sans text-muted">{(g?.sport ?? t.game_id.split(":")[0]).toUpperCase()}</td>
                       <td className="px-3 py-1.5 font-sans text-foreground">
                         <Link href={`/syndicates/games/${encodeURIComponent(t.game_id)}`} className="hover:text-accent">{g ? `${g.away.abbr} @ ${g.home.abbr}` : t.game_id}</Link>
                       </td>
+                      <td className="whitespace-nowrap px-3 py-1.5 font-sans text-muted">{g?.start_utc ? <LocalDateTime iso={g.start_utc} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} /> : "–"}</td>
                       <td className="px-3 py-1.5 font-sans">{label(t, g)}</td>
                       {picked && (
                         <td className="px-3 py-1.5 font-sans">
