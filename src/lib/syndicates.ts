@@ -610,3 +610,14 @@ export async function getPiles(): Promise<{ openCount: number; cells: Record<str
 /** A trader's per-game limit now: its base limit (100, or more for the maker lab and public money), scaled with how its bankroll has grown or shrunk (0.5x to 3x), and by sharpness in the sport. */
 export const traderLimit = (m: { cash: number; locked: number; start_units: number; params: Record<string, unknown> }, sharp = 0): number =>
   Number(m.params.max_risk ?? TRADER_GAME_LIMIT) * Math.min(3, Math.max(0.5, (m.cash + m.locked) / Math.max(1, m.start_units))) * (1 + 0.5 * sharp);
+
+/** Shared news (python/exchange/news.py): injury and availability events, with the market's reaction where an event was tied to a game. */
+export type NewsMain = { spread: number | null; total: number | null; ml: number | null; x: { spread?: number; total?: number } };
+export type NewsEvent = {
+  id: string; ts: string; sport: string; team: string; team_name: string; player: string; pos: string | null; status: string; prev: string | null; kind: "added" | "changed" | "cleared";
+  detail: string | null; note: string | null; ret: string | null; gid?: string; teams?: string; start?: string; r0?: NewsMain; r1?: NewsMain; r2?: NewsMain;
+};
+export async function getNews(): Promise<NewsEvent[]> {
+  const { data } = await supabase.from("ex_meta").select("value").eq("key", "news").maybeSingle();
+  return ((data?.value as { events?: NewsEvent[] } | undefined)?.events ?? []) as NewsEvent[];
+}

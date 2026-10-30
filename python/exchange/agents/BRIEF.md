@@ -28,7 +28,7 @@ def fit(pack) -> dict: ...                 # all learning; returns a JSON-serial
 def predict(state, games) -> dict: ...     # {game_id: [expected home margin, expected total score]}; omit a game to abstain
 ```
 
-`games` entries: `id, sport, home_id, away_id, home_name, away_name, neutral, start, dk` where `dk` is `None` for market-blind labs and otherwise
+`games` entries: `id, sport, home_id, away_id, home_name, away_name, neutral, start, news, dk` where `news` is shared by every group: `{home: [{player, pos, status}], away: [...], events: [{ts, team, player, pos, status, prev}]}` (the current ESPN injury list for each team, NBA/NHL/NFL only, and what changed in the last 72 hours; `None` or empty when there is nothing, and always empty in backtests because the history starts when the exchange started watching, so use it as a live input and study the past with `pack.news()`); `dk` is `None` for market-blind labs and otherwise
 `{spread, total, ml_home, ml_away, open_spread, open_total}` (spread is the home spread: -3.5 means the home side is favoured by 3.5).
 A game whose teams the model has never seen should be left out, not guessed.
 

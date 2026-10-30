@@ -61,6 +61,12 @@ class Pack:
             df = df[df["ts"] < self.asof]
         return df.reset_index(drop=True)
 
+    def news(self) -> pd.DataFrame:
+        """Injury and availability events the exchange has seen since it started watching (one row each: when, sport, team, player, status, previous status) with the DraftKings line and exchange
+        prices when the event was seen and 30 minutes and two hours later, where the event was tied to an upcoming game. Short history: it only starts when the exchange did."""
+        f = self.root / "exchange_news.pkl"
+        return pd.read_pickle(f) if f.exists() else pd.DataFrame()
+
     def path(self, *parts: str) -> Path:
         return DATA_DIR.joinpath(*parts)
 
@@ -117,6 +123,23 @@ def write_trades(store, root: Path = PACK_DIR) -> int:
                      "maker": t["maker"], "ref_p": t.get("ref_p"), "close_p": t.get("close_p"), "outcome": t["outcome"], "start": st, "hrs": (st - ts).total_seconds() / 3600})
     root.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_pickle(root / "exchange_trades.pkl")
+    return len(rows)
+
+
+def write_news(store, root: Path = PACK_DIR) -> int:
+    rows = []
+    for r in store.rows("ex_meta"):
+        if r["key"] != "news":
+            continue
+        for e in r["value"].get("events", []):
+            row = {k: e.get(k) for k in ("id", "ts", "sport", "team", "team_name", "player", "pos", "status", "prev", "kind", "detail", "gid", "teams", "start")}
+            for key in ("r0", "r1", "r2"):
+                m = e.get(key) or {}
+                row[f"{key}_spread"], row[f"{key}_total"] = m.get("spread"), m.get("total")
+                row[f"{key}_x_spread"], row[f"{key}_x_total"] = (m.get("x") or {}).get("spread"), (m.get("x") or {}).get("total")
+            rows.append(row)
+    root.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_pickle(root / "exchange_news.pkl")
     return len(rows)
 
 

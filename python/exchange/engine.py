@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
-from . import espn, house, kalshi, pricing, piles, ratings, reliability, results, risk, signals
+from . import espn, house, kalshi, news, pricing, piles, ratings, reliability, results, risk, signals
 from .agents import manage as agent_manage, sandbox as agent_sandbox
 from .members import roster
 from .pricing import Dist, ckey, clip
@@ -446,6 +446,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     result_rows = []
     sig = signals.load(meta)
     pst = piles.load(meta)
+    nws = news.load(meta)
     rel = reliability.load(meta)
     rel_changed = False
     for gid, trs in settled_by_game.items():  # the historical record of each finished game, from its whole trade ledger
@@ -509,7 +510,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         code, state = rat.get(f"agent-code:{sid}"), rat.get(f"agent-state:{sid}")
         if a.get("mode") == "maker" or not code or not state or not by_gid:
             continue
-        slate = [agent_manage.game_payload(games[gid], bool(a.get("lines"))) for gid in by_gid]
+        slate = [agent_manage.game_payload(games[gid], bool(a.get("lines")), news.for_game(nws, games[gid])) for gid in by_gid]
         try:
             rat[f"agentpred:{sid}"] = agent_sandbox.call(code["code"], "predict", timeout=180, state=state["state"], games=slate)
             a["error"] = None
@@ -1240,6 +1241,10 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         d_["top"] = max(d_["top"], s_)
     piles.scan(pst, by_k, markets, now)
     piles.prune(pst, now)
+    try:  # shared news: the same injury events reach everyone at once, and we note how the market reacts; a failure here never stops a round
+        news.refresh(nws, news.fetch(), games, now)
+    except Exception:
+        pass
 
     # ---- the exchange's own lines move toward the prices its traders actually reached
     for gid, g in games.items():
@@ -1327,6 +1332,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         store.upsert("ex_trades", list({t["id"]: t for t in changed}.values()))
     store.upsert("ex_members", list(members.values()))
     store.upsert("ex_syndicates", list(syns.values()))
+    if nws["dirty"]:
+        store.upsert("ex_meta", [{"key": "news", "value": news.dump(nws)}])
     if pst["dirty"]:
         store.upsert("ex_meta", [{"key": "piles", "value": piles.dump(pst)}])
     if sig["dirty"]:

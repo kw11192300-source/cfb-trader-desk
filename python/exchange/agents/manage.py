@@ -11,7 +11,7 @@ import numpy as np
 from .. import espn
 from . import backtest as bt
 from . import sandbox
-from .pack import PACK_DIR, SPORTS, catalog, write_closing, write_games, write_trades
+from .pack import PACK_DIR, SPORTS, catalog, write_closing, write_games, write_news, write_trades
 
 MAX_STATE_MB = 6
 
@@ -51,6 +51,7 @@ def build_pack(store, days: int = 420, sports: list[str] | None = None) -> None:
         print(f"  {sp}: {len(games)} finished games", flush=True)
     print(f"  closing lines for {write_closing(store)} watched games")
     print(f"  {write_trades(store)} settled trades (for the maker lab)")
+    print(f"  {write_news(store)} injury events (pack.news())")
     catalog()
     print(f"pack ready in {PACK_DIR} (CATALOG.md lists the other data files)")
 
@@ -65,12 +66,12 @@ def _slate(store, sid: str, s: dict, limit: int = 120) -> list[dict]:
     return out[:limit]
 
 
-def game_payload(g: dict, lines: bool) -> dict:
+def game_payload(g: dict, lines: bool, news: dict | None = None) -> dict:
     ref, op = g.get("ref") or {}, g.get("ref_open") or {}
     dk = ({"spread": ref.get("spread"), "total": ref.get("total"), "ml_home": ref.get("ml_home"), "ml_away": ref.get("ml_away"),
            "open_spread": op.get("spread"), "open_total": op.get("total"), "kalshi": (g.get("views") or {}).get("kal")} if lines else None)
     return {"id": g["id"], "sport": g["sport"], "home_id": g["home"]["id"], "away_id": g["away"]["id"], "home_name": g["home"]["name"], "away_name": g["away"]["name"],
-            "neutral": bool(g.get("neutral")), "start": g["start_utc"], "dk": dk}
+            "neutral": bool(g.get("neutral")), "start": g["start_utc"], "dk": dk, "news": news}
 
 
 def check_predictions(preds: dict, slate: list[dict]) -> list[str]:
