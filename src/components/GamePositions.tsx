@@ -43,6 +43,7 @@ function niceTicks(lo: number, hi: number, n = 5): number[] {
 }
 
 const TOP = 6;
+const SPINE = { gridTemplateColumns: "minmax(0,1fr) 156px minmax(0,1fr)" };
 
 function Payoff({ game, lots, dim, colorOf, nameOf, showAll }: { game: ExGame; lots: Lot[]; dim: Dim; colorOf: (o: string) => string; nameOf: (o: string) => string; showAll: boolean }) {
   const ls = lots.filter((l) => (dim === "t") === (l.kind === "total"));
@@ -127,12 +128,12 @@ function Ladder({ game, lots, dim, colorOf, nameOf }: { game: ExGame; lots: Lot[
   const lt = dim === "t" ? "Under" : game.away.abbr, rt = dim === "t" ? "Over" : game.home.abbr;
   return (
     <div>
-      <div className="mb-1 grid grid-cols-[minmax(0,1fr)_156px_minmax(0,1fr)] items-center text-[10px] uppercase tracking-wide text-muted">
+      <div style={SPINE} className="mb-1 grid items-center text-[10px] uppercase tracking-wide text-muted">
         <span className="pr-3 text-right">&larr; backs {lt}</span><span className="text-center">line · DK price</span><span className="pl-3">backs {rt} &rarr;</span>
       </div>
       <div>
         {rows.map((r) => (
-          <div key={`${r.kind}${r.line}`} className="grid grid-cols-[minmax(0,1fr)_156px_minmax(0,1fr)] items-center py-[2px] text-[11px]">
+          <div key={`${r.kind}${r.line}`} style={SPINE} className="grid items-center py-[2px] text-[11px]">
             <div className="flex items-center justify-end gap-1.5">
               <span className="font-mono text-[10px] text-muted">{r.short > 0.3 ? r.short.toFixed(0) : ""}</span>
               <div className="flex h-3.5 flex-row-reverse" style={{ width: `${(r.short / max) * 82}%` }}>
