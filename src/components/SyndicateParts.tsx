@@ -6,7 +6,7 @@ import { type ExGame, type ExSnap, type ExTrade, label, pct, type Row } from "@/
 const u = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}`;
 const tone = (n: number) => (n > 0.005 ? "text-up" : n < -0.005 ? "text-down" : "text-foreground");
 
-export function SyndicateHeader({ active, round }: { active: "board" | "markets" | "volume" | "history" | "digest" | "crowding" | "positions" | "sports" | "discovery" | "trades" | "closing" | "models" | "reliability" | "signals" | "sharp"; round?: { n: number; ts: string } | null }) {
+export function SyndicateHeader({ active, round }: { active: "board" | "markets" | "volume" | "history" | "digest" | "crowding" | "positions" | "sports" | "discovery" | "trades" | "closing" | "models" | "reliability" | "signals" | "sharp" | "disagreement"; round?: { n: number; ts: string } | null }) {
   const tab = (href: string, text: string, key: string) => (
     <Link href={href} className={`rounded px-3 py-1.5 ${active === key ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>
       {text}
@@ -43,6 +43,7 @@ export function SyndicateHeader({ active, round }: { active: "board" | "markets"
           {tab("/syndicates/crowding", "Crowding", "crowding")}
           {tab("/syndicates/closing", "Vs DK", "closing")}
           {tab("/syndicates/models", "Models", "models")}
+          {tab("/syndicates/disagreement", "Disagree", "disagreement")}
           {tab("/syndicates/reliability", "Reliability", "reliability")}
           {tab("/syndicates/signals", "Signals", "signals")}
           {tab("/syndicates/discovery", "Discovery", "discovery")}
@@ -274,15 +275,27 @@ const ago = (iso: string | undefined | null): { text: string; mins: number } => 
 };
 
 /** Is the exchange running? Last round and its health, the last ratings fit, and any lab whose model is failing. */
-export function HealthStrip({ round, ratings, labs }: { round: { n: number; ts: string; new_trades: number; games: number; secs?: number; errors?: string[] } | null; ratings: { ts: string } | null; labs: { name: string; error?: string | null; version?: number }[] }) {
+export function HealthStrip({ round, ratings, labs }: { round: { n: number; ts: string; new_trades: number; games: number; secs?: number; errors?: string[]; liq?: { lines: number; two_sided: number; one_sided: number; makers_full: number; makers: number } } | null; ratings: { ts: string } | null; labs: { name: string; error?: string | null; version?: number }[] }) {
   const r = ago(round?.ts), f = ago(ratings?.ts);
   const roundTone = r.mins < 25 ? "bg-up" : r.mins < 60 ? "bg-warn" : "bg-down";
   const ratingsTone = f.mins < 9 * 60 ? "bg-up" : f.mins < 24 * 60 ? "bg-warn" : "bg-down";
   const broken = labs.filter((l) => l.error);
+  const liq = round?.liq;
+  const share = liq && liq.lines ? liq.two_sided / liq.lines : null;
+  const liqTone = share == null ? "bg-warn" : share < 0.2 ? "bg-down" : share < 0.5 ? "bg-warn" : "bg-up";
   return (
     <div className="mb-6 flex flex-wrap items-center gap-x-6 gap-y-1 rounded-lg border border-border bg-surface px-3 py-2 text-[11px] text-muted">
+      {liq && share != null && share < 0.2 && (
+        <span className="w-full rounded bg-down/15 px-2 py-1 text-down">Thin book: only {(share * 100).toFixed(0)}% of lines have a bid and an ask, and {liq.makers_full} of {liq.makers} makers have used their risk budget.</span>
+      )}
       <span className="flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${roundTone}`} /> Last round <span className="text-foreground">{round ? `#${round.n}, ${r.text}` : "none yet"}</span>{round?.secs ? ` (${round.secs.toFixed(0)} s)` : ""}</span>
       {round && <span>{round.games} games listed · {round.new_trades} new trades that round</span>}
+      {liq && (
+        <span className="flex items-center gap-1.5" title="Lines with both a resting bid and a resting ask at the end of the round, and makers that have used up their total-risk budget">
+          <span className={`h-2 w-2 rounded-full ${liqTone}`} /> Two-sided book <span className="text-foreground">{liq.two_sided.toLocaleString()} of {liq.lines.toLocaleString()} lines</span>
+          {" "}· makers full <span className="text-foreground">{liq.makers_full}/{liq.makers}</span>
+        </span>
+      )}
       <span className="flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${ratingsTone}`} /> Ratings fitted <span className="text-foreground">{f.text}</span></span>
       {labs.length > 0 && (
         <span className="flex items-center gap-1.5">

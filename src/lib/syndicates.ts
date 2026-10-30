@@ -116,7 +116,7 @@ export type ExGame = {
 };
 export type ExMark = { ts: string; game_id: string; lines: [string, number][]; r: number[]; e: (number | null)[] | null };
 export type ExSnap = { ts: string; subject: string; equity: number };
-export type ExMeta = { n: number; ts: string; markets: number; games: number; new_trades: number; settled: number; secs?: number; errors?: string[] } | null;
+export type ExMeta = { n: number; ts: string; markets: number; games: number; new_trades: number; settled: number; secs?: number; errors?: string[]; liq?: { lines: number; two_sided: number; one_sided: number; makers_full: number; makers: number }; pub?: { bets: number; filled: number } } | null;
 export type ExRatingsMeta = { ts: string; sports: string[] } | null;
 
 /** The database returns at most 1,000 rows per request whatever limit is asked for, so anything that can pass that is read in pages. */
@@ -606,3 +606,7 @@ export async function getPiles(): Promise<{ openCount: number; cells: Record<str
   const v = (data?.value ?? {}) as { open?: Record<string, unknown>; cells?: Record<string, number[]>; recent?: PileRecent[] };
   return { openCount: Object.keys(v.open ?? {}).length, cells: v.cells ?? {}, recent: v.recent ?? [] };
 }
+
+/** A trader's per-game limit now: its base limit (100, or more for the maker lab and public money), scaled with how its bankroll has grown or shrunk (0.5x to 3x), and by sharpness in the sport. */
+export const traderLimit = (m: { cash: number; locked: number; start_units: number; params: Record<string, unknown> }, sharp = 0): number =>
+  Number(m.params.max_risk ?? TRADER_GAME_LIMIT) * Math.min(3, Math.max(0.5, (m.cash + m.locked) / Math.max(1, m.start_units))) * (1 + 0.5 * sharp);

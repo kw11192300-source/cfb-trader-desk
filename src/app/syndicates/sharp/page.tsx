@@ -4,7 +4,7 @@ import LocalDateTime from "@/components/LocalDateTime";
 import { rankIn, sharpOf, TIERS, tierOf } from "@/components/SharpMoney";
 import { SyndicateHeader } from "@/components/SyndicateParts";
 import { gameCards } from "@/lib/positions";
-import { fairOf, getAllOpenTrades, getExchange, getGamesFull, getPiles, type Lot, openLots, pct, TRADER_GAME_LIMIT } from "@/lib/syndicates";
+import { fairOf, getAllOpenTrades, getExchange, getGamesFull, getPiles, type Lot, openLots, pct, traderLimit } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
@@ -60,7 +60,7 @@ export default async function SharpPage({ searchParams }: { searchParams: Promis
     if (!m || s < minVal) return [];
     const card = gameCards(ls, { [gid]: g }, fairOf)[0];
     if (!card) return [];
-    const limit = TRADER_GAME_LIMIT * (1 + 0.5 * s);
+    const limit = traderLimit(m, s);
     const used = -card.worst;
     return [{ m, g, gid, s, tier: tierOf(m, g.sport), rank: rankIn(members, m, g.sport), card, limit, used, lev: used / limit, bankroll: m.cash + m.locked }];
   });

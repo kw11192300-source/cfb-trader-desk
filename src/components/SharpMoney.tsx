@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { gameCards } from "@/lib/positions";
-import { type ExGame, type ExMember, fairOf, type Lot, pct, TRADER_GAME_LIMIT } from "@/lib/syndicates";
+import { type ExGame, type ExMember, fairOf, type Lot, pct, traderLimit } from "@/lib/syndicates";
 
 const SPORT: Record<string, string> = { cfb: "CFB", nfl: "NFL", nhl: "NHL", cbb: "CBB", nba: "NBA" };
 const c1 = (n: number) => `${n >= 0 ? "+" : ""}${(n * 100).toFixed(1)}¢`;
@@ -39,7 +39,7 @@ export function SharpMoney({ game, lots, members, synName, synColor }: { game: E
     const card = gameCards(ls, { [game.id]: game }, fairOf)[0];
     const s = sharpOf(m, sport);
     const fl = (m.stats.flow ?? {})[sport] as { s: number; w: number } | undefined;
-    const limit = TRADER_GAME_LIMIT * (1 + 0.5 * s);
+    const limit = traderLimit(m, s);
     return { m, s, tier: tierOf(m, sport), rank: rankIn(members, m, sport), w: fl?.w ?? 0, clv: fl && fl.w > 0 ? fl.s / fl.w : null, card, limit, used: card ? -card.worst : 0, bankroll: m.cash + m.locked };
   }).filter((r) => r.card);
   const sharp = rows.filter((r) => r.s >= 0.1).sort((a, b) => b.s - a.s);

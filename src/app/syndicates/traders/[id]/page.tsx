@@ -6,7 +6,7 @@ import { PositionCards } from "@/components/PositionCards";
 import { rankIn, sharpOf } from "@/components/SharpMoney";
 import { EquityChart, SyndicateHeader, TradeFilters, TradeList } from "@/components/SyndicateParts";
 import { scenarioPnl, scenarios, yesNo } from "@/lib/syndicateGame";
-import { fairOf, getExchange, getExchangeSnapshots, getExchangeTrades, getGamesFull, getTraderOpenTrades, label, openLots, pct, ramp, TRADER_GAME_LIMIT, type ExGame, type Lot } from "@/lib/syndicates";
+import { fairOf, getExchange, getExchangeSnapshots, getExchangeTrades, getGamesFull, getTraderOpenTrades, label, openLots, pct, ramp, traderLimit, type ExGame, type Lot } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +47,7 @@ export default async function TraderPage({ params, searchParams }: { params: Pro
       return f == null ? a : a + (l.qty > 0 ? l.qty * (f - l.price) : -l.qty * (l.price - f));
     }, 0);
     const hrs = g ? (new Date(g.start_utc).getTime() - Date.now()) / 3600000 : 0;
-    return { gid, g, sc, cells, worst: sideWorst + totWorst, mtm, limit: TRADER_GAME_LIMIT * ramp(Math.max(0, hrs), g?.sport) };
+    return { gid, g, sc, cells, worst: sideWorst + totWorst, mtm, limit: traderLimit(m) * ramp(Math.max(0, hrs), g?.sport) };
   }).filter((r) => r.g).sort((a, b) => a.worst - b.worst);
 
   type Pos = { gid: string; kind: Lot["kind"]; line: number; ls: Lot[] };
@@ -112,7 +112,7 @@ export default async function TraderPage({ params, searchParams }: { params: Pro
               {m.role !== "taker" ? `quotes ±${(Number(m.params.half ?? 0) * 100).toFixed(1)}¢ · ` : ""}
               {Math.round(Number(m.params.kelly ?? 0) * 100)}% Kelly · quotes up to {String(m.params.size)} contracts · trusts the syndicate model {Number(m.params.trust ?? 1).toFixed(1)}× · follows sharp flow {Math.round(Number(m.params.follow ?? 0.5) * 100)}%
             </p>
-            <p className="mt-1">Limits: {TRADER_GAME_LIMIT} units worst case on a game at kickoff, 50% of bankroll in total, 20% of the starting bankroll held back as cash.</p>
+            <p className="mt-1">Limits: {traderLimit(m).toFixed(0)} units worst case on a game at kickoff (a share of its bankroll: it grows and shrinks with it), 50% of bankroll in total, 20% of the starting bankroll held back as cash.</p>
             <p className="mb-1 mt-3 text-[10px] uppercase tracking-wide">Changes it made itself</p>
             {log.length === 0 ? <p>None yet. It reviews its strategy after every 40 settled trades of a kind.</p> : (
               <ul className="space-y-0.5">
@@ -145,7 +145,7 @@ export default async function TraderPage({ params, searchParams }: { params: Pro
 
         <EquityChart snaps={snaps} colors={{ [id]: syn.color }} names={{ [id]: m.name }} start={{ [id]: m.start_units }} />
 
-        <PositionCards lots={lots} games={games} limitOf={(g) => TRADER_GAME_LIMIT * ramp(Math.max(0, (new Date(g.start_utc).getTime() - Date.now()) / 3600000), g.sport)} title="Open positions by game" />
+        <PositionCards lots={lots} games={games} limitOf={(g) => traderLimit(m) * ramp(Math.max(0, (new Date(g.start_utc).getTime() - Date.now()) / 3600000), g.sport)} title="Open positions by game" />
 
         <details className="mb-8 rounded-lg border border-border">
           <summary className="cursor-pointer px-3 py-2 text-xs text-muted hover:text-foreground">Detailed tables: risk by game, outcome grid and raw position rows</summary>

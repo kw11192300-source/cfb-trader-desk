@@ -50,6 +50,8 @@ ACT_PROB = 0.6  # chance a trader acts on a given tick after the first
 BAND = 0.12  # no fair price strays further than this from the DraftKings price
 W_MIN_GAMES, W_FULL_GAMES = 12, 40  # games a syndicate needs in a sport before its weight moves at all, and before the data count in full
 UNPROVEN_EDGE = 0.008  # a little extra edge a taker asks for while its syndicate's model has not earned a weight (the main brake is smaller size, below)
+LIMIT_SCALE = (0.5, 3.0)  # per-game limits are a share of the bankroll: a trader or syndicate that has doubled its money gets double the room, one that has halved it gets half (never below 0.5x or above 3x)
+TAKE_SHARP_MIN = 5.0  # the maker lab's one taker only hits a quote when sharp-weighted pressure on that line is at least this big and points the same way
 UNPROVEN_SIZE = 0.6  # an unproven model's takers trade at this share of normal size, rising to full as the weight is earned
 CAP_BASE, CAP_FULL = 100.0, 200.0  # a syndicate's per-game limit starts here and grows to the full limit as its closing-line value proves out
 SPORT_BONUS = 0.5  # a trader whose takes have beaten the close in a sport gets up to this much more room on that sport's games (and so does its syndicate)
@@ -87,9 +89,8 @@ def abide(p: dict) -> dict:
     if p.get("public"):  # a public bettor has a fixed temperament and a bigger limit; it is not tuned from results
         p["max_risk"] = min(p.get("max_risk", 200.0), 200.0)
         return p
-    if p.get("lab"):  # the maker lab's traders carry a bigger limit per game: they earn a thin spread, so they need room to do it at size
-        p["max_risk"] = min(p.get("max_risk", 150.0), 150.0)
-    p["max_risk"] = min(p.get("max_risk", RULES["max_risk"]), RULES["max_risk"])
+    cap_ = 150.0 if p.get("lab") else RULES["max_risk"]  # the maker lab's traders carry a bigger limit per game: they earn a thin spread, so they need room to do it at size
+    p["max_risk"] = min(p.get("max_risk", cap_), cap_)
     p["kelly"] = min(p["kelly"], RULES["kelly"])
     p["size"] = min(p["size"], RULES["size"])
     p["thr"] = float(np.clip(p["thr"], RULES["thr_min"], RULES["edge_max"]))
@@ -577,7 +578,11 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             syn_bonus[key_] = max(syn_bonus.get(key_, 1.0), 1.0 + SPORT_BONUS * float(v_))
     for sid_, s_ in syns.items():
         s_["learn"] = s_.get("learn") or {}
+        ms2_ = [m for m in members.values() if m["syndicate_id"] == sid_]
+        sc_ = float(np.clip(sum(m["cash"] + m["locked"] for m in ms2_) / max(1.0, sum(m["start_units"] for m in ms2_)), LIMIT_SCALE[0], LIMIT_SCALE[1]))
+        syn_cap[sid_] *= sc_  # a syndicate that has grown its bankroll gets a bigger per-game limit
         s_["learn"]["cap"] = round(syn_cap[sid_], 1)
+        s_["learn"]["scale"] = round(sc_, 3)
 
     def fair(m: dict, k: str) -> float:
         mk = markets[k]
@@ -705,6 +710,9 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     def total_limit(m: dict) -> float:
         return TOTAL_FRAC * (m["cash"] + m["locked"])
 
+    def lscale(m: dict) -> float:
+        return float(np.clip((m["cash"] + m["locked"]) / max(1.0, m["start_units"]), LIMIT_SCALE[0], LIMIT_SCALE[1]))
+
     def trust_of(sid: str, sport: str) -> float:
         return float(np.clip((weights[(sid, sport)] - 0.05) / 0.5, 0.0, 1.0))
 
@@ -719,7 +727,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         u = (mk["ov"] - px) if side == "buy" else (px - mk["ov"])
         slack = max(0.0, total_limit(m) * (MAKER_SOFT if soft else 1.0) - trisk(m["id"]))
         bonus = 1.0 + SPORT_BONUS * float((m["stats"].get("sharp") or {}).get(mk["sport"], 0.0))
-        lim = min(m["params"]["max_risk"] * bonus * mk["ramp"] * mk["srcf"], rm + rt + slack)
+        lim = min(m["params"]["max_risk"] * lscale(m) * bonus * mk["ramp"] * mk["srcf"], rm + rt + slack)
         q = risk.room(vm if mk["dim"] == "m" else vt, u, lim - (rt if mk["dim"] == "m" else rm))
         sm, st_, srm, srt = spos(m["syndicate_id"], mk["gid"])
         q2 = risk.room(sm if mk["dim"] == "m" else st_, u, syn_cap[m["syndicate_id"]] * syn_bonus.get((m["syndicate_id"], mk["sport"]), 1.0) * mk["ramp"] * mk["srcf"] - (srt if mk["dim"] == "m" else srm))
@@ -894,6 +902,10 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         taper = max(0.0, 1 - trisk(m["id"]) / max(1e-9, total_limit(m) * MAKER_SOFT))
         if taper <= 0:
             qstat["makers_full"] += 1
+            for k, _on in mine[m["id"]]:  # no budget left: take every quote down and stop
+                bids[k] = [q for q in bids[k] if q[2] != m["id"]]
+                asks[k] = [q for q in asks[k] if q[2] != m["id"]]
+            return
         mm = bool(p.get("mm"))
         tmult = 1.0
         if mm:  # widen when the maker's own fills have been closing against it, tighten when they have been harmless
@@ -929,8 +941,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 qstat["crossed"] += 1
                 continue
             size = p["size"] * taper * (1.0 if on else 0.5) * max(0.3, mk["ramp"])
-            qb = min(size * sz_b, room_for(m, mk, "buy", bid, True), cash_room(m, k, "buy", bid))
-            qa = min(size * sz_a, room_for(m, mk, "sell", ask, True), cash_room(m, k, "sell", ask))
+            qb = min(size * sz_b, room_for(m, mk, "buy", bid, True), cash_room(m, k, "buy", bid)) if size * sz_b >= 5 else 0.0
+            qa = min(size * sz_a, room_for(m, mk, "sell", ask, True), cash_room(m, k, "sell", ask)) if size * sz_a >= 5 else 0.0
             if qb >= 5:
                 bids[k].append([bid, round(qb, 2), m["id"]])
                 bids[k].sort(key=lambda x: -x[0])
@@ -950,16 +962,30 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 return q
         return None
 
+    sharp_all: dict[str, float] = {}  # sharp-weighted net contracts held by sharp accounts on each line (public money and the lab itself left out)
+    for (mid_, k_), q_ in net.items():
+        if abs(q_) < 0.5 or k_ not in markets:
+            continue
+        m_ = members[mid_]
+        if m_["params"].get("public") or m_["params"].get("lab"):
+            continue
+        s_ = sharp(mid_, markets[k_]["sport"])
+        if s_ >= piles.MIN_SHARP:
+            sharp_all[k_] = sharp_all.get(k_, 0.0) + q_ * s_
+
     def take(m: dict) -> None:
         p = m["params"]
         cands = []
         for k, on in mine[m["id"]]:
+            if p.get("lab") and abs(sharp_all.get(k, 0.0)) < TAKE_SHARP_MIN:
+                continue  # the lab's taker acts only where the sharp accounts are clearly on one side
             thr = max(RULES["thr_min"], (p["thr"] + (0.0 if on else 0.01) + UNPROVEN_EDGE * (1.0 - trust_of(m["syndicate_id"], markets[k]["sport"]))) * patience(m))
             pf = fairs[(m["id"], k)]
             a, b = best(asks[k], m["id"]), best(bids[k], m["id"])
-            if a and pf - a[0] >= thr:
+            sh_ = sharp_all.get(k, 0.0)
+            if a and pf - a[0] >= thr and not (p.get("lab") and sh_ < 0):
                 cands.append((pf - a[0], k, "buy", pf, thr, on))
-            elif b and b[0] - pf >= thr:
+            elif b and b[0] - pf >= thr and not (p.get("lab") and sh_ > 0):
                 cands.append((b[0] - pf, k, "sell", pf, thr, on))
         cands.sort(reverse=True)
         fills = 0
@@ -987,7 +1013,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 m_side = "sell" if side == "buy" else "buy"
                 qty = min(kelly_q, TAKE_CLIP, q[1], room_for(m, mk, side, px), cash_room(m, k, side, px),
                           room_for(maker, mk, m_side, px, True), cash_room(maker, k, m_side, px))
-                qty = round(qty, 2)
+                qty = round(qty * p.get("take_scale", 1.0), 2)
                 if qty < 1:
                     if q[1] > 0.5 and min(room_for(maker, mk, m_side, px, True), cash_room(maker, k, m_side, px)) < 1:
                         q[1] = 0  # the maker has no room left at that price
@@ -1174,6 +1200,9 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 take(m)
     open_all = open_trades + new_trades
 
+    liq = {"lines": len(markets), "two_sided": sum(1 for k in markets if bids[k] and asks[k]), "one_sided": sum(1 for k in markets if bool(bids[k]) != bool(asks[k])),
+           "makers_full": qstat["makers_full"], "makers": sum(1 for m in members.values() if m["role"] in ("maker", "both"))}
+
     # ---- the exchange's own price for each contract: size-weighted mid of the best bid and ask, else the last trade
     eco: dict[str, float | None] = {}
     two_sided: dict[str, float] = {}  # prices backed by both a bid and an ask: the only ones allowed to move a self-made line
@@ -1321,7 +1350,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     if marks:
         store.insert("ex_marks", marks)
     store.upsert("ex_meta", [{"key": "round", "value": {"n": rnd, "ts": _iso(now), "markets": len(markets), "games": len(by_gid),
-                                                         "new_trades": len(new_trades), "settled": stats["settled"], "ticks": ticks, "pub": pubstat, "quotes": qstat,
+                                                         "new_trades": len(new_trades), "settled": stats["settled"], "ticks": ticks, "pub": pubstat, "quotes": qstat, "liq": liq,
                                                          "secs": round(time.time() - t_start, 1), "errors": [s["id"] for s in syns.values() if ((s.get("learn") or {}).get("agent") or {}).get("error")]}}])
     store.save()
     out = {"round": rnd, "games_new": n_new, "games_listed": len(by_gid), "markets": len(markets), "new_trades": len(new_trades), **stats,
