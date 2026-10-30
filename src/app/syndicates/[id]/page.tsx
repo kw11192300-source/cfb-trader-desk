@@ -70,7 +70,7 @@ export default async function SyndicatePage({ params, searchParams }: { params: 
     }, 0);
     const hrs = g ? (new Date(g.start_utc).getTime() - Date.now()) / 3600000 : 0;
     const scs = g ? scenarios(g) : [];
-    return { gid, g, scs, scen: scs.map((x) => scenarioPnl(mine_, x)), worst: Math.min(...pm) + Math.min(...pt), best: Math.max(...pm) + Math.max(...pt), mtm, limit: (syn.learn?.cap ?? SYN_GAME_LIMIT) * ramp(Math.max(0, hrs)), n: mine_.length };
+    return { gid, g, scs, scen: scs.map((x) => scenarioPnl(mine_, x)), worst: Math.min(...pm) + Math.min(...pt), best: Math.max(...pm) + Math.max(...pt), mtm, limit: (syn.learn?.cap ?? SYN_GAME_LIMIT) * ramp(Math.max(0, hrs), g?.sport), n: mine_.length };
   }).filter((r) => r.g).sort((a, b) => a.worst - b.worst);
   const bySport: Record<string, number> = {};
   for (const r of riskRows) bySport[r.g!.sport] = (bySport[r.g!.sport] ?? 0) + Math.max(0, -r.worst);
@@ -147,7 +147,7 @@ export default async function SyndicatePage({ params, searchParams }: { params: 
           </section>
         )}
 
-        <PositionCards lots={lots} games={games} holder={(h) => first[h] ?? h} limitOf={(g) => (syn.learn?.cap ?? SYN_GAME_LIMIT) * ramp(Math.max(0, (new Date(g.start_utc).getTime() - Date.now()) / 3600000))} title="Open positions by game" />
+        <PositionCards lots={lots} games={games} holder={(h) => first[h] ?? h} limitOf={(g) => (syn.learn?.cap ?? SYN_GAME_LIMIT) * ramp(Math.max(0, (new Date(g.start_utc).getTime() - Date.now()) / 3600000), g.sport)} title="Open positions by game" />
 
         <details className="mb-8 rounded-lg border border-border">
           <summary className="cursor-pointer px-3 py-2 text-xs text-muted hover:text-foreground">Detailed tables: risk by game, outcome grid and raw position rows</summary>

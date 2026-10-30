@@ -65,8 +65,11 @@ RULES = dict(max_risk=100.0, kelly=0.25, size=100.0, thr_min=0.01, half_min=0.00
 ADAPT_EVERY = 40  # settled trades of one kind between a trader reviewing its own strategy
 
 
-def ramp(hours: float) -> float:
-    """How much of a game's risk limit can be used this far from kickoff: money arrives as the game gets closer, like a real market."""
+def ramp(hours: float, sport: str = "") -> float:
+    """How much of a game's risk limit can be used this far from kickoff: money arrives as the game gets closer, like a real market. Football (a weekly slate whose lines
+    are posted days ahead and move all week) opens up much earlier than the daily sports."""
+    if sport in ("nfl", "cfb"):
+        return 0.35 if hours > 120 else 0.5 if hours > 72 else 0.7 if hours > 48 else 0.85 if hours > 24 else 1.0
     return 0.1 if hours > 72 else 0.15 if hours > 24 else 0.3 if hours > 12 else 0.5 if hours > 6 else 0.75 if hours > 2 else 1.0
 
 
@@ -75,6 +78,8 @@ def abide(p: dict) -> dict:
     if p.get("public"):  # a public bettor has a fixed temperament and a bigger limit; it is not tuned from results
         p["max_risk"] = min(p.get("max_risk", 200.0), 200.0)
         return p
+    if p.get("lab"):  # the maker lab's traders carry a bigger limit per game: they earn a thin spread, so they need room to do it at size
+        p["max_risk"] = min(p.get("max_risk", 150.0), 150.0)
     p["max_risk"] = min(p.get("max_risk", RULES["max_risk"]), RULES["max_risk"])
     p["kelly"] = min(p["kelly"], RULES["kelly"])
     p["size"] = min(p["size"], RULES["size"])
@@ -464,7 +469,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             srcf = SRC_LIMIT[(g["ref"].get("src") or "dk")]
             markets[k] = {"gid": gid, "sport": g["sport"], "kind": kind, "line": line, "ref": p_ref(gid, kind, line), "srcf": srcf, "src": g["ref"].get("src") or "dk",
                           "hrs": (_pdate(g["start_utc"]) - now).total_seconds() / 3600,
-                          "ramp": ramp((_pdate(g["start_utc"]) - now).total_seconds() / 3600),
+                          "ramp": ramp((_pdate(g["start_utc"]) - now).total_seconds() / 3600, g["sport"]),
                           "near": kind == "ml" or (main is not None and abs(line - main) <= 2)}
     by_gid: dict[str, list[str]] = {}
     for k, mk in markets.items():
@@ -541,6 +546,9 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         ms_ = [m for m in members.values() if m["syndicate_id"] == sid_]
         if any(m["params"].get("public") for m in ms_):
             syn_cap[sid_] = PUBLIC_CAP
+            continue
+        if any(m["params"].get("lab") for m in ms_):  # the maker lab gets the full limit from the start: its job is to quote everywhere and earn a thin spread
+            syn_cap[sid_] = CAP_FULL
             continue
         if any(m["params"].get("mm") for m in ms_) and syns[sid_]["engine"] != "agent":  # pure market makers aim to stay flat, so their risk is not a bet on a model
             syn_cap[sid_] = CAP_FULL

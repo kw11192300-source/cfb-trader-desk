@@ -47,7 +47,7 @@ export default async function TraderPage({ params, searchParams }: { params: Pro
       return f == null ? a : a + (l.qty > 0 ? l.qty * (f - l.price) : -l.qty * (l.price - f));
     }, 0);
     const hrs = g ? (new Date(g.start_utc).getTime() - Date.now()) / 3600000 : 0;
-    return { gid, g, sc, cells, worst: sideWorst + totWorst, mtm, limit: TRADER_GAME_LIMIT * ramp(Math.max(0, hrs)) };
+    return { gid, g, sc, cells, worst: sideWorst + totWorst, mtm, limit: TRADER_GAME_LIMIT * ramp(Math.max(0, hrs), g?.sport) };
   }).filter((r) => r.g).sort((a, b) => a.worst - b.worst);
 
   type Pos = { gid: string; kind: Lot["kind"]; line: number; ls: Lot[] };
@@ -145,7 +145,7 @@ export default async function TraderPage({ params, searchParams }: { params: Pro
 
         <EquityChart snaps={snaps} colors={{ [id]: syn.color }} names={{ [id]: m.name }} start={{ [id]: m.start_units }} />
 
-        <PositionCards lots={lots} games={games} limitOf={(g) => TRADER_GAME_LIMIT * ramp(Math.max(0, (new Date(g.start_utc).getTime() - Date.now()) / 3600000))} title="Open positions by game" />
+        <PositionCards lots={lots} games={games} limitOf={(g) => TRADER_GAME_LIMIT * ramp(Math.max(0, (new Date(g.start_utc).getTime() - Date.now()) / 3600000), g.sport)} title="Open positions by game" />
 
         <details className="mb-8 rounded-lg border border-border">
           <summary className="cursor-pointer px-3 py-2 text-xs text-muted hover:text-foreground">Detailed tables: risk by game, outcome grid and raw position rows</summary>

@@ -101,7 +101,8 @@ def roster() -> tuple[list[dict], list[dict]]:
                               size=round(r.uniform(70, 90) if lab else r.uniform(90, 100) if tight else r.uniform(55, 75)), tox=0.8 if lab else 0.5 if tight else 1.0,
                               eta=round(r.uniform(0.8, 1.2) if lab else r.uniform(0.7, 1.0) if tight else r.uniform(1.1, 1.5), 2), inv=1.0 if (tight or lab) else 1.5)
                 if lab:
-                    params["lab"] = True  # its quotes come from the lab's published policy, not from the trader's own strategy
+                    params["lab"] = True
+                    params["max_risk"] = 150.0  # its quotes come from the lab's published policy, not from the trader's own strategy
             if s["id"] == "pace":
                 params["kinds"] = ["total"]
             mems.append({"id": f"{s['id']}-{i + 1}", "syndicate_id": s["id"], "name": NAMES[ni], "role": role, "staking": "kelly",
