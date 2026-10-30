@@ -36,7 +36,7 @@ export default async function SyndicatesPage({ searchParams }: { searchParams: P
       <SyndicateHeader active="board" round={meta} />
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
         <p className="mb-6 max-w-3xl text-xs leading-relaxed text-muted">
-          Eight syndicates, each with its own rating system, start with 10,000 units split across five sport desks (NFL, CFB, NHL, NBA, CBB). A contract pays 1 unit
+          Sixteen firms trade here. Fifteen are syndicates, each with its own approach, starting with 10,000 units across five sport desks (NFL, CFB, NHL, NBA, CBB). The sixteenth, Main Street, is public money: eight recreational bettors with 25,000 units who lean to favorites, overs and underdog moneylines, bet mostly in the last few hours before a game, and pay a few cents over fair. They are in the table for reference and are not sharp; the market makers earn their living from flow like theirs. A contract pays 1 unit
           if its side wins: the buyer posts the price, the seller posts the rest, so nobody can lose more than they put up. Every trader shares one goal (beat the
           closing DraftKings price) and one rulebook (fair value anchored to DraftKings and never more than 12¢ away, at most 100 units on a game and market, quarter Kelly
           at most), then builds its own strategy inside it: how big an edge it demands, how tight it quotes, how far it trusts its syndicate&rsquo;s model. Each round

@@ -54,6 +54,11 @@ UNPROVEN_SIZE = 0.6  # an unproven model's takers trade at this share of normal 
 CAP_BASE, CAP_FULL = 100.0, 200.0  # a syndicate's per-game limit starts here and grows to the full limit as its closing-line value proves out
 SPORT_BONUS = 0.5  # a trader whose takes have beaten the close in a sport gets up to this much more room on that sport's games (and so does its syndicate)
 PATIENCE_STEP, PATIENCE_MAX = 0.05, 6  # every round a trader goes without a trade it asks for 5% less edge (or quotes 5% tighter), up to six rounds' worth
+PUBLIC_CAP = 500.0  # the public-money firm's combined worst case on one game: a crowd is bigger than any one desk
+PUBLIC_RATE = 0.02  # bets per trader per step for each unit of "game-time weight" on the slate (see pub_time)
+PUBLIC_FLOOR, PUBLIC_MAX = 0.12, 6  # a little action even on a quiet slate, and the most bets one trader makes in a step
+PUBLIC_REACT = 0.15  # how much a market maker moves its price when a public bettor hits it (against 0.5 to 1.5 for everyone else, by reputation)
+SQ_TOL = 0.6  # a maker counts inventory it took from public bettors at this much less when deciding how hard to lean its quotes
 W0, LAMBDA, W_MAX = 0.25, 0.5, 0.75  # cautious starting weight on a syndicate's own model, how much evidence it takes to move it, its ceiling
 # the shared rulebook: limits no strategy can step outside, whatever a trader decides for itself
 RULES = dict(max_risk=100.0, kelly=0.25, size=100.0, thr_min=0.01, half_min=0.006, edge_max=0.06)
@@ -67,6 +72,9 @@ def ramp(hours: float) -> float:
 
 def abide(p: dict) -> dict:
     """A trader's strategy, held inside the rulebook."""
+    if p.get("public"):  # a public bettor has a fixed temperament and a bigger limit; it is not tuned from results
+        p["max_risk"] = min(p.get("max_risk", 200.0), 200.0)
+        return p
     p["max_risk"] = min(p.get("max_risk", RULES["max_risk"]), RULES["max_risk"])
     p["kelly"] = min(p["kelly"], RULES["kelly"])
     p["size"] = min(p["size"], RULES["size"])
@@ -79,6 +87,8 @@ def adapt(m: dict, now: str) -> None:
     """Each trader reviews its own results and adjusts its own strategy: if the trades it takes keep closing worse than it paid it asks for a
     bigger edge; if its quotes keep getting picked off it widens them; if both are doing well it tightens up to trade more."""
     st, p = m["stats"], m["params"]
+    if p.get("public"):
+        return
     for role, field, up, down, lo_clv in (("taker", "thr", 0.0, 0.01, "thr_min"), ("maker", "half", 0.0, 0.008, "half_min")):
         n, tot = st.get(f"clv_{role}_n", 0), st.get(f"clv_{role}_sum", 0.0)
         rn, rt = st.get(f"rv_{role}_n", 0), st.get(f"rv_{role}_sum", 0.0)
@@ -515,6 +525,9 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     syn_cap: dict[str, float] = {}
     for sid_ in syns:
         ms_ = [m for m in members.values() if m["syndicate_id"] == sid_]
+        if any(m["params"].get("public") for m in ms_):
+            syn_cap[sid_] = PUBLIC_CAP
+            continue
         if any(m["params"].get("mm") for m in ms_):  # pure market makers aim to stay flat, so their risk is not a bet on a model
             syn_cap[sid_] = CAP_FULL
             continue
@@ -564,6 +577,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     def sharp(mid: str, sport: str) -> float:
         """0 to 1: how much a trader's hits are worth listening to in a sport - its closing-line record as a taker, or its syndicate's proven model."""
         m = members[mid]
+        if m["params"].get("public"):  # labelled public money: never treated as informed, however a lucky run looks
+            return 0.0
         fl = (m["stats"].get("flow") or {}).get(sport)
         s1 = 0.0
         if fl and fl["w"] > 0:
@@ -741,6 +756,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             net[(who["id"], k)] = net.get((who["id"], k), 0.0) + side_qty
             pcache.pop((who["id"], mk["gid"]), None)
             dcache.pop((who["id"], mk["gid"]), None)
+            pdcache.pop((who["id"], mk["gid"]), None)
             scache.pop((who["syndicate_id"], mk["gid"]), None)
             tcache.pop(who["id"], None)
             games_of.setdefault(who["id"], set()).add(mk["gid"])
@@ -756,13 +772,13 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         ms["cap_sum"], ms["cap_q"] = ms.get("cap_sum", 0.0) + qty * cap, ms.get("cap_q", 0.0) + qty
         if maker["params"].get("mm"):  # a market maker learns from who hit it: the game is probably a little further their way
             sd_m, sd_t = sd_of[mk["sport"]]
-            imp = (1.0 if taker is buyer else -1.0) * MM_REACT * maker["params"].get("eta", 1.0) * IMPACT * (0.5 + sharp(taker["id"], mk["sport"])) * min(1.0, qty / IMPACT_Q)
+            imp = (1.0 if taker is buyer else -1.0) * MM_REACT * maker["params"].get("eta", 1.0) * IMPACT * (PUBLIC_REACT if taker["params"].get("public") else 0.5 + sharp(taker["id"], mk["sport"])) * min(1.0, qty / IMPACT_Q)
             b = mmb.setdefault((maker["id"], mk["gid"]), [0.0, 0.0])
             if mk["kind"] == "total":
                 b[1] = float(np.clip(b[1] + imp * sd_t, -0.25 * sd_t, 0.25 * sd_t))
             else:
                 b[0] = float(np.clip(b[0] + imp * sd_m, -0.25 * sd_m, 0.25 * sd_m))
-            tox[(maker["id"], k)] = tox.get((maker["id"], k), 0.0) + 1.0
+            tox[(maker["id"], k)] = tox.get((maker["id"], k), 0.0) + (0.2 if taker["params"].get("public") else 1.0)
             refresh(mk["gid"])
         sh = sharp(taker["id"], mk["sport"])
         if sh > 0.02:  # a trader with a record hit this: everyone following the flow marks the game a little their way
@@ -814,6 +830,31 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             c = dcache[(mid, gid)] = (dm, dt)
         return c
 
+    pdcache: dict[tuple[str, str], tuple[float, float]] = {}
+
+    def delta_pub(mid: str, gid: str) -> tuple[float, float]:
+        """The part of a maker's position on a game (in the same units as delta_exp) that it took from public bettors."""
+        c = pdcache.get((mid, gid))
+        if c is None:
+            dm = dt = 0.0
+            for t in lots_g.get((mid, gid), []):
+                if t["maker"] != mid:
+                    continue
+                other = t["seller"] if t["buyer"] == mid else t["buyer"]
+                if not members[other]["params"].get("public"):
+                    continue
+                q = t["rem_b"] if t["buyer"] == mid else -t["rem_s"]
+                s = sens_of(gid, t["kind"], t["line"]) * q
+                if t["kind"] == "total":
+                    dt += s
+                else:
+                    dm += s
+            c = pdcache[(mid, gid)] = (dm, dt)
+        return c
+
+    def relief(own: float, pub: float) -> float:
+        return SQ_TOL * float(np.sign(own)) * min(abs(own), abs(pub)) if own * pub > 0 else 0.0
+
     def post_quotes(m: dict) -> None:
         """Cancel and re-post this trader's quotes: a bid and an ask either side of its fair price, leaned away from any position it holds.
         Each side is sized on its own against the risk limits, so a one-sided fill can never push a maker past them."""
@@ -831,6 +872,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             mk = markets[k]
             if mm:  # lean against the whole book on the game, not just this line, and quote wider where it has just been hit
                 dm_, dt_ = delta_exp(m["id"], mk["gid"])
+                pm_, pt_ = delta_pub(m["id"], mk["gid"])  # inventory taken from public bettors is not a signal, so it is leaned against less
+                dm_, dt_ = dm_ - relief(dm_, pm_), dt_ - relief(dt_, pt_)
                 s0 = smax(mk["gid"], mk["dim"])
                 inv = (dm_ if mk["dim"] == "m" else dt_) / max(1e-9, p["size"] * s0) * (sens_of(mk["gid"], mk["kind"], mk["line"]) / s0)
                 c = fairs[(m["id"], k)] - 2.0 * p["half"] * p.get("inv", 1.0) * inv
@@ -905,6 +948,107 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 fills += 1
                 q[1] = round(q[1] - qty, 2)
 
+    # ---- public money: bets arrive at random, favour favourites, overs and underdog moneylines, and cluster in the last few hours before a game
+    nprng = np.random.default_rng(rnd * 7919 + 13)
+    game_w: dict[str, float] = {}
+
+    def pub_time(hrs: float) -> float:
+        return 0.0 if hrs < 0 else 1.8 if hrs < 1 else 1.0 if hrs < 3 else 0.5 if hrs < 6 else 0.2 if hrs < 12 else 0.08 if hrs < 24 else 0.03 if hrs < 48 else 0.01
+
+    def gw(gid: str) -> float:
+        v = game_w.get(gid)
+        if v is None:
+            st_ = _pdate(games[gid]["start_utc"])
+            v = pub_time((st_ - now).total_seconds() / 3600)
+            et_ = st_.astimezone(results.ET)
+            v *= (1.25 if et_.weekday() >= 5 else 1.0) * (1.2 if 19 <= et_.hour <= 23 else 1.0)  # weekends and primetime draw more
+            game_w[gid] = v
+        return v
+
+    pub_book: dict[str, tuple[list, np.ndarray]] = {}
+
+    def pub_weights(m: dict) -> tuple[list, np.ndarray]:
+        style = m["params"]["style"]
+        fav_sport = list(espn.SPORTS)[sum(map(ord, m["id"])) % len(espn.SPORTS)]
+        keys: list[tuple[str, str]] = []
+        ws: list[float] = []
+        for k, mk in markets.items():
+            gid = mk["gid"]
+            w0 = gw(gid)
+            if w0 <= 0:
+                continue
+            d0, ml0 = refs[gid]
+            ph = ml0 if ml0 is not None else d0.p_ml()
+            od = refos.get(gid)
+            sd_m, sd_t = sd_of[mk["sport"]]
+            kind = mk["kind"]
+            near = 1.0 if mk["near"] else 0.25
+            for side in ("buy", "sell"):
+                yes = side == "buy"
+                if kind == "total":
+                    over, fav, dog_ml, team_side = yes, False, False, False
+                    p_team = 0.5
+                else:
+                    team_side = yes  # buying "yes" is the home team, selling it is the away team
+                    p_team = ph if yes else 1 - ph
+                    over, fav, dog_ml = False, p_team > 0.5, kind == "ml" and p_team < 0.4
+                if style == "chalk":
+                    a = 1.2 * fav + 1.0 * over
+                elif style == "lottery":
+                    a = 1.6 * dog_ml + 0.6 * over + 0.4 * (kind == "spread" and not fav)
+                elif style == "hot":
+                    hs = eng_p.get(("form", k), mk["ref"]) - eng_p.get(("ridge", k), mk["ref"])
+                    a = 25.0 * (hs if yes else -hs)
+                elif style == "model":
+                    adj = eng_p.get(("blend", k), mk["ref"]) - mk["ref"]
+                    a = 40.0 * (adj if yes else -adj)
+                elif style == "homer":
+                    a = 1.0 * (kind != "total" and yes) + 0.8 * (mk["sport"] == fav_sport)
+                elif style == "drift":
+                    if od is None:
+                        a = 0.0
+                    elif kind == "total":
+                        a = 1.2 * float(np.clip((d0.t - od.t) / sd_t, -1, 1)) * (1 if yes else -1)
+                    else:
+                        a = 1.2 * float(np.clip((d0.m - od.m) / sd_m, -1, 1)) * (1 if yes else -1)
+                else:  # casual
+                    a = 0.5 * fav + 0.5 * over
+                keys.append((k, side))
+                ws.append(w0 * near * float(np.exp(np.clip(a, -3.0, 3.0))))
+        w = np.array(ws)
+        return keys, (w / w.sum() if len(ws) and w.sum() > 0 else w)
+
+    def public_take(m: dict) -> None:
+        p = m["params"]
+        if m["id"] not in pub_book:
+            pub_book[m["id"]] = pub_weights(m)
+        keys, w = pub_book[m["id"]]
+        if not keys:
+            return
+        tw_total = sum(gw(g) for g in by_gid)
+        n = min(PUBLIC_MAX, int(nprng.poisson(max(PUBLIC_FLOOR, p["act"] * PUBLIC_RATE * tw_total))))
+        for _ in range(n):
+            k, side = keys[int(nprng.choice(len(keys), p=w))]
+            mk = markets[k]
+            q = best(asks[k] if side == "buy" else bids[k], m["id"])
+            if not q:
+                continue
+            px = q[0]
+            pf = mk["ref"] + (0.2 * (eng_p.get(("blend", k), mk["ref"]) - mk["ref"]) if p["style"] == "model" else 0.0)
+            if (side == "buy" and px > pf + p["tol"]) or (side == "sell" and px < pf - p["tol"]):  # a recreational bettor will pay a few cents over fair, not a terrible price
+                continue
+            maker = members[q[2]]
+            m_side = "sell" if side == "buy" else "buy"
+            qty = round(min(float(nprng.integers(3, 16)) * p["sizem"], q[1], room_for(m, mk, side, px), cash_room(m, k, side, px),
+                            room_for(maker, mk, m_side, px, True), cash_room(maker, k, m_side, px)), 2)
+            if qty < 1:
+                if q[1] > 0.5 and min(room_for(maker, mk, m_side, px, True), cash_room(maker, k, m_side, px)) < 1:
+                    q[1] = 0
+                continue
+            buyer, seller = (m, maker) if side == "buy" else (maker, m)
+            fill(buyer, seller, maker, mk, k, px, qty)
+            q[1] = round(q[1] - qty, 2)
+
     # ---- time flows: traders arrive in random order over a number of ticks, refresh their quotes, and hit each other's
     order = list(members.values())
     rng.shuffle(order)
@@ -922,6 +1066,9 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             for gid in {g for (_, g) in mmb}:
                 refresh(gid)
         for m in order:
+            if m["params"].get("public"):
+                public_take(m)
+                continue
             if tick > 0 and rng.random() > ACT_PROB:
                 continue
             if tick > 0 and m["role"] in ("maker", "both"):

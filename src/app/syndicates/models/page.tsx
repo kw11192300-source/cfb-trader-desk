@@ -40,7 +40,7 @@ export default async function ModelsPage({ searchParams }: { searchParams: Promi
     const s = set.length > 1 ? Math.sqrt(d.reduce((a, v) => a + (v - m) ** 2, 0) / (set.length - 1) / set.length) : null;
     return { n: set.length, dkB: mean(set.map((o) => brier(o.dk, o.y))), mB: mean(set.map((o) => brier(o.p, o.y))), edge: m, z: s ? m / s : null, closer: set.length ? set.filter((o) => Math.abs(o.p - o.y) < Math.abs(o.dk - o.y)).length / set.length : null, gap: mean(set.map((o) => Math.abs(o.p - o.dk))) };
   };
-  const rows = syndicates.filter((s) => s.engine !== "mm" && s.engine !== "ref").map((s) => ({ s, ...score(obsOf(s.id)) })).filter((r) => r.n > 0).sort((a, b) => b.edge - a.edge);
+  const rows = syndicates.filter((s) => s.engine !== "mm" && s.engine !== "ref" && s.engine !== "public").map((s) => ({ s, ...score(obsOf(s.id)) })).filter((r) => r.n > 0).sort((a, b) => b.edge - a.edge);
   const picked = syndicates.find((s) => s.id === (sp.syn ?? "house")) ?? syndicates.find((s) => s.id === "house") ?? null;
   const pickedObs = picked ? obsOf(picked.id) : [];
   const bySport = SPORTS.map((s) => [s, score(pickedObs.filter((o) => o.sport === s))] as const).filter(([, v]) => v.n > 0);

@@ -113,6 +113,7 @@ export function LeaderTable({ rows, linkBase, title, showSyn = false, sort = "cl
                   ) : (
                     r.name
                   )}
+                  {r.isPublic && <span className="ml-2 rounded bg-warn/20 px-1.5 py-0.5 text-[10px] font-medium text-warn" title="Public money: recreational flow that pays a few cents over fair. It is in the table for reference and is never treated as sharp">public</span>}
                   {(!linkBase || showSyn) && <span className="ml-2 text-muted">{r.syndicate}{r.note ? ` · ${r.note}` : ""}</span>}
                 </td>
                 <td className="px-3 py-1.5 text-right">{r.equity.toFixed(1)}</td>

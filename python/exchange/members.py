@@ -22,9 +22,11 @@ TRADERS_PER = 5
 TRADER_UNITS = SYNDICATE_UNITS / TRADERS_PER
 NAMES = ["Avery", "Blake", "Casey", "Drew", "Emery", "Finley", "Gray", "Harper", "Indigo", "Jules", "Kai", "Logan", "Morgan", "Nico", "Oakley", "Parker",
          "Quinn", "Reese", "Sage", "Tatum", "Uma", "Val", "Wren", "Xan", "Yael", "Zion", "Arden", "Bryn", "Cleo", "Dale", "Eden", "Flynn", "Gale", "Hollis",
-         "Ivy", "Jordan", "Kit", "Lane", "Marlow", "Nova", "Onyx", "Phoenix", "Remy", "Sky", "Teagan", "Ulric", "Vesper", "Wynn", "Yarrow", "Zeke", "Rune", "Sloane", "Tove", "Ash", "Bell", "Cove", "Dune", "Fern", "Glen", "Hale", "Ike", "Jett", "Kerry", "Lark", "Moss", "Noor", "Orin", "Pace", "Quill", "Rhys", "Sol", "Tarn", "Ulla", "Vance", "Wick", "Xia", "Yves", "Zora", "Alma", "Bram", "Cyra", "Dov"]
+         "Ivy", "Jordan", "Kit", "Lane", "Marlow", "Nova", "Onyx", "Phoenix", "Remy", "Sky", "Teagan", "Ulric", "Vesper", "Wynn", "Yarrow", "Zeke", "Rune", "Sloane", "Tove", "Ash", "Bell", "Cove", "Dune", "Fern", "Glen", "Hale", "Ike", "Jett", "Kerry", "Lark", "Moss", "Noor", "Orin", "Pace", "Quill", "Rhys", "Sol", "Tarn", "Ulla", "Vance", "Wick", "Xia", "Yves", "Zora", "Alma", "Bram", "Cyra", "Dov", "Briar", "Cass", "Dex", "Elio", "Fable", "Gus", "Hux"]
 # (role, number of focus sports): two market makers (a specialist and a generalist), two takers, one who does both
 SEATS = [("maker", 2), ("maker", 3), ("taker", 2), ("taker", 1), ("both", 2)]
+PUBLIC_UNITS = 25_000.0  # the public-money firm is bigger than the others: a crowd has more money than any one desk
+PUBLIC_STYLES = ["chalk", "chalk", "lottery", "hot", "model", "homer", "drift", "casual"]  # one trader each; the crowd is not one mind
 
 
 def strategy(sid: str, i: int, role: str) -> dict:
@@ -59,14 +61,28 @@ SYNDICATES = [
          tagline="Pure market makers: quote both sides of every line tight and fast, earn the spread, stay flat, and move their price as order flow reveals where the game is."),
     dict(id="mmc", name="Careful Book", engine="mm", color="#6366f1", mmstyle="careful",
          tagline="Pure market makers who quote wider and smaller, back off after being picked off, and rebuild their price from who is trading against them."),
+    dict(id="main", name="Main Street", engine="public", color="#f97316", public=True,
+         tagline="Public money: recreational bettors who lean to favorites, overs and underdog moneylines, pile in during the last few hours before a game, and pay a few cents over fair for it. Not sharp - the flow the market makers live on."),
 ]
 
 
 def roster() -> tuple[list[dict], list[dict]]:
     syns, mems = [], []
     for si, s in enumerate(SYNDICATES):
+        units = PUBLIC_UNITS if s.get("public") else SYNDICATE_UNITS
         syns.append({"id": s["id"], "name": s["name"], "engine": s["engine"], "color": s["color"], "tagline": s["tagline"],
-                     "start_units": SYNDICATE_UNITS, "learn": {"agent": {**s["agent"], "version": 0}} if "agent" in s else {}})
+                     "start_units": units, "learn": {"agent": {**s["agent"], "version": 0}} if "agent" in s else {}})
+        if s.get("public"):
+            for i, style in enumerate(PUBLIC_STYLES):
+                r = random.Random(f"{s['id']}-{i}")
+                tu = PUBLIC_UNITS / len(PUBLIC_STYLES)
+                mems.append({"id": f"{s['id']}-{i + 1}", "syndicate_id": s["id"], "name": NAMES[si * TRADERS_PER + i], "role": "taker", "staking": "flat",
+                             "params": dict(public=True, style=style, focus=SPORTS[:], max_risk=200.0, tol=round(r.uniform(0.015, 0.03), 3), act=round(r.uniform(0.7, 1.4), 2),
+                                            sizem=round(r.uniform(0.8, 1.6), 2), kelly=0.0, size=0.0, thr=0.0, half=0.0),
+                             "start_units": tu, "cash": tu, "locked": 0.0, "realized": 0.0, "equity": tu, "open_risk": 0.0, "updated_at": None,
+                             "stats": {"n_maker": 0, "n_taker": 0, "vol_maker": 0.0, "vol_taker": 0.0, "pnl_maker": 0.0, "pnl_taker": 0.0,
+                                       "clv_sum": 0.0, "clv_n": 0, "peak": tu, "max_dd": 0.0, "wins": 0, "losses": 0, "biggest": 0.0}})
+            continue
         pool = SPORTS[:]
         random.Random(s["id"]).shuffle(pool)
         picks = [pool[0:2], pool[2:5], pool[3:5], pool[0:1], pool[1:3]]  # between them the five traders cover every sport

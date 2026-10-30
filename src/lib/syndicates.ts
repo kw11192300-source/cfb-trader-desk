@@ -215,6 +215,8 @@ export type Row = {
   maxDd: number;
   winRate: number | null;
   note: string;
+  /** public money (recreational flow): shown in the table for reference, never treated as sharp */
+  isPublic: boolean;
   /** finished games only: profit, units traded, return on those units, games */
   sPnl: number;
   sTraded: number;
@@ -231,7 +233,7 @@ function clvSe(sum: number, sq: number, n: number): number | null {
 /** One summary row per member, and one per syndicate (its members added up), in the same shape so the same table renders both. */
 export function summarize(syndicates: ExSyndicate[], members: ExMember[]): { members: Row[]; syndicates: Row[] } {
   const syn = Object.fromEntries(syndicates.map((s) => [s.id, s]));
-  const rowOf = (id: string, name: string, syndicate: string, color: string, ms: ExMember[], start: number, note = ""): Row => {
+  const rowOf = (id: string, name: string, syndicate: string, color: string, ms: ExMember[], start: number, note = "", isPublic = false): Row => {
     const equity = ms.reduce((a, m) => a + equityOf(m), 0);
     const bankroll = ms.reduce((a, m) => a + m.cash + m.locked, 0);
     const st = ms.map((m) => m.stats);
@@ -244,12 +246,12 @@ export function summarize(syndicates: ExSyndicate[], members: ExMember[]): { mem
       id, name, syndicate, color, bankroll, open: equity - bankroll, equity, pnl: equity - start, realized, roi: volume > 0 ? realized / volume : 0,
       openRisk: ms.reduce((a, m) => a + (m.open_risk ?? 0), 0), trades: sum((s) => s.n_maker + s.n_taker), volume,
       clv: clvN > 0 ? sum((s) => s.clv_sum) / clvN : null, clvSe: clvSe(sum((s) => s.clv_sum), sum((s) => s.clv_sq ?? 0), clvN), clvN, capture: sum((s) => s.cap_q ?? 0) > 0 ? sum((s) => s.cap_sum ?? 0) / sum((s) => s.cap_q ?? 0) : null, makerPnl: sum((s) => s.pnl_maker), takerPnl: sum((s) => s.pnl_taker),
-      maxDd: Math.max(0, ...st.map((s) => s.max_dd)), winRate: decided > 0 ? sum((s) => s.wins) / decided : null, note,
+      maxDd: Math.max(0, ...st.map((s) => s.max_dd)), winRate: decided > 0 ? sum((s) => s.wins) / decided : null, note, isPublic,
       sPnl: sum((s) => s.s_pnl ?? 0), sTraded: sum((s) => s.s_traded ?? 0), sRoi: sum((s) => s.s_traded ?? 0) > 0 ? sum((s) => s.s_pnl ?? 0) / sum((s) => s.s_traded ?? 0) : null, sGames: sum((s) => s.s_games ?? 0),
     };
   };
-  const mrows = members.map((m) => rowOf(m.id, m.name, syn[m.syndicate_id]?.name ?? m.syndicate_id, syn[m.syndicate_id]?.color ?? "#888", [m], m.start_units, `${m.role === "both" ? "maker + taker" : m.role} · ${Array.isArray(m.params.focus) ? (m.params.focus as string[]).map((x) => x.toUpperCase()).join(", ") : ""}`));
-  const srows = syndicates.map((s) => rowOf(s.id, s.name, s.name, s.color, members.filter((m) => m.syndicate_id === s.id), s.start_units));
+  const mrows = members.map((m) => rowOf(m.id, m.name, syn[m.syndicate_id]?.name ?? m.syndicate_id, syn[m.syndicate_id]?.color ?? "#888", [m], m.start_units, m.params.public ? `public · ${String(m.params.style)}` : `${m.role === "both" ? "maker + taker" : m.role} · ${Array.isArray(m.params.focus) ? (m.params.focus as string[]).map((x) => x.toUpperCase()).join(", ") : ""}`, !!m.params.public));
+  const srows = syndicates.map((s) => rowOf(s.id, s.name, s.name, s.color, members.filter((m) => m.syndicate_id === s.id), s.start_units, "", s.engine === "public"));
   return { members: mrows.sort((a, b) => b.pnl - a.pnl), syndicates: srows.sort((a, b) => b.pnl - a.pnl) };
 }
 
