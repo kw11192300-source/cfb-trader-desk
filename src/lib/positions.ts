@@ -27,15 +27,17 @@ export function sideText(g: ExGame, kind: string, line: number, net: number): st
 
 /** Where a contract flips from losing to winning, as the integer after which the result changes. */
 function boundaries(kind: string, line: number): number[] {
+  if (kind === "ml") return [0]; // a moneyline flips between a loss by 1 and a win by 1; a tie is not offered
   const whole = Number.isInteger(line);
   if (kind === "total") return whole ? [line - 1, line] : [Math.floor(line)];
   return whole ? [-line - 1, -line] : [Math.floor(-line)];
 }
 
-function bandsFor(lots: Lot[], g: ExGame, dim: "m" | "t"): Band[] {
+export function bandsFor(lots: Lot[], g: ExGame, dim: "m" | "t", cutsFrom?: Lot[]): Band[] {
   const ls = lots.filter((l) => (dim === "t") === (l.kind === "total"));
-  if (!ls.length) return [];
-  const cuts = [...new Set(ls.flatMap((l) => boundaries(l.kind, l.line)))].sort((a, b) => a - b);
+  const cs = (cutsFrom ?? lots).filter((l) => (dim === "t") === (l.kind === "total"));
+  if (!cs.length) return [];
+  const cuts = [...new Set(cs.flatMap((l) => boundaries(l.kind, l.line)))].sort((a, b) => a - b);
   const sd = SD[g.sport] ?? SD.nba;
   const mu = dim === "m" ? (g.ref?.spread != null ? -g.ref.spread : null) : g.ref?.total ?? null;
   const sigma = dim === "m" ? sd.m : sd.t;
@@ -44,7 +46,7 @@ function bandsFor(lots: Lot[], g: ExGame, dim: "m" | "t"): Band[] {
   for (let i = 0; i <= cuts.length; i++) {
     const lo = i === 0 ? null : cuts[i - 1] + 1;
     const hi = i === cuts.length ? null : cuts[i];
-    const rep = lo ?? hi!;
+    const rep = lo ?? hi! - 1;
     const pnl = ls.reduce((s, l) => s + lotPnl(l, dim === "m" ? rep : 0, dim === "t" ? rep : 0), 0);
     const chance = mu == null ? null : (hi == null ? 1 : cdf((hi + 0.5 - mu) / sigma)) - (lo == null ? 0 : cdf((lo - 0.5 - mu) / sigma));
     let label: string;

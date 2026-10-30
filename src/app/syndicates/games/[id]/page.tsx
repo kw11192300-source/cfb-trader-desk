@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import LocalDateTime from "@/components/LocalDateTime";
 import { LineChart, type Dot, type Series } from "@/components/SyndicateCharts";
+import { GamePositions } from "@/components/GamePositions";
 import { SyndicateHeader, TradeList } from "@/components/SyndicateParts";
 import { scenarioPnl, scenarios, takerOf, yesNo } from "@/lib/syndicateGame";
 import { fairOf, getExchange, getExchangeGame, getGameMarks, getGameTrades, getResult, label, openLots, payoff, ramp, SYN_GAME_LIMIT, type ExGame, type ExTrade, type Lot } from "@/lib/syndicates";
@@ -17,7 +18,7 @@ const tone = (n: number) => (n > 0.5 ? "text-up" : n < -0.5 ? "text-down" : "tex
 const cents = (p: number | null | undefined) => (p == null ? "–" : `${Math.round(p * 100)}¢`);
 const GROUPS = [["ml", "Winner"], ["spread", "Spread"], ["total", "Total points"]] as const;
 
-export default async function ExchangeGamePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ c?: string; syn?: string }> }) {
+export default async function ExchangeGamePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ c?: string; syn?: string; pv?: string; col?: string; all?: string }> }) {
   const id = decodeURIComponent((await params).id);
   const sp = await searchParams;
   const [game, { syndicates, members, meta }] = await Promise.all([getExchangeGame(id), getExchange()]);
@@ -96,10 +97,14 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
   const toSeries = (p: Record<string, number[]>, xs: number[]): Series[] =>
     Object.entries(p).map(([sid, ys]) => ({ id: sid, name: synName[sid] ?? sid, color: color[sid] ?? "#888", pts: xs.map((x, i) => [x, ys[i]] as [number, number]), step: true }));
   const hrs = (new Date(game.start_utc).getTime() - Date.now()) / 3600000;
+  const pv = sp.pv === "t" ? "t" : "m", colBy = sp.col === "type" ? "type" : "syn";
   const href = (c?: string, syn?: string) => {
     const q = new URLSearchParams();
     if (c) q.set("c", c);
     if (syn) q.set("syn", syn);
+    if (sp.pv) q.set("pv", sp.pv);
+    if (sp.col) q.set("col", sp.col);
+    if (sp.all) q.set("all", sp.all);
     const s = q.toString();
     return `/syndicates/games/${encodeURIComponent(game.id)}${s ? `?${s}` : ""}`;
   };
@@ -299,6 +304,27 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
           </section>
         </div>
 
+        <GamePositions
+          game={game as ExGame}
+          lots={lots}
+          syns={syndicates.map((x) => ({ id: x.id, name: x.name, color: x.color, engine: x.engine }))}
+          dim={pv}
+          colorBy={colBy}
+          showAll={sp.all === "1"}
+          hrefFor={(o) => {
+            const q = new URLSearchParams();
+            if (sp.c) q.set("c", sp.c);
+            if (sp.syn) q.set("syn", sp.syn);
+            q.set("pv", o.pv ?? pv);
+            q.set("col", o.col ?? colBy);
+            if (o.all ?? sp.all === "1") q.set("all", "1");
+            return `/syndicates/games/${encodeURIComponent(game.id)}?${q}`;
+          }}
+        />
+
+        <details className="mb-8 rounded-lg border border-border">
+          <summary className="cursor-pointer px-3 py-2 text-xs text-muted hover:text-foreground">Every position, trader by trader</summary>
+          <div className="p-3">
         <section className="mb-8">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-foreground">Positions</h3>
@@ -356,51 +382,8 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
           <p className="mt-1 text-[11px] text-muted">Each row is one trader&rsquo;s net position in one contract. &ldquo;If yes&rdquo; and &ldquo;if no&rdquo; are what that position makes or loses on its own if the contract resolves either way; positions in different lines partly offset each other, which the score table below shows together.</p>
         </section>
 
-        <section className="mb-8">
-          <h3 className="mb-2 text-sm font-semibold text-foreground">If it ends like this, each syndicate makes or loses</h3>
-          {synRows.length === 0 ? (
-            <p className="text-xs text-muted">Nobody holds a position on this game yet.</p>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full min-w-[760px] text-xs">
-                <thead className="bg-surface text-left text-muted">
-                  <tr>
-                    <th className="px-3 py-2">Syndicate</th>
-                    {sc.map((s) => (
-                      <th key={s.id} className={`px-2 py-2 text-right font-medium ${s.id === "ov" ? "border-l border-border" : ""}`}>{s.label}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="font-mono">
-                  {synRows.map((r) => (
-                    <tr key={r.sid} className="border-t border-border">
-                      <td className="px-3 py-1.5 font-sans text-foreground">
-                        <span className="mr-2 inline-block h-2 w-2 rounded-full" style={{ background: color[r.sid] }} />
-                        {synName[r.sid]}
-                      </td>
-                      {r.cells.map((v, i) => (
-                        <td key={sc[i].id} className={`px-2 py-1.5 text-right ${tone(v)} ${sc[i].id === "ov" ? "border-l border-border" : ""}`}>{u(v)}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          <p className="mt-1 text-[11px] text-muted">The first four columns use every moneyline and spread position at that final margin; the last three use the total positions at that combined score. They are separate bets, so a syndicate&rsquo;s overall result is one of each added together.</p>
-          {synRows.length > 0 && (
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <div>
-                <p className="mb-1 text-[11px] text-muted">Profit or loss at every final margin ({game.home.abbr} minus {game.away.abbr})</p>
-                <LineChart series={toSeries(pm, xm)} zero xFmt={(v) => (v > 0 ? `+${v}` : `${v}`)} height={220} />
-              </div>
-              <div>
-                <p className="mb-1 text-[11px] text-muted">Profit or loss at every final total</p>
-                <LineChart series={toSeries(pt, xt)} zero height={220} />
-              </div>
-            </div>
-          )}
-        </section>
+          </div>
+        </details>
 
         <TradeList trades={[...trades].reverse().slice(0, 60)} games={{ [game.id]: game as ExGame }} names={names} />
       </main>
