@@ -115,7 +115,7 @@ function Payoff({ game, lots, dim, colorOf, nameOf, showAll }: { game: ExGame; l
 
 function Ladder({ game, lots, dim, colorOf, nameOf }: { game: ExGame; lots: Lot[]; dim: Dim; colorOf: (o: string) => string; nameOf: (o: string) => string }) {
   const ls = lots.filter((l) => (dim === "t") === (l.kind === "total"));
-  const keys = [...new Set(ls.map((l) => `${l.kind}|${l.line}`))].map((k) => ({ kind: k.split("|")[0] as Lot["kind"], line: Number(k.split("|")[1]) })).sort((a, b) => (a.kind === "total" || b.kind === "total" ? (a.kind === b.kind ? a.line - b.line : a.kind === "total" ? 1 : -1) : (a.kind === "ml" ? 0 : a.line) - (b.kind === "ml" ? 0 : b.line))); // the moneyline is a spread of zero, so it sits between -1.5 and +1.5
+  const keys = [...new Set(ls.map((l) => `${l.kind}|${l.line}`))].map((k) => ({ kind: k.split("|")[0] as Lot["kind"], line: Number(k.split("|")[1]) })).sort((a, b) => (a.kind === "total" || b.kind === "total" ? (a.kind === b.kind ? b.line - a.line : a.kind === "total" ? 1 : -1) : (a.kind === "ml" ? 0 : a.line) - (b.kind === "ml" ? 0 : b.line))); // the moneyline is a spread of zero, so it sits between -1.5 and +1.5
   if (!keys.length) return null;
   const rows = keys.map((k) => {
     const net: Record<string, number> = {};
