@@ -93,7 +93,7 @@ export type ExGame = {
   home_score: number | null;
   away_score: number | null;
   /** DraftKings' lines, or when DraftKings has not priced the game, a baseline (src is kalshi or model) built from Kalshi or our rating models */
-  ref: { spread: number | null; total: number | null; ml_home: number | null; ml_away: number | null; src?: string } | null;
+  ref: { spread: number | null; total: number | null; ml_home: number | null; ml_away: number | null; src?: string; mt?: [number, number]; seed?: [number, number]; rounds?: number } | null;
   /** [kind, line, reference %, best bid, best ask, last trade] */
   /** [kind, line, fair, best bid, best ask, last trade, first trade, bid size, ask size, exchange price] */
   book: [string, number, number, number | null, number | null, number | null, number | null, number | null, number | null, number | null, [number, number, string?][][] | null][] | null;
@@ -386,4 +386,25 @@ export async function getDigests(n = 14): Promise<Digest[]> {
 /** Every position still open, from the trade ledger of games that have not settled. */
 export async function getAllOpenTrades(): Promise<ExTrade[]> {
   return pageAll<ExTrade>((a, b) => supabase.from("ex_trades").select("id,ts,game_id,kind,line,price,qty,buyer,seller,maker,rem_b,rem_s,settled").eq("settled", false).order("id").range(a, b));
+}
+
+export type Discovery = {
+  id: string;
+  sport: string;
+  teams: string;
+  start: string;
+  found: string;
+  hours_before: number;
+  rounds: number;
+  seed: [number, number] | null;
+  internal: [number, number] | null;
+  dk: [number, number];
+  int_line: [number | null, number | null];
+  dk_line: [number | null, number | null];
+};
+
+/** Games the syndicates made a line on before DraftKings priced them: the opening line, the line trading had moved it to, and what DraftKings then posted. */
+export async function getDiscoveries(): Promise<Discovery[]> {
+  const { data } = await supabase.from("ex_meta").select("value").eq("key", "discovery").maybeSingle();
+  return ((data?.value as { rows?: Discovery[] } | undefined)?.rows ?? []) as Discovery[];
 }

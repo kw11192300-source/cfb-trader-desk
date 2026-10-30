@@ -24,8 +24,12 @@ HORIZON_BY_SPORT = {"nfl": 336}  # the NFL's slate is small, so look two weeks a
 
 def horizon(sport: str) -> int:
     return HORIZON_BY_SPORT.get(sport, HORIZON_H)
-SRC_LIMIT = {"dk": 1.0, "kalshi": 0.5, "model": 0.25}  # how much of a game's limits a game without a DraftKings line gets, by where its baseline price came from
-BLEND = {"kalshi": 0.25, "model": 0.5}  # how much of last round's exchange price goes into the baseline of a game with no DraftKings line
+SRC_LIMIT = {"dk": 1.0, "exchange": 0.25, "kalshi": 0.25, "model": 0.25}  # a game DraftKings has not priced gets a quarter of the usual limits while the syndicates make its line
+CENTER_ETA = 0.7  # how far the exchange's line moves toward where the traders cleared it each round
+CENTER_STEP = 0.15  # ...but never more than this share of a standard deviation in one round
+CENTER_DRIFT = 1.0  # ...and never more than this far from where it opened
+CBB_NODK_CAP = 30  # college basketball has hundreds of games a day: only the next few that DraftKings has not priced are opened
+W_FLOOR_EXCH = 0.5  # with no market to anchor to, a syndicate trusts its own model at least this much
 CUTOFF_MIN = 3
 SNAP_EVERY = 3  # rounds between equity snapshots
 VOID_AFTER_DAYS = 6
@@ -217,6 +221,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     events = espn.window(sports)
     seen_ids = {e["id"] for e in events}
     n_new = 0
+    discoveries: list[dict] = []
     pending: dict[str, dict] = {}  # upcoming games with no DraftKings line yet: kept only if a baseline price can be built for them
     for ev in events:
         ex = games.get(ev["id"])
@@ -229,7 +234,15 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                    home={k: ev["home"][k] for k in ("id", "name", "abbr")}, away={k: ev["away"][k] for k in ("id", "name", "abbr")},
                    home_score=ev["home"]["score"], away_score=ev["away"]["score"], detail=ev["detail"], updated_at=_iso(now))
         if has_odds:
-            if row["ref_open"] is None or (row["ref"] or {}).get("src", "dk") != "dk":  # the first real DraftKings line becomes the open
+            old_ref = row["ref"] or {}
+            if old_ref.get("src") in ("exchange", "kalshi", "model") and old_ref.get("rounds", 0) >= 1:  # DraftKings has just priced a game the syndicates were making a line on
+                dk_d = pricing.fit(ev["sport"], ev["now"])[0]
+                if dk_d:
+                    discoveries.append({"id": ev["id"], "sport": ev["sport"], "teams": f"{ev['away']['abbr']} @ {ev['home']['abbr']}", "start": ev["start"], "found": _iso(now),
+                                        "hours_before": round((_pdate(ev["start"]) - now).total_seconds() / 3600, 1), "rounds": old_ref.get("rounds"),
+                                        "seed": old_ref.get("seed"), "internal": old_ref.get("mt"), "dk": [round(dk_d.m, 3), round(dk_d.t, 3)],
+                                        "int_line": [old_ref.get("spread"), old_ref.get("total")], "dk_line": [ev["now"].get("spread"), ev["now"].get("total")]})
+            if row["ref_open"] is None or old_ref.get("src", "dk") != "dk":  # the first real DraftKings line becomes the open
                 row["ref_open"] = ev["open"] or ev["now"]
             row["ref"] = ev["now"]
         if has_odds or ex is not None:
@@ -243,48 +256,36 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         if g and gid not in seen_ids and now - _pdate(g["start_utc"]) > timedelta(days=VOID_AFTER_DAYS):
             g["state"], g["completed"], g["voided"] = "post", True, True
 
-    # ---- a baseline price for every upcoming game DraftKings has not priced yet: Kalshi's prices if it has them, otherwise our own rating models
+    # ---- upcoming games DraftKings has not priced yet: no outside baseline. The line opens at what the rating models agree on, and from then on it is wherever
+    # the traders' own quotes and trades clear it (moved at the end of every round). Kalshi's prices are still collected, but only as one syndicate's view.
     pre = {gid: g for gid, g in {**games, **pending}.items() if g["state"] == "pre" and _pdate(g["start_utc"]) <= now + timedelta(hours=horizon(g["sport"]))}
-    try:
-        kal_raw = kalshi.fetch(pre) if pre else {}
-    except Exception:  # Kalshi being down must not stop a round
-        kal_raw = {}
-
-    def baseline(g: dict, krows: list | None) -> dict | None:
+    def opening(g: dict) -> tuple[float, float] | None:
         sp = g["sport"]
-        sp_pts = [(r[1], r[2]) for r in krows or [] if r[0] == "spread"]
-        tt_pts = [(r[1], r[2]) for r in krows or [] if r[0] == "total"]
-        ml_k = next((r[2] for r in krows or [] if r[0] == "ml"), None)
-        src, m, t, ml_p = None, 0.0, 0.0, None
-        if len(sp_pts) >= 2 or (ml_k is not None and tt_pts):
-            fit_ = pricing.fit_from_probs(sp, sp_pts, tt_pts, ml_k)
-            if fit_:
-                (m, t), ml_p, src = fit_, ml_k, "kalshi"
-        if src is None and sp in ("nfl", "nhl", "nba"):
-            rs = [r for r in (ratings.predict(e, rat.get(f"{sp}|{e}"), g["home"]["id"], g["away"]["id"], bool(g.get("neutral"))) for e in ("elo", "ridge_long", "ridge_short")) if r]
-            if len(rs) >= 2:
-                m, t, src = float(np.mean([r[0] for r in rs])), float(np.mean([r[1] for r in rs])), "model"
-        if src is None:
-            return None
-        v = g.get("views") or {}
-        if v.get("x") and v.get("lines"):  # let the exchange's own price from last round pull the baseline: that is how a line gets made without DraftKings
-            xs = {(k, ln): p for (k, ln), p in zip(map(tuple, v["lines"]), v["x"]) if p is not None}
-            ef = pricing.fit_from_probs(sp, [(ln, p) for (k, ln), p in xs.items() if k == "spread"], [(ln, p) for (k, ln), p in xs.items() if k == "total"], xs.get(("ml", 0.0)))
-            if ef:
-                m, t = (1 - BLEND[src]) * m + BLEND[src] * ef[0], (1 - BLEND[src]) * t + BLEND[src] * ef[1]
-        snap = pricing.synth_snap(sp, m, t, ml_p if src == "kalshi" else None)
-        snap["src"] = src
-        return snap
+        rs = [r for r in (ratings.predict(e, rat.get(f"{sp}|{e}"), g["home"]["id"], g["away"]["id"], bool(g.get("neutral"))) for e in ("elo", "ridge_long", "ridge_short")) if r]
+        return (float(np.mean([r[0] for r in rs])), float(np.mean([r[1] for r in rs]))) if len(rs) >= 2 else None
 
-    for gid, g in list(pre.items()):
-        if g.get("ref") and (g["ref"].get("src") or "dk") == "dk":
+    n_cbb = 0
+    for gid, g in sorted(pre.items(), key=lambda kv: kv[1]["start_utc"]):
+        r = g.get("ref")
+        src = (r or {}).get("src") or ("dk" if r else None)
+        if src in ("dk", "exchange"):
+            n_cbb += src == "exchange" and g["sport"] == "cbb"
             continue
-        snap = baseline(g, kal_raw.get(gid))
-        if snap is None:
+        if src in ("kalshi", "model"):  # a baseline from an earlier version: adopt it as the opening line
+            d0 = pricing.fit(g["sport"], r)[0]
+            mt = (d0.m, d0.t) if d0 else None
+        elif g["sport"] == "cbb" and n_cbb >= CBB_NODK_CAP:
+            mt = None
+        else:
+            mt = opening(g)
+            n_cbb += mt is not None and g["sport"] == "cbb"
+        if mt is None:
             pending.pop(gid, None)
             if gid in games:
-                g["ref"] = None  # it had a baseline before and has none now
+                g["ref"] = None
             continue
+        snap = pricing.synth_snap(g["sport"], mt[0], mt[1])
+        snap.update(src="exchange", mt=[round(mt[0], 3), round(mt[1], 3)], seed=[round(mt[0], 3), round(mt[1], 3)], rounds=0)
         g["ref"] = snap
         if g.get("ref_open") is None:
             g["ref_open"] = snap
@@ -292,15 +293,26 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             games[gid] = pending.pop(gid)
             n_new += 1
 
+    try:  # Kalshi's prices for the games that are listed, for the one syndicate that follows them and for the labs
+        kal_raw = kalshi.fetch({gid: g for gid, g in games.items() if g["state"] == "pre" and g.get("ref")})
+    except Exception:  # Kalshi being down must not stop a round
+        kal_raw = {}
+
     # ---- reference models
     refs: dict[str, tuple[Dist, float | None]] = {}
     refos: dict[str, Dist | None] = {}
+    def ref_dist(sport: str, snap: dict) -> tuple[Dist | None, float | None]:
+        if snap.get("mt"):  # the exchange's own line: its centre is stored exactly
+            d = Dist(sport, snap["mt"][0], snap["mt"][1])
+            return d, d.p_ml()
+        return pricing.fit(sport, snap)
+
     for gid, g in games.items():
         if g.get("ref"):
-            d, ml = pricing.fit(g["sport"], g["ref"])
+            d, ml = ref_dist(g["sport"], g["ref"])
             if d:
                 refs[gid] = (d, ml)
-                refos[gid] = pricing.fit(g["sport"], g["ref_open"])[0] if g.get("ref_open") else None
+                refos[gid] = ref_dist(g["sport"], g["ref_open"])[0] if g.get("ref_open") else None
 
     def p_ref(gid: str, kind: str, line: float) -> float | None:
         r = refs.get(gid)
@@ -400,11 +412,15 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             continue
         if not (lo <= _pdate(g["start_utc"]) <= now + timedelta(hours=horizon(g["sport"]))):
             continue
-        for kind, line in pricing.lines_for(g["sport"], g["ref"]):
+        offered = pricing.lines_for(g["sport"], g["ref"])
+        if g["ref"].get("src") == "exchange":
+            have = set(offered)
+            offered += [(r[0], r[1]) for r in (g.get("book") or []) if (r[0], r[1]) not in have][:30]
+        for kind, line in offered:
             main = g["ref"].get("spread" if kind == "spread" else "total")
             k = ckey(gid, kind, line)
             srcf = SRC_LIMIT[(g["ref"].get("src") or "dk")]
-            markets[k] = {"gid": gid, "sport": g["sport"], "kind": kind, "line": line, "ref": p_ref(gid, kind, line), "srcf": srcf,
+            markets[k] = {"gid": gid, "sport": g["sport"], "kind": kind, "line": line, "ref": p_ref(gid, kind, line), "srcf": srcf, "src": g["ref"].get("src") or "dk",
                           "hrs": (_pdate(g["start_utc"]) - now).total_seconds() / 3600,
                           "ramp": ramp((_pdate(g["start_utc"]) - now).total_seconds() / 3600),
                           "near": kind == "ml" or (main is not None and abs(line - main) <= 2)}
@@ -483,11 +499,11 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         mk = markets[k]
         sid = m["syndicate_id"]
         if m["params"].get("mm"):  # a market maker has no model: it blends the reference prices and lets order flow move it from there
-            r, ks, pe = mk["ref"], kal.get(mk["gid"], {}).get((mk["kind"], mk["line"])), prev_eco.get(k)
+            r, ks, pe = mk["ref"], (kal.get(mk["gid"], {}).get((mk["kind"], mk["line"])) if mk["src"] != "exchange" else None), prev_eco.get(k)
             f = 0.5 * r + 0.3 * ks[2] + 0.2 * pe if ks and pe is not None else 0.6 * r + 0.4 * ks[2] if ks else 0.8 * r + 0.2 * pe if pe is not None else r
             return clip(f, r - BAND, r + BAND)
         e = eng_p.get((sid, k), mk["ref"])
-        w = float(np.clip(m["params"].get("trust", 1.0) * weights[(sid, mk["sport"])], 0.0, W_MAX))
+        w = float(np.clip(m["params"].get("trust", 1.0) * weights[(sid, mk["sport"])], W_FLOOR_EXCH if mk["src"] == "exchange" else 0.0, W_MAX))
         return clip(mk["ref"] + w * (e - mk["ref"]), mk["ref"] - BAND, mk["ref"] + BAND)
 
     # what each trader can look at: every sport, but outside its focus only the lines near the main number, smaller and pickier
@@ -867,9 +883,12 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
 
     # ---- the exchange's own price for each contract: size-weighted mid of the best bid and ask, else the last trade
     eco: dict[str, float | None] = {}
+    two_sided: dict[str, float] = {}  # prices backed by both a bid and an ask: the only ones allowed to move a self-made line
     for k in markets:
         b, a = (bids[k][0] if bids[k] else None), (asks[k][0] if asks[k] else None)
         eco[k] = round((b[0] * a[1] + a[0] * b[1]) / (a[1] + b[1]), 4) if b and a and a[1] + b[1] > 0 else last_px.get(k)
+        if b and a and a[1] + b[1] > 0:
+            two_sided[k] = eco[k]
     for gid, g in games.items():
         v = g.get("views")
         if not v or gid not in by_gid:
@@ -883,6 +902,30 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                  or any((a is None) != (b is None) or (a is not None and abs(a - b) >= 0.005) for a, b in zip(v["x"], prior)))
         if moved:
             marks.append({"ts": _iso(now), "game_id": gid, "lines": v["lines"], "r": v["r"], "e": v["x"]})
+
+    # ---- the exchange's own lines move toward the prices its traders actually reached
+    for gid, g in games.items():
+        r = g.get("ref")
+        if not r or r.get("src") != "exchange" or gid not in by_gid:
+            continue
+        ks_ = [k for k in by_gid[gid] if k in two_sided]
+        sp_pts = [(markets[k]["line"], two_sided[k]) for k in ks_ if markets[k]["kind"] == "spread"]
+        tt_pts = [(markets[k]["line"], two_sided[k]) for k in ks_ if markets[k]["kind"] == "total"]
+        ml_pt = next((two_sided[k] for k in ks_ if markets[k]["kind"] == "ml"), None)
+        if len(sp_pts) < 2 and len(tt_pts) < 2:
+            continue
+        ef = pricing.fit_from_probs(g["sport"], sp_pts, tt_pts, ml_pt)
+        if not ef:
+            continue
+        sdm, sdt = sd_of[g["sport"]]
+        seed = r.get("seed") or r["mt"]
+        m1 = r["mt"][0] + float(np.clip(CENTER_ETA * (ef[0] - r["mt"][0]), -CENTER_STEP * sdm, CENTER_STEP * sdm)) if len(sp_pts) >= 2 or ml_pt is not None else r["mt"][0]
+        t1 = r["mt"][1] + float(np.clip(CENTER_ETA * (ef[1] - r["mt"][1]), -CENTER_STEP * sdt, CENTER_STEP * sdt)) if len(tt_pts) >= 2 else r["mt"][1]
+        m1 = float(np.clip(m1, seed[0] - CENTER_DRIFT * sdm, seed[0] + CENTER_DRIFT * sdm))
+        t1 = float(np.clip(t1, seed[1] - CENTER_DRIFT * sdt, seed[1] + CENTER_DRIFT * sdt))
+        snap = pricing.synth_snap(g["sport"], m1, t1)
+        snap.update(src="exchange", mt=[round(m1, 3), round(t1, 3)], seed=seed, rounds=int(r.get("rounds", 0)) + 1)
+        g["ref"] = snap
 
     # ---- mark to market
     unreal: dict[str, float] = {}
@@ -941,6 +984,9 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         store.upsert("ex_trades", list({t["id"]: t for t in changed}.values()))
     store.upsert("ex_members", list(members.values()))
     store.upsert("ex_syndicates", list(syns.values()))
+    if discoveries:
+        old_rows = (meta.get("discovery") or {}).get("rows", [])
+        store.upsert("ex_meta", [{"key": "discovery", "value": {"rows": (discoveries + old_rows)[:300]}}])
     try:  # the historical tables are optional: a round must never fail because they are missing or slow
         if result_rows:
             store.upsert("ex_results", result_rows)

@@ -15,7 +15,12 @@ const sgn = (n: number) => `${n > 0 ? "+" : ""}${n}`;
 const n0 = (v: number) => Math.round(v).toLocaleString();
 
 const WINDOWS: [string, number][] = [["Next 24 hours", 24], ["Next 2 days", 48], ["Next week", 168], ["Two weeks", 336]];
-const srcNote = (g: ExGame) => (g.ref?.src === "kalshi" ? "no DraftKings line yet · baseline from Kalshi" : g.ref?.src === "model" ? "no DraftKings line yet · baseline from our rating models" : null);
+const srcNote = (g: ExGame) => {
+  const r = g.ref;
+  if (!r || !r.src || r.src === "dk") return null;
+  const seed = r.seed ? ` · opened at ${r.seed[0] <= 0 ? "+" : "-"}${Math.abs(r.seed[0]).toFixed(1)} / ${r.seed[1].toFixed(1)}` : "";
+  return `no DraftKings line yet · the syndicates are making it: ${g.home.abbr} ${r.spread != null && r.spread > 0 ? "+" : ""}${r.spread}, total ${r.total}${seed}`;
+};
 
 export default async function SyndicateMarketsPage({ searchParams }: { searchParams: Promise<{ h?: string; sport?: string; sort?: string }> }) {
   const sp = await searchParams;
