@@ -127,21 +127,21 @@ function Ladder({ game, lots, dim, colorOf, nameOf }: { game: ExGame; lots: Lot[
   const lt = dim === "t" ? "Under" : game.away.abbr, rt = dim === "t" ? "Over" : game.home.abbr;
   return (
     <div>
-      <div className="mb-1 grid grid-cols-[minmax(0,1fr)_132px_minmax(0,1fr)] items-center gap-2 text-[10px] uppercase tracking-wide text-muted">
-        <span className="text-right">backs {lt}</span><span className="text-center">line · DK price</span><span>backs {rt}</span>
+      <div className="mb-1 grid grid-cols-[132px_minmax(0,1fr)_minmax(0,1fr)] items-center gap-0 text-[10px] uppercase tracking-wide text-muted">
+        <span>line · DK price</span><span className="pr-2 text-right">&larr; backs {lt}</span><span className="pl-2">backs {rt} &rarr;</span>
       </div>
       <div className="space-y-px">
         {rows.map((r) => (
-          <div key={`${r.kind}${r.line}`} className="grid grid-cols-[minmax(0,1fr)_132px_minmax(0,1fr)] items-center gap-2 py-[2px] text-[11px]">
-            <div className="flex items-center justify-end gap-2">
+          <div key={`${r.kind}${r.line}`} className="grid grid-cols-[132px_minmax(0,1fr)_minmax(0,1fr)] items-center py-[2px] text-[11px]">
+            <span className="font-mono text-foreground" title={label(r, game)}>{label(r, game).replace(`${game.home.abbr} `, "").replace(" to win", "")} <span className="text-muted">· {pct(fairOf(game, r.kind, r.line))}</span></span>
+            <div className="flex items-center justify-end gap-1.5 border-r border-muted/60 pr-0">
               <span className="font-mono text-[10px] text-muted">{r.short > 0.3 ? r.short.toFixed(0) : ""}</span>
-              <div className="flex h-3.5 flex-row-reverse" style={{ width: `${(r.short / max) * 80}%` }}>
+              <div className="flex h-3.5 flex-row-reverse" style={{ width: `${(r.short / max) * 82}%` }}>
                 {r.neg.map(([o, q]) => <div key={o} style={{ width: `${(-q / r.short) * 100}%`, background: colorOf(o) }} title={`${nameOf(o)}: ${(-q).toFixed(0)} backing ${lt}`} className="h-full border-l border-background first:border-l-0" />)}
               </div>
             </div>
-            <span className="text-center font-mono text-foreground" title={label(r, game)}>{label(r, game).replace(`${game.home.abbr} `, "").replace(" to win", "")} <span className="text-muted">· {pct(fairOf(game, r.kind, r.line))}</span></span>
-            <div className="flex items-center gap-2">
-              <div className="flex h-3.5" style={{ width: `${(r.long / max) * 80}%` }}>
+            <div className="flex items-center gap-1.5">
+              <div className="flex h-3.5" style={{ width: `${(r.long / max) * 82}%` }}>
                 {r.pos.map(([o, q]) => <div key={o} style={{ width: `${(q / r.long) * 100}%`, background: colorOf(o) }} title={`${nameOf(o)}: ${q.toFixed(0)} backing ${rt}`} className="h-full border-l border-background first:border-l-0" />)}
               </div>
               <span className="font-mono text-[10px] text-muted">{r.long > 0.3 ? r.long.toFixed(0) : ""}</span>
