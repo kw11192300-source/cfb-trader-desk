@@ -579,3 +579,13 @@ export function relSummary(bins: RelBin[]): { n: number; w: number; bias: number
   const w = bins.reduce((a, b) => a + b.w, 0);
   return { n: bins.reduce((a, b) => a + b.n, 0), w, bias: w > 0 ? bins.reduce((a, b) => a + b.w * (b.f - b.p), 0) / w : null };
 }
+
+export type Signal = {
+  id: string; game: string; sport: string; teams: string; kind: string; line: number; type: "gap" | "sharp"; side: 1 | -1; ts: string; hrs: number; ref: number; x: number | null; size: number;
+  dk_close?: number; y?: number; moved?: number; pnl_dk?: number; pnl_x?: number | null;
+};
+export async function getSignals(): Promise<{ open: Signal[]; done: Signal[] }> {
+  const { data } = await supabase.from("ex_meta").select("value").eq("key", "signals").maybeSingle();
+  const v = (data?.value ?? {}) as { open?: Record<string, Signal>; done?: Signal[] };
+  return { open: Object.values(v.open ?? {}), done: v.done ?? [] };
+}

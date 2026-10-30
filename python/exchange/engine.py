@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
-from . import espn, house, kalshi, pricing, ratings, reliability, results, risk
+from . import espn, house, kalshi, pricing, ratings, reliability, results, risk, signals
 from .agents import manage as agent_manage, sandbox as agent_sandbox
 from .members import roster
 from .pricing import Dist, ckey, clip
@@ -429,12 +429,14 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         stats["voided"] += out == 0.5
     open_trades = still_open
     result_rows = []
+    sig = signals.load(meta)
     rel = reliability.load(meta)
     rel_changed = False
     for gid, trs in settled_by_game.items():  # the historical record of each finished game, from its whole trade ledger
         if not games[gid].get("voided"):
             rel_changed |= reliability.add_game(rel, gid, games[gid]["sport"], trs, members)
             row = results.game_result(games[gid], trs, members)
+            signals.resolve(sig, gid, row.get("closing"))
             result_rows.append(row)
             for mid, v in row["traders"].items():
                 ms_ = members[mid]["stats"]
@@ -1108,6 +1110,9 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                  or any((a is None) != (b is None) or (a is not None and abs(a - b) >= 0.005) for a, b in zip(v["x"], prior)))
         if moved:
             marks.append({"ts": _iso(now), "game_id": gid, "lines": v["lines"], "r": v["r"], "e": v["x"]})
+        if v.get("src", "dk") == "dk":
+            signals.scan(sig, g, v, two_sided, delta, markets, ckey, now, _pdate(g["start_utc"]))
+    signals.prune(sig, now)
 
     # ---- the exchange's own lines move toward the prices its traders actually reached
     for gid, g in games.items():
@@ -1195,6 +1200,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         store.upsert("ex_trades", list({t["id"]: t for t in changed}.values()))
     store.upsert("ex_members", list(members.values()))
     store.upsert("ex_syndicates", list(syns.values()))
+    if sig["dirty"]:
+        store.upsert("ex_meta", [{"key": "signals", "value": signals.dump(sig)}])
     if discoveries:
         old_rows = (meta.get("discovery") or {}).get("rows", [])
         store.upsert("ex_meta", [{"key": "discovery", "value": {"rows": (discoveries + old_rows)[:300]}}])
