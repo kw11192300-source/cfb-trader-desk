@@ -61,6 +61,8 @@ def parse_event(sport: str, e: dict) -> dict | None:
     comp = {x["homeAway"]: x for x in c.get("competitors", [])}
     if "home" not in comp or "away" not in comp:
         return None
+    if sport == "cbb" and not all((x.get("team") or {}).get("conferenceId") for x in comp.values()):
+        return None  # a non-Division I opponent (an exhibition against a D2, D3 or NAIA school): not traded and not used to fit ratings
     st = (c.get("status") or e.get("status") or {}).get("type", {})
     odds_list = c.get("odds") or []
     o = next((x for x in odds_list if "draft" in str((x.get("provider") or {}).get("name", "")).lower()), odds_list[0] if odds_list else None)

@@ -276,6 +276,13 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         if g and gid not in seen_ids and now - _pdate(g["start_utc"]) > timedelta(days=VOID_AFTER_DAYS):
             g["state"], g["completed"], g["voided"] = "post", True, True
 
+    # a college basketball game inside the window that ESPN's feed no longer lists (an exhibition against a non-Division I school, now filtered out) is voided:
+    # trades on it are refunded and it stops being offered. Only when the feed looks healthy, so an ESPN hiccup cannot void real games.
+    if sum(1 for e in events if e["sport"] == "cbb") >= 20:
+        for gid, g in games.items():
+            if g["sport"] == "cbb" and g["state"] == "pre" and gid not in seen_ids and now - timedelta(days=2) <= _pdate(g["start_utc"]) <= now + timedelta(days=7):
+                g["state"], g["completed"], g["voided"] = "post", True, True
+
     # ---- upcoming games DraftKings has not priced yet: no outside baseline. The line opens at what the rating models agree on, and from then on it is wherever
     # the traders' own quotes and trades clear it (moved at the end of every round). Kalshi's prices are still collected, but only as one syndicate's view.
     pre = {gid: g for gid, g in {**games, **pending}.items() if g["state"] == "pre" and _pdate(g["start_utc"]) <= now + timedelta(hours=horizon(g["sport"]))}
@@ -1053,7 +1060,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     order = list(members.values())
     rng.shuffle(order)
     for m in order:
-        if m["role"] in ("maker", "both"):
+        if m["role"] in ("maker", "both") and not m["params"].get("public"):  # public money only ever takes, never rests a quote
             post_quotes(m)
     for tick in range(ticks):
         clock["ts"] = _iso(t0 + (now - t0) * ((tick + 1) / (ticks + 1)))
@@ -1071,7 +1078,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 continue
             if tick > 0 and rng.random() > ACT_PROB:
                 continue
-            if tick > 0 and m["role"] in ("maker", "both"):
+            if tick > 0 and m["role"] in ("maker", "both") and not m["params"].get("public"):
                 post_quotes(m)
             if m["role"] in ("taker", "both"):
                 take(m)
