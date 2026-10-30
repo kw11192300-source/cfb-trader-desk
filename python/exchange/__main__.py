@@ -10,7 +10,7 @@ from .store import FileStore, SbStore
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["init", "ratings", "round", "live", "status", "reset", "audit", "backfill-closing"])
+    ap.add_argument("cmd", choices=["init", "ratings", "round", "live", "status", "reset", "audit", "backfill-closing", "backfill-reliability"])
     ap.add_argument("--local", action="store_true")
     ap.add_argument("--sports", default=",".join(SPORTS))
     ap.add_argument("--days", type=int, default=420)
@@ -28,6 +28,10 @@ def main() -> None:
         from . import results
 
         print(f"closing prices filled in for {results.backfill_closing(store)} finished games")
+    elif a.cmd == "backfill-reliability":
+        from . import reliability
+
+        print(f"reliability record built from {reliability.backfill(store)} finished games")
     elif a.cmd == "audit":
         from . import audit
 

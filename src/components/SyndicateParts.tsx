@@ -6,7 +6,7 @@ import { type ExGame, type ExSnap, type ExTrade, label, pct, type Row } from "@/
 const u = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}`;
 const tone = (n: number) => (n > 0.005 ? "text-up" : n < -0.005 ? "text-down" : "text-foreground");
 
-export function SyndicateHeader({ active, round }: { active: "board" | "markets" | "volume" | "history" | "digest" | "crowding" | "positions" | "sports" | "discovery" | "trades" | "closing" | "models"; round?: { n: number; ts: string } | null }) {
+export function SyndicateHeader({ active, round }: { active: "board" | "markets" | "volume" | "history" | "digest" | "crowding" | "positions" | "sports" | "discovery" | "trades" | "closing" | "models" | "reliability"; round?: { n: number; ts: string } | null }) {
   const tab = (href: string, text: string, key: string) => (
     <Link href={href} className={`rounded px-3 py-1.5 ${active === key ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>
       {text}
@@ -42,6 +42,7 @@ export function SyndicateHeader({ active, round }: { active: "board" | "markets"
           {tab("/syndicates/crowding", "Crowding", "crowding")}
           {tab("/syndicates/closing", "Vs DK", "closing")}
           {tab("/syndicates/models", "Models", "models")}
+          {tab("/syndicates/reliability", "Reliability", "reliability")}
           {tab("/syndicates/discovery", "Discovery", "discovery")}
           <Link href="/today" className="ml-3 text-muted hover:text-foreground">
             ← Trader Desk

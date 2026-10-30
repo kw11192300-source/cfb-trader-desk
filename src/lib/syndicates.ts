@@ -552,3 +552,30 @@ export async function getClosings(): Promise<ExClosing[]> {
   );
   return rows;
 }
+
+/** Reliability record: how often a price came true. cells[entity]["sport|kind"][bin] = [trades, contracts, sum price x contracts, sum outcome x contracts]. */
+export type RelCells = Record<string, Record<string, Record<string, [number, number, number, number]>>>;
+export async function getReliability(): Promise<{ games: number; cells: RelCells }> {
+  const { data } = await supabase.from("ex_meta").select("value").eq("key", "rel").maybeSingle();
+  const v = (data?.value ?? {}) as { games?: string[]; cells?: RelCells };
+  return { games: v.games?.length ?? 0, cells: v.cells ?? {} };
+}
+
+export type RelBin = { bin: number; n: number; w: number; p: number; f: number };
+
+/** Adds up an entity's bins over the chosen sports and markets (null = all). */
+export function relBins(cells: RelCells, entity: string, sport: string | null, kind: string | null): RelBin[] {
+  const acc: [number, number, number, number][] = Array.from({ length: 10 }, () => [0, 0, 0, 0]);
+  for (const [sk, bins] of Object.entries(cells[entity] ?? {})) {
+    const [s, k] = sk.split("|");
+    if ((sport && s !== sport) || (kind && k !== kind)) continue;
+    for (const [b, v] of Object.entries(bins)) for (let i = 0; i < 4; i++) acc[Number(b)][i] += v[i];
+  }
+  return acc.map((v, bin) => ({ bin, n: v[0], w: v[1], p: v[1] > 0 ? v[2] / v[1] : 0, f: v[1] > 0 ? v[3] / v[1] : 0 })).filter((b) => b.n > 0);
+}
+
+/** Overall: trades, contracts, and how far what happened ran above (+) or below (-) the prices paid, per contract. */
+export function relSummary(bins: RelBin[]): { n: number; w: number; bias: number | null } {
+  const w = bins.reduce((a, b) => a + b.w, 0);
+  return { n: bins.reduce((a, b) => a + b.n, 0), w, bias: w > 0 ? bins.reduce((a, b) => a + b.w * (b.f - b.p), 0) / w : null };
+}

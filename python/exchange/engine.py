@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
-from . import espn, house, kalshi, pricing, ratings, results, risk
+from . import espn, house, kalshi, pricing, ratings, reliability, results, risk
 from .agents import manage as agent_manage, sandbox as agent_sandbox
 from .members import roster
 from .pricing import Dist, ckey, clip
@@ -429,8 +429,11 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         stats["voided"] += out == 0.5
     open_trades = still_open
     result_rows = []
+    rel = reliability.load(meta)
+    rel_changed = False
     for gid, trs in settled_by_game.items():  # the historical record of each finished game, from its whole trade ledger
         if not games[gid].get("voided"):
+            rel_changed |= reliability.add_game(rel, gid, games[gid]["sport"], trs, members)
             row = results.game_result(games[gid], trs, members)
             result_rows.append(row)
             for mid, v in row["traders"].items():
@@ -1201,6 +1204,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 store.upsert("ex_results", result_rows)
             except Exception:  # the closing-price column may not exist yet: keep the results without it
                 store.upsert("ex_results", [{k: v for k, v in r.items() if k != "closing"} for r in result_rows])
+        if rel_changed:
+            store.upsert("ex_meta", [{"key": "rel", "value": reliability.dump(rel)}])
         results.maybe_digest(store, meta, syns, members, now)
     except Exception as e:
         print(f"  (history skipped: {str(e)[:120]})", flush=True)
