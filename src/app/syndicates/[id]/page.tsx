@@ -69,7 +69,7 @@ export default async function SyndicatePage({ params, searchParams }: { params: 
     }, 0);
     const hrs = g ? (new Date(g.start_utc).getTime() - Date.now()) / 3600000 : 0;
     const scs = g ? scenarios(g) : [];
-    return { gid, g, scs, scen: scs.map((x) => scenarioPnl(mine_, x)), worst: Math.min(...pm) + Math.min(...pt), best: Math.max(...pm) + Math.max(...pt), mtm, limit: SYN_GAME_LIMIT * ramp(Math.max(0, hrs)), n: mine_.length };
+    return { gid, g, scs, scen: scs.map((x) => scenarioPnl(mine_, x)), worst: Math.min(...pm) + Math.min(...pt), best: Math.max(...pm) + Math.max(...pt), mtm, limit: (syn.learn?.cap ?? SYN_GAME_LIMIT) * ramp(Math.max(0, hrs)), n: mine_.length };
   }).filter((r) => r.g).sort((a, b) => a.worst - b.worst);
   const bySport: Record<string, number> = {};
   for (const r of riskRows) bySport[r.g!.sport] = (bySport[r.g!.sport] ?? 0) + Math.max(0, -r.worst);
@@ -150,7 +150,7 @@ export default async function SyndicatePage({ params, searchParams }: { params: 
           <h3 className="mb-2 text-sm font-semibold text-foreground">Risk by game</h3>
           <p className="mb-2 text-[11px] text-muted">
             Worst case is the most the syndicate can lose on a game across every possible result, all five traders added together (one trader&rsquo;s long can offset another&rsquo;s short).
-            The limit is {SYN_GAME_LIMIT} units at kickoff and is lower earlier, so money is deployed gradually. Each trader is also held to {100} units on a game.
+            The limit is {Math.round(syn.learn?.cap ?? SYN_GAME_LIMIT)} units at kickoff (100 to start, up to 200 as the syndicate's closing-line value proves out, and a bit more in a sport where one of its takers has proven sharp) and is lower earlier, so money is deployed gradually. Each trader is held to 100 units on a game, up to 150 in a sport where its takes have beaten the close.
           </p>
           {riskRows.length === 0 ? (
             <p className="text-xs text-muted">No open positions.</p>

@@ -12,6 +12,8 @@ export type ExSyndicate = {
   /** w: how much of its own model each sport's fair price uses, learned from settled games */
   learn: {
     w?: Record<string, number>;
+    /** per-game limit at kickoff: 100 for an unproven syndicate, up to 200 as its closing-line value proves out */
+    cap?: number;
     stats?: Record<string, { n: number }>;
     calib?: Record<string, { model: [number, number][]; market: [number, number][] }>;
     agent?: {
@@ -293,7 +295,7 @@ export function payoff(trades: ExTrade[], who: (id: string) => string | null, xs
 
 /** The most of a game's risk limit that may be used this far from kickoff (mirrors python/exchange/engine.py ramp). */
 export const ramp = (hours: number): number => (hours > 24 ? 0.15 : hours > 12 ? 0.3 : hours > 6 ? 0.5 : hours > 2 ? 0.75 : 1);
-export const SYN_GAME_LIMIT = 150;
+export const SYN_GAME_LIMIT = 100;
 export const TRADER_GAME_LIMIT = 100;
 
 export type Lot = { owner: string; holder: string; gid: string; kind: ExTrade["kind"]; line: number; qty: number; price: number };

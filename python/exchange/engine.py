@@ -49,8 +49,11 @@ TICKS = 12  # steps of simulated time inside one round
 ACT_PROB = 0.6  # chance a trader acts on a given tick after the first
 BAND = 0.12  # no fair price strays further than this from the DraftKings price
 W_MIN_GAMES, W_FULL_GAMES = 12, 40  # games a syndicate needs in a sport before its weight moves at all, and before the data count in full
-UNPROVEN_EDGE = 0.03  # extra edge a taker demands when its syndicate's model has not yet earned a weight
-CAP_BASE, CAP_FULL = 60.0, 150.0  # a syndicate's per-game limit starts here and grows to the full limit as its closing-line value proves out
+UNPROVEN_EDGE = 0.008  # a little extra edge a taker asks for while its syndicate's model has not earned a weight (the main brake is smaller size, below)
+UNPROVEN_SIZE = 0.6  # an unproven model's takers trade at this share of normal size, rising to full as the weight is earned
+CAP_BASE, CAP_FULL = 100.0, 200.0  # a syndicate's per-game limit starts here and grows to the full limit as its closing-line value proves out
+SPORT_BONUS = 0.5  # a trader whose takes have beaten the close in a sport gets up to this much more room on that sport's games (and so does its syndicate)
+PATIENCE_STEP, PATIENCE_MAX = 0.05, 6  # every round a trader goes without a trade it asks for 5% less edge (or quotes 5% tighter), up to six rounds' worth
 W0, LAMBDA, W_MAX = 0.25, 0.5, 0.75  # cautious starting weight on a syndicate's own model, how much evidence it takes to move it, its ceiling
 # the shared rulebook: limits no strategy can step outside, whatever a trader decides for itself
 RULES = dict(max_risk=100.0, kelly=0.25, size=100.0, thr_min=0.01, half_min=0.006, edge_max=0.06)
@@ -523,6 +526,11 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         se_ = max(0.0, sum(m["stats"].get("clv_sq", 0.0) for m in ms_) / n_ - mean_**2) ** 0.5 / n_**0.5
         proof_ = float(np.clip((mean_ - 1.96 * se_) / 0.02, 0.0, 1.0))  # the low end of its CLV range, scaled so +2 cents sure earns the full limit
         syn_cap[sid_] = CAP_BASE + (CAP_FULL - CAP_BASE) * proof_
+    syn_bonus: dict[tuple[str, str], float] = {}  # a syndicate gets more room in a sport where its best taker has proven sharp
+    for m_ in members.values():
+        for sp_, v_ in (m_["stats"].get("sharp") or {}).items():
+            key_ = (m_["syndicate_id"], sp_)
+            syn_bonus[key_] = max(syn_bonus.get(key_, 1.0), 1.0 + SPORT_BONUS * float(v_))
     for sid_, s_ in syns.items():
         s_["learn"] = s_.get("learn") or {}
         s_["learn"]["cap"] = round(syn_cap[sid_], 1)
@@ -651,16 +659,24 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     def total_limit(m: dict) -> float:
         return TOTAL_FRAC * (m["cash"] + m["locked"])
 
+    def trust_of(sid: str, sport: str) -> float:
+        return float(np.clip((weights[(sid, sport)] - 0.05) / 0.5, 0.0, 1.0))
+
+    def patience(m: dict) -> float:
+        """Idle traders loosen up: a trader that has not traded for a few rounds asks for a little less edge and quotes a little tighter, so the market keeps moving."""
+        return 1.0 - PATIENCE_STEP * min(PATIENCE_MAX, m["stats"].get("idle", 0))
+
     def room_for(m: dict, mk: dict, side: str, px: float, soft: bool = False) -> float:
         """Contracts this trader can add on this side at this price before a game's worst case passes the per-game limit or its total
         worst case passes its share of the bankroll."""
         vm, vt, rm, rt = pos(m["id"], mk["gid"])
         u = (mk["ov"] - px) if side == "buy" else (px - mk["ov"])
         slack = max(0.0, total_limit(m) * (MAKER_SOFT if soft else 1.0) - trisk(m["id"]))
-        lim = min(m["params"]["max_risk"] * mk["ramp"] * mk["srcf"], rm + rt + slack)
+        bonus = 1.0 + SPORT_BONUS * float((m["stats"].get("sharp") or {}).get(mk["sport"], 0.0))
+        lim = min(m["params"]["max_risk"] * bonus * mk["ramp"] * mk["srcf"], rm + rt + slack)
         q = risk.room(vm if mk["dim"] == "m" else vt, u, lim - (rt if mk["dim"] == "m" else rm))
         sm, st_, srm, srt = spos(m["syndicate_id"], mk["gid"])
-        q2 = risk.room(sm if mk["dim"] == "m" else st_, u, syn_cap[m["syndicate_id"]] * mk["ramp"] * mk["srcf"] - (srt if mk["dim"] == "m" else srm))
+        q2 = risk.room(sm if mk["dim"] == "m" else st_, u, syn_cap[m["syndicate_id"]] * syn_bonus.get((m["syndicate_id"], mk["sport"]), 1.0) * mk["ramp"] * mk["srcf"] - (srt if mk["dim"] == "m" else srm))
         return min(q, q2)
 
     def cash_room(m: dict, k: str, side: str, px: float) -> float:
@@ -818,10 +834,10 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 s0 = smax(mk["gid"], mk["dim"])
                 inv = (dm_ if mk["dim"] == "m" else dt_) / max(1e-9, p["size"] * s0) * (sens_of(mk["gid"], mk["kind"], mk["line"]) / s0)
                 c = fairs[(m["id"], k)] - 2.0 * p["half"] * p.get("inv", 1.0) * inv
-                half = p["half"] * tmult * (1.3 if mk["hrs"] < 1 else 1.0) + 0.004 * tox.get((m["id"], k), 0.0)
+                half = max(RULES["half_min"], p["half"] * patience(m)) * tmult * (1.3 if mk["hrs"] < 1 else 1.0) + 0.004 * tox.get((m["id"], k), 0.0)
             else:
                 c = fairs[(m["id"], k)] - 2.0 * p["half"] * net.get((m["id"], k), 0.0) / max(1.0, p["size"])  # a full-size position moves both quotes two half-spreads
-                half = p["half"]
+                half = max(RULES["half_min"], p["half"] * patience(m))
             bid, ask = max(0.01, float(np.floor((c - half) * 100) / 100)), min(0.99, float(np.ceil((c + half) * 100) / 100))
             if bid >= ask:
                 continue
@@ -845,7 +861,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         p = m["params"]
         cands = []
         for k, on in mine[m["id"]]:
-            thr = p["thr"] + (0.0 if on else 0.01) + UNPROVEN_EDGE * (1.0 - float(np.clip((weights[(m["syndicate_id"], markets[k]["sport"])] - 0.05) / 0.5, 0.0, 1.0)))
+            thr = max(RULES["thr_min"], (p["thr"] + (0.0 if on else 0.01) + UNPROVEN_EDGE * (1.0 - trust_of(m["syndicate_id"], markets[k]["sport"]))) * patience(m))
             pf = fairs[(m["id"], k)]
             a, b = best(asks[k], m["id"]), best(bids[k], m["id"])
             if a and pf - a[0] >= thr:
@@ -872,7 +888,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 unit = px if side == "buy" else 1 - px
                 f = (pf - px) / (1 - px) if side == "buy" else (px - pf) / px
                 bankroll = m["cash"] + m["locked"]
-                kelly_q = p["kelly"] * f * bankroll / unit * (1.0 if on else 0.5)
+                trust = trust_of(m["syndicate_id"], mk["sport"])
+                kelly_q = p["kelly"] * f * bankroll / unit * (1.0 if on else 0.5) * (UNPROVEN_SIZE + (1.0 - UNPROVEN_SIZE) * trust)
                 maker = members[q[2]]
                 m_side = "sell" if side == "buy" else "buy"
                 qty = min(kelly_q, TAKE_CLIP, q[1], room_for(m, mk, side, px), cash_room(m, k, side, px),
@@ -1005,6 +1022,11 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                                                   b and b[1], a and a[1], eco.get(k), [levels(bids[k]), levels(asks[k])]])
     for gid, rows in by_game.items():
         games[gid]["book"] = rows
+
+    # ---- who traded this round (the idle ones loosen up next round)
+    active_ = {x for t in new_trades for x in (t["buyer"], t["seller"])}
+    for m_ in members.values():
+        m_["stats"]["idle"] = 0 if m_["id"] in active_ else min(PATIENCE_MAX + 4, m_["stats"].get("idle", 0) + 1)
 
     # ---- write back
     store.upsert("ex_games", list(games.values()))
