@@ -202,7 +202,7 @@ export default async function TraderPage({ params, searchParams }: { params: Pro
           )}
         </section>
 
-        <TradeList trades={trades} games={games} names={names} title={gameF || sportF ? `Trades (${gameF ? "this game" : sportF!.toUpperCase()}) - risk and positions above follow the filter` : "Recent trades"} />
+        <TradeList trades={trades} games={games} names={names} moreHref={`/syndicates/trades?trader=${id}${gameF ? `&game=${gameF}` : sportF ? `&sport=${sportF}` : ""}`} title={gameF || sportF ? `Trades (${gameF ? "this game" : sportF!.toUpperCase()}) - risk and positions above follow the filter` : "Recent trades"} />
       </main>
     </div>
   );

@@ -39,6 +39,10 @@ export type ExMemberStats = {
   wins: number;
   losses: number;
   biggest: number;
+  /** totals over finished games: profit, units traded and number of games (incl. positions netted off earlier on those games) */
+  s_pnl?: number;
+  s_traded?: number;
+  s_games?: number;
   /** how much other traders should listen to this one's hits, 0 to 1, by sport */
   sharp?: Record<string, number>;
   /** its record as a taker: decayed sum of closing-line value (s), weight (w), trades (n), by sport */
@@ -209,6 +213,11 @@ export type Row = {
   maxDd: number;
   winRate: number | null;
   note: string;
+  /** finished games only: profit, units traded, return on those units, games */
+  sPnl: number;
+  sTraded: number;
+  sRoi: number | null;
+  sGames: number;
 };
 
 function clvSe(sum: number, sq: number, n: number): number | null {
@@ -234,6 +243,7 @@ export function summarize(syndicates: ExSyndicate[], members: ExMember[]): { mem
       openRisk: ms.reduce((a, m) => a + (m.open_risk ?? 0), 0), trades: sum((s) => s.n_maker + s.n_taker), volume,
       clv: clvN > 0 ? sum((s) => s.clv_sum) / clvN : null, clvSe: clvSe(sum((s) => s.clv_sum), sum((s) => s.clv_sq ?? 0), clvN), clvN, capture: sum((s) => s.cap_q ?? 0) > 0 ? sum((s) => s.cap_sum ?? 0) / sum((s) => s.cap_q ?? 0) : null, makerPnl: sum((s) => s.pnl_maker), takerPnl: sum((s) => s.pnl_taker),
       maxDd: Math.max(0, ...st.map((s) => s.max_dd)), winRate: decided > 0 ? sum((s) => s.wins) / decided : null, note,
+      sPnl: sum((s) => s.s_pnl ?? 0), sTraded: sum((s) => s.s_traded ?? 0), sRoi: sum((s) => s.s_traded ?? 0) > 0 ? sum((s) => s.s_pnl ?? 0) / sum((s) => s.s_traded ?? 0) : null, sGames: sum((s) => s.s_games ?? 0),
     };
   };
   const mrows = members.map((m) => rowOf(m.id, m.name, syn[m.syndicate_id]?.name ?? m.syndicate_id, syn[m.syndicate_id]?.color ?? "#888", [m], m.start_units, `${m.role === "both" ? "maker + taker" : m.role} · ${Array.isArray(m.params.focus) ? (m.params.focus as string[]).map((x) => x.toUpperCase()).join(", ") : ""}`));
@@ -407,4 +417,134 @@ export type Discovery = {
 export async function getDiscoveries(): Promise<Discovery[]> {
   const { data } = await supabase.from("ex_meta").select("value").eq("key", "discovery").maybeSingle();
   return ((data?.value as { rows?: Discovery[] } | undefined)?.rows ?? []) as Discovery[];
+}
+
+export const SORTS: { key: string; label: string; get: (r: Row) => number | null }[] = [
+  { key: "equity", label: "Equity", get: (r) => r.equity },
+  { key: "pnl", label: "Total P&L", get: (r) => r.pnl },
+  { key: "realized", label: "Realized P&L", get: (r) => r.realized },
+  { key: "open", label: "Open P&L", get: (r) => r.open },
+  { key: "spnl", label: "Settled P&L", get: (r) => r.sPnl },
+  { key: "svol", label: "Settled volume", get: (r) => r.sTraded },
+  { key: "sroi", label: "ROI on settled volume", get: (r) => r.sRoi },
+  { key: "clv", label: "CLV", get: (r) => r.clv },
+  { key: "clvlow", label: "CLV (low end of range)", get: (r) => (r.clv == null ? null : r.clv - 1.96 * (r.clvSe ?? 0.05)) },
+  { key: "vol", label: "Volume", get: (r) => r.volume },
+  { key: "trades", label: "Trades", get: (r) => r.trades },
+  { key: "risk", label: "At risk", get: (r) => r.openRisk },
+  { key: "cap", label: "Spread captured", get: (r) => r.capture },
+  { key: "dd", label: "Max drawdown", get: (r) => r.maxDd },
+  { key: "win", label: "Win %", get: (r) => r.winRate },
+];
+
+/** Sorts summary rows by any metric; rows with no value for it go last either way. */
+export function sortRows(rows: Row[], key: string, dir: "asc" | "desc" = "desc"): Row[] {
+  const g = (SORTS.find((x) => x.key === key) ?? SORTS[1]).get;
+  return [...rows].sort((a, b) => {
+    const x = g(a), y = g(b);
+    if (x == null && y == null) return 0;
+    if (x == null) return 1;
+    if (y == null) return -1;
+    return dir === "asc" ? x - y : y - x;
+  });
+}
+
+export type TradeQuery = { member?: string; syndicate?: string; sport?: string; game?: string; status?: "open" | "settled"; role?: "maker" | "taker"; from?: string; to?: string };
+
+/** One page of the trade ledger under any mix of filters, with the total count. Dates are US-Eastern days. */
+export async function getTradesPage(o: TradeQuery, page: number, size = 50): Promise<{ rows: ExTrade[]; total: number }> {
+  const build = (sel: string, count?: boolean) => {
+    let q = supabase.from("ex_trades").select(sel, count ? { count: "exact" } : undefined);
+    if (o.game) q = q.eq("game_id", o.game);
+    else if (o.sport) q = q.like("game_id", `${o.sport}:%`);
+    if (o.status === "open") q = q.is("outcome", null);
+    if (o.status === "settled") q = q.not("outcome", "is", null);
+    if (o.from) q = q.gte("ts", etStart(o.from));
+    if (o.to) q = q.lt("ts", etStart(o.to, 1));
+    const who = o.member ?? null;
+    const mine = who ? `buyer.eq.${who},seller.eq.${who}` : o.syndicate ? `buyer.like.${o.syndicate}-%,seller.like.${o.syndicate}-%` : null;
+    if (mine) q = q.or(mine);
+    if (mine && o.role) {
+      const m = who ? `maker.eq.${who}` : `maker.like.${o.syndicate}-%`;
+      q = o.role === "maker" ? q.or(m) : q.not("maker", who ? "eq" : "like", who ?? `${o.syndicate}-%`);
+    }
+    return q;
+  };
+  const { data, count } = await build("*", true).order("ts", { ascending: false }).order("id").range(page * size, page * size + size - 1);
+  return { rows: (data ?? []) as unknown as ExTrade[], total: count ?? 0 };
+}
+
+/** Midnight US-Eastern of a YYYY-MM-DD day (plus `addDays`), as a UTC timestamp. */
+function etStart(day: string, addDays = 0): string {
+  const base = new Date(`${day}T12:00:00Z`);
+  const hourET = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }).format(base));
+  const offset = 12 - (hourET % 24); // hours Eastern is behind UTC on that day
+  return new Date(Date.parse(`${day}T00:00:00Z`) + (offset + addDays * 24) * 3600000).toISOString();
+}
+
+/** Totals over every trade matching the filters, from the point of view of the picked trader or syndicate (capped so a wide filter stays light). */
+export async function getTradesSummary(o: TradeQuery, side: (t: ExTrade) => "buy" | "sell" | null): Promise<{ n: number; volume: number; settledN: number; pnl: number; clv: number | null; wins: number; losses: number; capped: boolean }> {
+  const rows = await pageAll<ExTrade>((a, b) => {
+    let q = supabase.from("ex_trades").select("id,game_id,price,qty,buyer,seller,maker,outcome,close_p");
+    if (o.game) q = q.eq("game_id", o.game);
+    else if (o.sport) q = q.like("game_id", `${o.sport}:%`);
+    if (o.status === "open") q = q.is("outcome", null);
+    if (o.status === "settled") q = q.not("outcome", "is", null);
+    if (o.from) q = q.gte("ts", etStart(o.from));
+    if (o.to) q = q.lt("ts", etStart(o.to, 1));
+    const who = o.member ?? null;
+    q = who ? q.or(`buyer.eq.${who},seller.eq.${who}`) : q.or(`buyer.like.${o.syndicate}-%,seller.like.${o.syndicate}-%`);
+    if (o.role) {
+      const m = who ?? `${o.syndicate}-`;
+      q = o.role === "maker" ? q.or(who ? `maker.eq.${m}` : `maker.like.${m}%`) : q.not("maker", who ? "eq" : "like", who ?? `${o.syndicate}-%`);
+    }
+    return q.order("id").range(a, b);
+  }, 8000);
+  let volume = 0, pnl = 0, settledN = 0, clvSum = 0, clvN = 0, wins = 0, losses = 0;
+  for (const t of rows) {
+    const s = side(t);
+    if (!s) continue;
+    volume += s === "buy" ? t.qty * t.price : t.qty * (1 - t.price);
+    if (t.outcome != null && t.outcome !== 0.5) {
+      const p = s === "buy" ? t.qty * (t.outcome - t.price) : t.qty * (t.price - t.outcome);
+      pnl += p;
+      settledN += 1;
+      if (p > 0) wins += 1;
+      else if (p < 0) losses += 1;
+    }
+    if (t.close_p != null) {
+      clvSum += s === "buy" ? t.close_p - t.price : t.price - t.close_p;
+      clvN += 1;
+    }
+  }
+  return { n: rows.length, volume, settledN, pnl, clv: clvN ? clvSum / clvN : null, wins, losses, capped: rows.length >= 8000 };
+}
+
+/** What each source said about a finished game's three main lines at the close, with how each came out (needs the closing column; empty until it exists). */
+export type ExClosing = {
+  id: string;
+  day: string;
+  sport: string;
+  kickoff: string;
+  home: { id: string; name: string; abbr: string };
+  away: { id: string; name: string; abbr: string };
+  home_score: number | null;
+  away_score: number | null;
+  closing: {
+    src: string;
+    lines: [string, number][];
+    dk: number[];
+    x: (number | null)[] | null;
+    ks: (number | null | undefined)[];
+    e: Record<string, number[]> | null;
+    y: number[];
+    sharp: number[];
+  } | null;
+};
+
+export async function getClosings(): Promise<ExClosing[]> {
+  const rows = await pageAll<ExClosing>((a, b) =>
+    supabase.from("ex_results").select("id,day,sport,kickoff,home,away,home_score,away_score,closing").not("closing", "is", null).order("kickoff", { ascending: false }).order("id").range(a, b),
+  );
+  return rows;
 }

@@ -6,7 +6,7 @@ import { type ExGame, type ExSnap, type ExTrade, label, pct, type Row } from "@/
 const u = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}`;
 const tone = (n: number) => (n > 0.005 ? "text-up" : n < -0.005 ? "text-down" : "text-foreground");
 
-export function SyndicateHeader({ active, round }: { active: "board" | "markets" | "volume" | "history" | "digest" | "crowding" | "positions" | "sports" | "discovery"; round?: { n: number; ts: string } | null }) {
+export function SyndicateHeader({ active, round }: { active: "board" | "markets" | "volume" | "history" | "digest" | "crowding" | "positions" | "sports" | "discovery" | "trades" | "closing" | "models"; round?: { n: number; ts: string } | null }) {
   const tab = (href: string, text: string, key: string) => (
     <Link href={href} className={`rounded px-3 py-1.5 ${active === key ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>
       {text}
@@ -36,9 +36,12 @@ export function SyndicateHeader({ active, round }: { active: "board" | "markets"
           {tab("/syndicates/markets", "Markets", "markets")}
           {tab("/syndicates/positions", "Positions", "positions")}
           {tab("/syndicates/volume", "Volume", "volume")}
+          {tab("/syndicates/trades", "Trades", "trades")}
           {tab("/syndicates/history", "Results", "history")}
           {tab("/syndicates/digest", "Digest", "digest")}
           {tab("/syndicates/crowding", "Crowding", "crowding")}
+          {tab("/syndicates/closing", "Vs DK", "closing")}
+          {tab("/syndicates/models", "Models", "models")}
           {tab("/syndicates/discovery", "Discovery", "discovery")}
           <Link href="/today" className="ml-3 text-muted hover:text-foreground">
             ← Trader Desk
@@ -57,29 +60,44 @@ function clvTone(r: Row): string {
   return lo > 0 ? "text-up" : hi < 0 ? "text-down" : "text-muted";
 }
 
-export function LeaderTable({ rows, linkBase, title, showSyn = false }: { rows: Row[]; linkBase?: string; title: string; showSyn?: boolean }) {
+export function LeaderTable({ rows, linkBase, title, showSyn = false, sort = "clvlow", dir = "desc", sortHref }: { rows: Row[]; linkBase?: string; title: string; showSyn?: boolean; sort?: string; dir?: "asc" | "desc"; sortHref?: (key: string, dir: "asc" | "desc") => string }) {
+  // a header that sorts: click once for the best first, click again to flip
+  const th = (k: string, children: React.ReactNode, tip?: string) => (
+    <th key={k} className="px-3 py-2 text-right" title={tip}>
+      {sortHref ? (
+        <Link href={sortHref(k, sort === k && dir === "desc" ? "asc" : "desc")} className={`whitespace-nowrap hover:text-foreground ${sort === k ? "text-accent" : ""}`}>
+          {children}
+          {sort === k ? (dir === "desc" ? " ▼" : " ▲") : ""}
+        </Link>
+      ) : (
+        children
+      )}
+    </th>
+  );
   return (
     <section className="mb-8">
       <h2 className="mb-2 text-sm font-semibold text-foreground">{title}</h2>
       <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full min-w-[1060px] text-xs">
+        <table className="w-full min-w-[1280px] text-xs">
           <thead className="bg-surface text-left text-muted">
             <tr>
               <th className="px-3 py-2">#</th>
               <th className="px-3 py-2">Name</th>
-              <th className="px-3 py-2 text-right" title="Starting units plus profit actually banked (finished games and trades netted off). Cash and collateral; open positions count at what they cost">Bankroll</th>
-              <th className="px-3 py-2 text-right" title="Profit or loss already banked: games that finished and positions that were closed out">Realized P&amp;L</th>
-              <th className="px-3 py-2 text-right" title="What the open positions would make or lose if closed at the current DraftKings price. It moves with the lines before any game finishes and is not money yet">Open P&amp;L</th>
-              <th className="px-3 py-2 text-right" title="Bankroll plus open P&L: what the account is worth marked to DraftKings now">Equity</th>
-              <th className="px-3 py-2 text-right" title="Realized profit divided by units put at risk">ROI/vol</th>
-              <th className="px-3 py-2 text-right" title="Worst-case loss on open positions, across every possible result - not the cash tied up">At risk</th>
-              <th className="px-3 py-2 text-right">Trades</th>
-              <th className="px-3 py-2 text-right" title="Average of (closing fair price - price paid), in cents per contract, over settled trades">CLV</th>
-              <th className="px-3 py-2 text-right" title="How far inside DraftKings' price the quotes were filled, in cents per contract: the spread a market maker earns before anything moves">Spread cap.</th>
+              {th("equity", "Equity", "Bankroll plus open P&L: what the account is worth marked to DraftKings now")}
+              {th("realized", "Realized P&L", "Profit or loss already banked: games that finished and positions that were closed out")}
+              {th("open", "Open P&L", "What the open positions would make or lose if closed at the current DraftKings price. It moves with the lines before any game finishes and is not money yet")}
+              {th("spnl", "Settled P&L", "Profit or loss on games that have finished, counting every trade made on them (including positions netted off earlier)")}
+              {th("svol", "Settled vol", "Units put up (buyer's price plus seller's 1 - price) on trades in games that have finished")}
+              {th("sroi", "ROI settled", "Settled P&L divided by settled volume: what each unit put at risk earned once games finished")}
+              {th("clvlow", "CLV", "Closing-line value, ranked by the low end of its 95% range so a big average on a few trades does not win")}
+              {th("cap", "Spread cap.", "How far inside DraftKings' price the quotes were filled, in cents per contract: the spread a market maker earns before anything moves")}
+              {th("vol", "Volume", "Units put at risk by all of this account's trades so far, finished games or not")}
+              {th("trades", "Trades")}
+              {th("risk", "At risk", "Worst-case loss on open positions, across every possible result - not the cash tied up")}
               <th className="px-3 py-2 text-right">Maker P&amp;L</th>
               <th className="px-3 py-2 text-right">Taker P&amp;L</th>
-              <th className="px-3 py-2 text-right" title="Largest drop from the peak">Max DD</th>
-              <th className="px-3 py-2 text-right">Win%</th>
+              {th("dd", "Max DD", "Largest drop from the peak")}
+              {th("win", "Win%")}
             </tr>
           </thead>
           <tbody className="font-mono">
@@ -97,18 +115,20 @@ export function LeaderTable({ rows, linkBase, title, showSyn = false }: { rows: 
                   )}
                   {(!linkBase || showSyn) && <span className="ml-2 text-muted">{r.syndicate}{r.note ? ` · ${r.note}` : ""}</span>}
                 </td>
-                <td className="px-3 py-1.5 text-right">{r.bankroll.toFixed(1)}</td>
+                <td className="px-3 py-1.5 text-right">{r.equity.toFixed(1)}</td>
                 <td className={`px-3 py-1.5 text-right ${tone(r.realized)}`}>{u(r.realized)}</td>
                 <td className={`px-3 py-1.5 text-right ${tone(r.open)}`}>{u(r.open)}</td>
-                <td className="px-3 py-1.5 text-right">{r.equity.toFixed(1)}</td>
-                <td className={`px-3 py-1.5 text-right ${tone(r.roi)}`}>{r.volume > 0 ? `${(r.roi * 100).toFixed(1)}%` : "–"}</td>
-                <td className="px-3 py-1.5 text-right text-muted">{r.openRisk.toFixed(1)}</td>
-                <td className="px-3 py-1.5 text-right text-muted">{r.trades}</td>
+                <td className={`px-3 py-1.5 text-right ${tone(r.sPnl)}`} title={`${r.sGames} finished game${r.sGames === 1 ? "" : "s"}`}>{r.sGames ? u(r.sPnl) : "–"}</td>
+                <td className="px-3 py-1.5 text-right text-muted">{r.sGames ? r.sTraded.toFixed(0) : "–"}</td>
+                <td className={`px-3 py-1.5 text-right ${r.sRoi == null ? "text-muted" : tone(r.sRoi)}`}>{r.sRoi == null ? "–" : `${(r.sRoi * 100).toFixed(1)}%`}</td>
                 <td className={`px-3 py-1.5 text-right ${clvTone(r)}`} title={r.clvN ? `${r.clvN} settled sides${r.clvSe != null ? `; 95% range ${((r.clv! - 1.96 * r.clvSe) * 100).toFixed(1)}¢ to ${((r.clv! + 1.96 * r.clvSe) * 100).toFixed(1)}¢` : ""}` : undefined}>
                   {r.clv == null ? "–" : `${r.clv >= 0 ? "+" : ""}${(r.clv * 100).toFixed(1)}¢`}
                   {r.clv != null && r.clvSe != null && <span className="ml-1 text-[10px] text-muted">±{(1.96 * r.clvSe * 100).toFixed(1)}</span>}
                 </td>
                 <td className={`px-3 py-1.5 text-right ${r.capture == null ? "text-muted" : tone(r.capture)}`}>{r.capture == null ? "–" : `${r.capture >= 0 ? "+" : ""}${(r.capture * 100).toFixed(2)}¢`}</td>
+                <td className="px-3 py-1.5 text-right text-muted">{r.volume.toFixed(0)}</td>
+                <td className="px-3 py-1.5 text-right text-muted">{r.trades}</td>
+                <td className="px-3 py-1.5 text-right text-muted">{r.openRisk.toFixed(1)}</td>
                 <td className={`px-3 py-1.5 text-right ${tone(r.makerPnl)}`}>{u(r.makerPnl)}</td>
                 <td className={`px-3 py-1.5 text-right ${tone(r.takerPnl)}`}>{u(r.takerPnl)}</td>
                 <td className="px-3 py-1.5 text-right text-muted">{r.maxDd.toFixed(1)}</td>
@@ -166,11 +186,14 @@ export function EquityChart({ snaps, colors, names, start }: { snaps: ExSnap[]; 
   );
 }
 
-export function TradeList({ trades, games, names, title = "Recent trades" }: { trades: ExTrade[]; games: Record<string, ExGame>; names: Record<string, string>; title?: string }) {
+export function TradeList({ trades, games, names, title = "Recent trades", moreHref }: { trades: ExTrade[]; games: Record<string, ExGame>; names: Record<string, string>; title?: string; moreHref?: string }) {
   if (!trades.length) return <p className="mb-8 text-xs text-muted">No trades{title === "Recent trades" ? " yet" : " match this filter"}.</p>;
   return (
     <section className="mb-8">
-      <h2 className="mb-2 text-sm font-semibold text-foreground">{title}</h2>
+      <h2 className="mb-2 flex items-baseline justify-between text-sm font-semibold text-foreground">
+        {title}
+        {moreHref && <Link href={moreHref} className="text-[11px] font-normal text-accent hover:underline">Full trade history, with filters →</Link>}
+      </h2>
       <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full min-w-[820px] text-xs">
           <thead className="bg-surface text-left text-muted">

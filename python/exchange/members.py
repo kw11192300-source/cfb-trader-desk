@@ -76,7 +76,7 @@ def roster() -> tuple[list[dict], list[dict]]:
                 role, focus = "maker", SPORTS[:]
                 r = random.Random(f"{s['id']}-mm-{i}")
                 tight = s["mmstyle"] == "tight"
-                params.update(focus=focus, mm=True, half=round(r.uniform(0.008, 0.012) if tight else r.uniform(0.018, 0.026), 4),
+                params.update(focus=focus, mm=True, half=round(r.uniform(0.008, 0.012) if tight else r.uniform(0.015, 0.019), 4),
                               size=round(r.uniform(90, 100) if tight else r.uniform(55, 75)), tox=0.5 if tight else 1.0, eta=round(r.uniform(0.7, 1.0) if tight else r.uniform(1.1, 1.5), 2),
                               inv=1.0 if tight else 1.5)
             if s["id"] == "pace":

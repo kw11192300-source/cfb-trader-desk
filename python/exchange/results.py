@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
+from . import pricing
+
 try:
     from zoneinfo import ZoneInfo
 
@@ -55,11 +57,49 @@ def game_result(g: dict, trades: list[dict], members: dict) -> dict:
             tclv = (cp - px) if taker_is_buyer else (px - cp)
             top.append({"taker": t["buyer"] if taker_is_buyer else t["seller"], "kind": t["kind"], "line": t["line"], "price": px, "qty": q, "clv": round(tclv, 4), "score": q * tclv})
     top.sort(key=lambda x: -x["score"])
+    # the closing prices of the game's three main lines from every source, with how each came out, for judging the exchange against DraftKings
+    closing = None
+    v = g.get("views") or {}
+    if v.get("lines") and v.get("r") and g.get("home_score") is not None:
+        ks = {(k, ln): mid for k, ln, mid, *_ in (v.get("kal") or [])}
+        lines = [tuple(x) for x in v["lines"]]
+        sharp_net = []
+        for kind, line in lines:
+            net = 0.0
+            for t in trades:
+                if t["kind"] != kind or t["line"] != line:
+                    continue
+                taker = t["buyer"] if t["maker"] == t["seller"] else t["seller"]
+                if (members[taker]["stats"].get("sharp") or {}).get(g["sport"], 0) >= 0.3:
+                    net += t["qty"] if taker == t["buyer"] else -t["qty"]
+            sharp_net.append(round(net, 1))
+        closing = {"src": v.get("src", "dk"), "lines": [list(x) for x in lines], "dk": v["r"], "x": v.get("x"), "ks": [ks.get(x) for x in lines], "e": v.get("e"),
+                   "y": [pricing.outcome(k, ln, g["home_score"], g["away_score"]) for k, ln in lines], "sharp": sharp_net}
     rnd = lambda d: {k: {kk: round(vv, 3) for kk, vv in v.items()} for k, v in d.items()}  # noqa: E731
     return {"id": g["id"], "day": et_day(g["start_utc"]), "sport": g["sport"], "kickoff": g["start_utc"], "home": g["home"], "away": g["away"],
             "home_score": g.get("home_score"), "away_score": g.get("away_score"), "n_trades": len(trades), "contracts": round(contracts, 1),
-            "traded": round(traded, 1), "syn": rnd(syn), "traders": rnd(trd), "top": [{k: v for k, v in x.items() if k != "score"} for x in top[:3]],
+            "traded": round(traded, 1), "syn": rnd(syn), "traders": rnd(trd), "top": [{k: v for k, v in x.items() if k != "score"} for x in top[:3]], "closing": closing,
             "settled_at": datetime.now(timezone.utc).isoformat()}
+
+
+def backfill_closing(store) -> int:
+    """Fills in the closing prices of results written before that column existed, from the stored game and its trade ledger. Touches nothing else."""
+    members = {m["id"]: m for m in store.rows("ex_members")}
+    n = 0
+    for r in store.rows("ex_results"):
+        if r.get("closing"):
+            continue
+        gs = store.rows("ex_games", {"id": r["id"]})
+        if not gs or not gs[0].get("views"):
+            continue
+        g = gs[0]
+        row = game_result(g, store.rows("ex_trades", {"game_id": r["id"]}), members)
+        if not row["closing"]:
+            continue
+        row["settled_at"] = r.get("settled_at") or row["settled_at"]
+        store.upsert("ex_results", [row])
+        n += 1
+    return n
 
 
 def make_digest(day: str, results: list[dict], syns: dict, members: dict) -> dict:
@@ -111,13 +151,17 @@ def maybe_digest(store, meta: dict, syns: dict, members: dict, now: datetime) ->
     return day
 
 
-def prune(store, days: int = 14, snapshot_days: int = 30) -> dict:
-    """Housekeeping: drop the trades, price history and game rows of games settled more than `days` ago (the result rows stay), and old snapshots."""
-    cutoff = (datetime.now(ET).date() - timedelta(days=days)).isoformat()
-    ids = store.old_ids("ex_results", "day", cutoff)
+def prune(store, days: int = 120, snapshot_days: int = 60, marks_days: int = 21) -> dict:
+    """Housekeeping: drop the trades and game rows of games settled more than `days` ago, their price history after `marks_days` (the result rows stay forever),
+    and old snapshots. A trade is a few hundred bytes, so months of them are cheap to keep and the history pages read them a page at a time."""
+    today = datetime.now(ET).date()
     n = 0
+    old = store.old_ids("ex_results", "day", (today - timedelta(days=days)).isoformat())
+    if old:
+        for table, col in (("ex_trades", "game_id"), ("ex_games", "id")):
+            n += store.delete_in(table, col, old)
+    ids = store.old_ids("ex_results", "day", (today - timedelta(days=marks_days)).isoformat())
     if ids:
-        for table, col in (("ex_trades", "game_id"), ("ex_marks", "game_id"), ("ex_games", "id")):
-            n += store.delete_in(table, col, ids)
+        n += store.delete_in("ex_marks", "game_id", ids)
     store.delete_before("ex_snapshots", "ts", (datetime.now(timezone.utc) - timedelta(days=snapshot_days)).isoformat())
-    return {"games": len(ids), "rows": n}
+    return {"games": len(old), "rows": n}

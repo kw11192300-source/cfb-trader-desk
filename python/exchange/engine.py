@@ -48,6 +48,9 @@ RESERVE_FRAC = 0.20  # share of its starting bankroll a trader never commits as 
 TICKS = 12  # steps of simulated time inside one round
 ACT_PROB = 0.6  # chance a trader acts on a given tick after the first
 BAND = 0.12  # no fair price strays further than this from the DraftKings price
+W_MIN_GAMES, W_FULL_GAMES = 12, 40  # games a syndicate needs in a sport before its weight moves at all, and before the data count in full
+UNPROVEN_EDGE = 0.03  # extra edge a taker demands when its syndicate's model has not yet earned a weight
+CAP_BASE, CAP_FULL = 60.0, 150.0  # a syndicate's per-game limit starts here and grows to the full limit as its closing-line value proves out
 W0, LAMBDA, W_MAX = 0.25, 0.5, 0.75  # cautious starting weight on a syndicate's own model, how much evidence it takes to move it, its ceiling
 # the shared rulebook: limits no strategy can step outside, whatever a trader decides for itself
 RULES = dict(max_risk=100.0, kelly=0.25, size=100.0, thr_min=0.01, half_min=0.006, edge_max=0.06)
@@ -192,7 +195,11 @@ def syn_weight(s: dict, sport: str) -> float:
     """How much of a syndicate's model goes into its fair price in a sport: the least-squares weight on (model - market) that best explains
     (outcome - market) over every settled game so far, pulled toward a cautious prior while there is little evidence."""
     st = ((s.get("learn") or {}).get("stats") or {}).get(sport) or {}
-    return float(np.clip((st.get("num", 0.0) + LAMBDA * W0) / (st.get("den", 0.0) + LAMBDA), 0.0, W_MAX))
+    games = st.get("g", st.get("n", 0) / 3.0)  # a game's three main lines are one piece of evidence, not three
+    raw = float(np.clip((st.get("num", 0.0) + LAMBDA * W0) / (st.get("den", 0.0) + LAMBDA), 0.0, W_MAX))
+    if games < W_MIN_GAMES:
+        return W0
+    return W0 + min(1.0, games / W_FULL_GAMES) * (raw - W0)  # the weight moves toward what the data say only as the games pile up
 
 
 def run_round(store, sports: list[str], seed: int | None = None, verbose: bool = True, ticks: int = TICKS) -> dict:
@@ -333,6 +340,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 continue
             syns[sid]["learn"] = syns[sid].get("learn") or {}
             st = syns[sid]["learn"].setdefault("stats", {}).setdefault(g["sport"], {"num": 0.0, "den": 0.0, "n": 0})
+            st["g"] = st.get("g", st["n"] / 3.0) + 1
             for (kind, line), r, e in zip(v["lines"], v["r"], es):
                 if r is None or e is None:
                     continue
@@ -403,7 +411,13 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     result_rows = []
     for gid, trs in settled_by_game.items():  # the historical record of each finished game, from its whole trade ledger
         if not games[gid].get("voided"):
-            result_rows.append(results.game_result(games[gid], trs, members))
+            row = results.game_result(games[gid], trs, members)
+            result_rows.append(row)
+            for mid, v in row["traders"].items():
+                ms_ = members[mid]["stats"]
+                ms_["s_pnl"] = ms_.get("s_pnl", 0.0) + v["pnl"]
+                ms_["s_traded"] = ms_.get("s_traded", 0.0) + v["traded"]
+                ms_["s_games"] = ms_.get("s_games", 0) + 1
 
     # ---- markets
     lo = now + timedelta(minutes=CUTOFF_MIN)
@@ -495,6 +509,23 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         views["kal"] = [[r[0], r[1], round(r[2], 4), round(r[3], 4), round(r[4], 4), round(r[5])] for r in list(kal.get(gid, {}).values())[:80]]
         g["views"] = views if views["lines"] else None
     weights = {(sid, sp): syn_weight(s, sp) for sid, s in syns.items() for sp in espn.SPORTS}
+    syn_cap: dict[str, float] = {}
+    for sid_ in syns:
+        ms_ = [m for m in members.values() if m["syndicate_id"] == sid_]
+        if any(m["params"].get("mm") for m in ms_):  # pure market makers aim to stay flat, so their risk is not a bet on a model
+            syn_cap[sid_] = CAP_FULL
+            continue
+        n_ = sum(m["stats"].get("clv_n", 0) for m in ms_)
+        if n_ < 40 or not any(m["stats"].get("clv_sq") for m in ms_):
+            syn_cap[sid_] = CAP_BASE
+            continue
+        mean_ = sum(m["stats"]["clv_sum"] for m in ms_) / n_
+        se_ = max(0.0, sum(m["stats"].get("clv_sq", 0.0) for m in ms_) / n_ - mean_**2) ** 0.5 / n_**0.5
+        proof_ = float(np.clip((mean_ - 1.96 * se_) / 0.02, 0.0, 1.0))  # the low end of its CLV range, scaled so +2 cents sure earns the full limit
+        syn_cap[sid_] = CAP_BASE + (CAP_FULL - CAP_BASE) * proof_
+    for sid_, s_ in syns.items():
+        s_["learn"] = s_.get("learn") or {}
+        s_["learn"]["cap"] = round(syn_cap[sid_], 1)
 
     def fair(m: dict, k: str) -> float:
         mk = markets[k]
@@ -629,7 +660,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         lim = min(m["params"]["max_risk"] * mk["ramp"] * mk["srcf"], rm + rt + slack)
         q = risk.room(vm if mk["dim"] == "m" else vt, u, lim - (rt if mk["dim"] == "m" else rm))
         sm, st_, srm, srt = spos(m["syndicate_id"], mk["gid"])
-        q2 = risk.room(sm if mk["dim"] == "m" else st_, u, SYN_GAME * mk["ramp"] * mk["srcf"] - (srt if mk["dim"] == "m" else srm))
+        q2 = risk.room(sm if mk["dim"] == "m" else st_, u, syn_cap[m["syndicate_id"]] * mk["ramp"] * mk["srcf"] - (srt if mk["dim"] == "m" else srm))
         return min(q, q2)
 
     def cash_room(m: dict, k: str, side: str, px: float) -> float:
@@ -814,7 +845,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         p = m["params"]
         cands = []
         for k, on in mine[m["id"]]:
-            thr = p["thr"] + (0.0 if on else 0.01)
+            thr = p["thr"] + (0.0 if on else 0.01) + UNPROVEN_EDGE * (1.0 - float(np.clip((weights[(m["syndicate_id"], markets[k]["sport"])] - 0.05) / 0.5, 0.0, 1.0)))
             pf = fairs[(m["id"], k)]
             a, b = best(asks[k], m["id"]), best(bids[k], m["id"])
             if a and pf - a[0] >= thr:
@@ -990,7 +1021,10 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         store.upsert("ex_meta", [{"key": "discovery", "value": {"rows": (discoveries + old_rows)[:300]}}])
     try:  # the historical tables are optional: a round must never fail because they are missing or slow
         if result_rows:
-            store.upsert("ex_results", result_rows)
+            try:
+                store.upsert("ex_results", result_rows)
+            except Exception:  # the closing-price column may not exist yet: keep the results without it
+                store.upsert("ex_results", [{k: v for k, v in r.items() if k != "closing"} for r in result_rows])
         results.maybe_digest(store, meta, syns, members, now)
     except Exception as e:
         print(f"  (history skipped: {str(e)[:120]})", flush=True)

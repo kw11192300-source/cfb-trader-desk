@@ -1206,6 +1206,7 @@ create table if not exists ex_results (
   syn jsonb not null default '{}',
   traders jsonb not null default '{}',
   top jsonb,
+  closing jsonb,
   settled_at timestamptz not null default now()
 );
 create index if not exists ex_results_day_idx on ex_results (day desc);
