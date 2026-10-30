@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import LocalDateTime from "@/components/LocalDateTime";
+import { PositionCards } from "@/components/PositionCards";
 import { EquityChart, SyndicateHeader, TradeFilters, TradeList } from "@/components/SyndicateParts";
 import { scenarioPnl, scenarios, yesNo } from "@/lib/syndicateGame";
 import { fairOf, getExchange, getExchangeSnapshots, getExchangeTrades, getGamesFull, getTraderOpenTrades, label, openLots, pct, ramp, TRADER_GAME_LIMIT, type ExGame, type Lot } from "@/lib/syndicates";
@@ -142,6 +143,11 @@ export default async function TraderPage({ params, searchParams }: { params: Pro
 
         <EquityChart snaps={snaps} colors={{ [id]: syn.color }} names={{ [id]: m.name }} start={{ [id]: m.start_units }} />
 
+        <PositionCards lots={lots} games={games} limitOf={(g) => TRADER_GAME_LIMIT * ramp(Math.max(0, (new Date(g.start_utc).getTime() - Date.now()) / 3600000))} title="Open positions by game" />
+
+        <details className="mb-8 rounded-lg border border-border">
+          <summary className="cursor-pointer px-3 py-2 text-xs text-muted hover:text-foreground">Detailed tables: risk by game, outcome grid and raw position rows</summary>
+          <div className="p-3">
         <section className="mb-8">
           <h3 className="mb-2 text-sm font-semibold text-foreground">Risk by game</h3>
           {rows.length === 0 ? <p className="text-xs text-muted">No open positions.</p> : (
@@ -201,6 +207,9 @@ export default async function TraderPage({ params, searchParams }: { params: Pro
             </div>
           )}
         </section>
+
+          </div>
+        </details>
 
         <TradeList trades={trades} games={games} names={names} moreHref={`/syndicates/trades?trader=${id}${gameF ? `&game=${gameF}` : sportF ? `&sport=${sportF}` : ""}`} title={gameF || sportF ? `Trades (${gameF ? "this game" : sportF!.toUpperCase()}) - risk and positions above follow the filter` : "Recent trades"} />
       </main>

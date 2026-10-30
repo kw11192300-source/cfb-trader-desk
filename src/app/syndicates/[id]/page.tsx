@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import LocalDateTime from "@/components/LocalDateTime";
 import { scenarioPnl, scenarios } from "@/lib/syndicateGame";
 import { LineChart } from "@/components/SyndicateCharts";
+import { PositionCards } from "@/components/PositionCards";
 import { EquityChart, LeaderTable, MoneyLegend, SyndicateHeader, TradeFilters, TradeList } from "@/components/SyndicateParts";
 import {
   fairOf, getExchange, getExchangeSnapshots, getExchangeTrades, getGamesFull, getSyndicateOpenTrades, getWeightHistory, label, openLots, payoff, pct, ramp, SORTS, sortRows, summarize, SYN_GAME_LIMIT,
@@ -146,6 +147,11 @@ export default async function SyndicatePage({ params, searchParams }: { params: 
           </section>
         )}
 
+        <PositionCards lots={lots} games={games} holder={(h) => first[h] ?? h} limitOf={(g) => (syn.learn?.cap ?? SYN_GAME_LIMIT) * ramp(Math.max(0, (new Date(g.start_utc).getTime() - Date.now()) / 3600000))} title="Open positions by game" />
+
+        <details className="mb-8 rounded-lg border border-border">
+          <summary className="cursor-pointer px-3 py-2 text-xs text-muted hover:text-foreground">Detailed tables: risk by game, outcome grid and raw position rows</summary>
+          <div className="p-3">
         <section className="mb-8">
           <h3 className="mb-2 text-sm font-semibold text-foreground">Risk by game</h3>
           <p className="mb-2 text-[11px] text-muted">
@@ -294,6 +300,9 @@ export default async function SyndicatePage({ params, searchParams }: { params: 
           )}
           <p className="mt-1 text-[11px] text-muted">Long means holding the yes side (home wins, home covers, over); short means holding the other side. Price is the average paid by the long legs or received by the short legs.</p>
         </section>
+
+          </div>
+        </details>
 
         {(() => {
           const sports = ["nfl", "cfb", "nhl", "nba", "cbb"];
