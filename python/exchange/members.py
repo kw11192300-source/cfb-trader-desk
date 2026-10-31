@@ -45,7 +45,7 @@ SYNDICATES = [
     dict(id="blend", name="Consensus Desk", engine="agree", color="#059669", tagline="No model of its own: it trades where several independent groups push the price the same way, and stays out where they disagree."),
     dict(id="tape", name="Tape Readers", engine="tape", color="#0891b2", tagline="No ratings: follows DraftKings line movement and bets that steam keeps going."),
     dict(id="fade", name="Fade Club", engine="fade", color="#dc2626", tagline="No ratings: bets that big line moves overshoot and fade them."),
-    dict(id="pace", name="Pace Lab", engine="pace", color="#ca8a04", tagline="Totals specialists - scoring environment from the ratings, with no view on sides."),
+    dict(id="pace", name="Totals Desk", engine="pace", color="#ca8a04", tagline="Totals specialists - scoring environment from the ratings, with no view on sides."),
     dict(id="mm", name="Liquidity Partners", engine="ref", color="#475569", tagline="The control group: no model at all, so they quote and trade straight off the DraftKings price."),
     dict(id="house", name="House Models", engine="house", color="#f59e0b",
          tagline="The site's own CBB, NBA and NHL models entered as a syndicate, so they are judged against DraftKings and every other syndicate on finished games."),
