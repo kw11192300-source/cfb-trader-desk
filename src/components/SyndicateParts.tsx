@@ -66,10 +66,10 @@ function clvTone(r: Row): string {
   return lo > 0 ? "text-up" : hi < 0 ? "text-down" : "text-muted";
 }
 
-export function LeaderTable({ rows, linkBase, title, showSyn = false, sort = "clvlow", dir = "desc", sortHref }: { rows: Row[]; linkBase?: string; title: string; showSyn?: boolean; sort?: string; dir?: "asc" | "desc"; sortHref?: (key: string, dir: "asc" | "desc") => string }) {
+export function LeaderTable({ rows, linkBase, title, showSyn = false, sort = "clvlow", dir = "desc", sortHref, full = false, fullHref, pageSize, extra }: { rows: Row[]; linkBase?: string; title: string; showSyn?: boolean; sort?: string; dir?: "asc" | "desc"; sortHref?: (key: string, dir: "asc" | "desc") => string; full?: boolean; fullHref?: string; pageSize?: number; extra?: React.ReactNode }) {
   // a header that sorts: click once for the best first, click again to flip
-  const th = (k: string, children: React.ReactNode, tip?: string) => (
-    <th key={k} className="px-3 py-2 text-right" title={tip}>
+  const th = (k: string, children: React.ReactNode, tip?: string, left = false) => (
+    <th key={k} className={`px-3 py-2 ${left ? "text-left" : "text-right"}`} title={tip}>
       {sortHref ? (
         <Link href={sortHref(k, sort === k && dir === "desc" ? "asc" : "desc")} className={`whitespace-nowrap hover:text-foreground ${sort === k ? "text-accent" : ""}`}>
           {children}
@@ -80,68 +80,101 @@ export function LeaderTable({ rows, linkBase, title, showSyn = false, sort = "cl
       )}
     </th>
   );
+  const sub = "block text-[10px] font-normal text-muted";
   return (
     <section className="mb-8">
-      <h2 className="mb-2 text-sm font-semibold text-foreground">{title}</h2>
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+        {fullHref && <Link href={fullHref} scroll={false} className="text-[11px] text-accent hover:underline">{full ? "Fewer columns" : "All columns"}</Link>}
+      </div>
+      {extra}
       <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full min-w-[1280px] text-xs">
+        <table className={`w-full text-xs ${full ? "min-w-[1500px]" : "min-w-[960px]"}`}>
           <thead className="bg-surface text-left text-muted">
             <tr>
               <th className="px-3 py-2">#</th>
               <th className="px-3 py-2">Name</th>
-              {th("equity", "Equity", "Bankroll plus open P&L: what the account is worth marked to DraftKings now")}
-              {th("realized", "Realized P&L", "Profit or loss already banked: games that finished and positions that were closed out")}
+              {th("bank", "Bankroll", "Cash plus the collateral held against open positions: starting units plus profit actually banked. Open positions are not marked in it, so it moves only when games settle or positions are closed out. Below it: how much is free to trade (cash above the reserve a trader never commits) and how much is pending, tied up in open positions", true)}
+              {th("spnl", "Settled P&L", "Profit or loss on games that have finished, counting every trade made on them (including positions netted off earlier). Below it: finished games and win rate")}
               {th("open", "Open P&L", "What the open positions would make or lose if closed at the current DraftKings price. It moves with the lines before any game finishes and is not money yet")}
-              {th("spnl", "Settled P&L", "Profit or loss on games that have finished, counting every trade made on them (including positions netted off earlier)")}
-              {th("svol", "Settled vol", "Units put up (buyer's price plus seller's 1 - price) on trades in games that have finished")}
-              {th("sroi", "ROI settled", "Settled P&L divided by settled volume: what each unit put at risk earned once games finished")}
+              {th("equity", "Equity", "Bankroll plus open P&L: what the account is worth marked to DraftKings now. Below it: the change over the last 24 hours")}
               {th("clvlow", "CLV", "Closing-line value, ranked by the low end of its 95% range so a big average on a few trades does not win")}
-              {th("cap", "Spread cap.", "How far inside DraftKings' price the quotes were filled, in cents per contract: the spread a market maker earns before anything moves")}
-              {th("vol", "Volume", "Units put at risk by all of this account's trades so far, finished games or not")}
-              {th("trades", "Trades")}
-              {th("risk", "At risk", "Worst-case loss on open positions, across every possible result - not the cash tied up")}
-              <th className="px-3 py-2 text-right">Maker P&amp;L</th>
-              <th className="px-3 py-2 text-right">Taker P&amp;L</th>
-              {th("dd", "Max DD", "Largest drop from the peak")}
-              {th("win", "Win%")}
+              {th("sroi", "Return on stake", "Settled P&L divided by the units put up on those finished games (a buyer's price, a seller's 1 minus the price, added up across every trade). Below it: that stake")}
+              {full && (
+                <>
+                  {th("cap", "Spread cap.", "How far inside DraftKings' price the quotes were filled, in cents per contract: the spread a market maker earns before anything moves")}
+                  {th("vol", "Volume", "Units put at risk by all of this account's trades so far, finished games or not")}
+                  {th("trades", "Trades")}
+                  {th("risk", "At risk", "Worst-case loss on open positions, across every possible result - not the cash tied up")}
+                  <th className="px-3 py-2 text-right">Maker P&amp;L</th>
+                  <th className="px-3 py-2 text-right">Taker P&amp;L</th>
+                  {th("dd", "Max DD", "Largest drop from the peak")}
+                  {th("win", "Win%")}
+                  {th("realized", "Realized P&L", "Profit or loss already banked: games that finished and positions that were closed out")}
+                </>
+              )}
             </tr>
           </thead>
           <tbody className="font-mono">
-            {rows.map((r, i) => (
-              <tr key={r.id} className="border-t border-border">
-                <td className="px-3 py-1.5 text-muted">{i + 1}</td>
-                <td className="px-3 py-1.5 font-sans text-foreground">
-                  <span className="mr-2 inline-block h-2 w-2 rounded-full" style={{ background: r.color }} />
-                  {linkBase ? (
-                    <Link href={`${linkBase}/${r.id}`} className="hover:text-accent">
-                      {r.name}
-                    </Link>
-                  ) : (
-                    r.name
+            {(pageSize ? rows.slice(0, pageSize) : rows).map((r, i) => {
+              const share = r.bankroll > 0 ? Math.max(0, Math.min(1, r.available / r.bankroll)) : 0;
+              return (
+                <tr key={r.id} className="border-t border-border align-top">
+                  <td className="px-3 py-2 text-muted">{i + 1}</td>
+                  <td className="px-3 py-2 font-sans text-foreground">
+                    <span className="mr-2 inline-block h-2 w-2 rounded-full" style={{ background: r.color }} />
+                    {linkBase ? (
+                      <Link href={`${linkBase}/${r.id}`} className="hover:text-accent">
+                        {r.name}
+                      </Link>
+                    ) : (
+                      r.name
+                    )}
+                    {r.isPublic ? <span className="ml-2 rounded bg-warn/20 px-1.5 py-0.5 text-[10px] font-medium text-warn" title="Public money: recreational flow that pays a few cents over fair. It is in the table for reference and is never treated as sharp">public</span> : r.kind ? <span className="ml-2 rounded bg-surface-raised px-1.5 py-0.5 text-[10px] font-normal text-muted">{r.kind}</span> : null}
+                    {(!linkBase || showSyn) && <span className="block pl-4 text-[10px] text-muted">{r.syndicate}{r.note ? ` · ${r.note}` : ""}</span>}
+                  </td>
+                  <td className="min-w-[170px] px-3 py-2 text-left">
+                    <span className="text-sm text-foreground">{r.bankroll.toFixed(0)}</span>
+                    {share < 0.25 && <span className="ml-2 rounded bg-warn/20 px-1.5 py-0.5 font-sans text-[10px] text-warn" title="Less than a quarter of the bankroll is free to trade">low room</span>}
+                    <div className="my-1 flex h-1.5 overflow-hidden rounded bg-border" title={`${r.available.toFixed(0)} free to trade, ${r.pending.toFixed(0)} pending in open positions`}>
+                      <i className="block h-full bg-up/70" style={{ width: `${share * 100}%` }} />
+                    </div>
+                    <span className="font-sans text-[10px] text-muted">{r.available.toFixed(0)} available · {r.pending.toFixed(0)} pending</span>
+                  </td>
+                  <td className={`px-3 py-2 text-right ${tone(r.sPnl)}`} title={`${r.sGames} finished game${r.sGames === 1 ? "" : "s"}`}>
+                    {r.sGames ? u(r.sPnl) : "–"}
+                    <span className={sub}>{r.sGames ? `${r.sGames} games${r.winRate != null ? ` · ${(r.winRate * 100).toFixed(0)}% win` : ""}` : "no finished games"}</span>
+                  </td>
+                  <td className={`px-3 py-2 text-right ${tone(r.open)}`}>{u(r.open)}</td>
+                  <td className="px-3 py-2 text-right">
+                    {r.equity.toFixed(1)}
+                    <span className={`${sub} ${r.chg24 == null ? "" : tone(r.chg24)}`}>{r.chg24 == null ? "" : `${u(r.chg24)} 24h`}</span>
+                  </td>
+                  <td className={`px-3 py-2 text-right ${clvTone(r)}`} title={r.clvN ? `${r.clvN} settled sides${r.clvSe != null ? `; 95% range ${((r.clv! - 1.96 * r.clvSe) * 100).toFixed(1)}¢ to ${((r.clv! + 1.96 * r.clvSe) * 100).toFixed(1)}¢` : ""}` : undefined}>
+                    {r.clv == null ? "–" : `${r.clv >= 0 ? "+" : ""}${(r.clv * 100).toFixed(1)}¢`}
+                    {r.clv != null && r.clvSe != null && <span className="ml-1 text-[10px] text-muted">±{(1.96 * r.clvSe * 100).toFixed(1)}</span>}
+                    {r.sGames < 10 ? <span className="block text-[10px] font-normal text-warn" title="Fewer than 10 finished games: too early to read as skill">provisional</span> : <span className={sub}>{r.clvN} sides</span>}
+                  </td>
+                  <td className={`px-3 py-2 text-right ${r.sRoi == null ? "text-muted" : tone(r.sRoi)}`}>
+                    {r.sRoi == null ? "–" : `${(r.sRoi * 100).toFixed(1)}%`}
+                    <span className={sub}>{r.sGames ? `on ${r.sTraded.toFixed(0)} staked` : ""}</span>
+                  </td>
+                  {full && (
+                    <>
+                      <td className={`px-3 py-2 text-right ${r.capture == null ? "text-muted" : tone(r.capture)}`}>{r.capture == null ? "–" : `${r.capture >= 0 ? "+" : ""}${(r.capture * 100).toFixed(2)}¢`}</td>
+                      <td className="px-3 py-2 text-right text-muted">{r.volume.toFixed(0)}</td>
+                      <td className="px-3 py-2 text-right text-muted">{r.trades}</td>
+                      <td className="px-3 py-2 text-right text-muted">{r.openRisk.toFixed(1)}</td>
+                      <td className={`px-3 py-2 text-right ${tone(r.makerPnl)}`}>{u(r.makerPnl)}</td>
+                      <td className={`px-3 py-2 text-right ${tone(r.takerPnl)}`}>{u(r.takerPnl)}</td>
+                      <td className="px-3 py-2 text-right text-muted">{r.maxDd.toFixed(1)}</td>
+                      <td className="px-3 py-2 text-right text-muted">{r.winRate == null ? "–" : `${(r.winRate * 100).toFixed(0)}%`}</td>
+                      <td className={`px-3 py-2 text-right ${tone(r.realized)}`}>{u(r.realized)}</td>
+                    </>
                   )}
-                  {r.isPublic && <span className="ml-2 rounded bg-warn/20 px-1.5 py-0.5 text-[10px] font-medium text-warn" title="Public money: recreational flow that pays a few cents over fair. It is in the table for reference and is never treated as sharp">public</span>}
-                  {(!linkBase || showSyn) && <span className="ml-2 text-muted">{r.syndicate}{r.note ? ` · ${r.note}` : ""}</span>}
-                </td>
-                <td className="px-3 py-1.5 text-right">{r.equity.toFixed(1)}</td>
-                <td className={`px-3 py-1.5 text-right ${tone(r.realized)}`}>{u(r.realized)}</td>
-                <td className={`px-3 py-1.5 text-right ${tone(r.open)}`}>{u(r.open)}</td>
-                <td className={`px-3 py-1.5 text-right ${tone(r.sPnl)}`} title={`${r.sGames} finished game${r.sGames === 1 ? "" : "s"}`}>{r.sGames ? u(r.sPnl) : "–"}</td>
-                <td className="px-3 py-1.5 text-right text-muted">{r.sGames ? r.sTraded.toFixed(0) : "–"}</td>
-                <td className={`px-3 py-1.5 text-right ${r.sRoi == null ? "text-muted" : tone(r.sRoi)}`}>{r.sRoi == null ? "–" : `${(r.sRoi * 100).toFixed(1)}%`}</td>
-                <td className={`px-3 py-1.5 text-right ${clvTone(r)}`} title={r.clvN ? `${r.clvN} settled sides${r.clvSe != null ? `; 95% range ${((r.clv! - 1.96 * r.clvSe) * 100).toFixed(1)}¢ to ${((r.clv! + 1.96 * r.clvSe) * 100).toFixed(1)}¢` : ""}` : undefined}>
-                  {r.clv == null ? "–" : `${r.clv >= 0 ? "+" : ""}${(r.clv * 100).toFixed(1)}¢`}
-                  {r.clv != null && r.clvSe != null && <span className="ml-1 text-[10px] text-muted">±{(1.96 * r.clvSe * 100).toFixed(1)}</span>}
-                </td>
-                <td className={`px-3 py-1.5 text-right ${r.capture == null ? "text-muted" : tone(r.capture)}`}>{r.capture == null ? "–" : `${r.capture >= 0 ? "+" : ""}${(r.capture * 100).toFixed(2)}¢`}</td>
-                <td className="px-3 py-1.5 text-right text-muted">{r.volume.toFixed(0)}</td>
-                <td className="px-3 py-1.5 text-right text-muted">{r.trades}</td>
-                <td className="px-3 py-1.5 text-right text-muted">{r.openRisk.toFixed(1)}</td>
-                <td className={`px-3 py-1.5 text-right ${tone(r.makerPnl)}`}>{u(r.makerPnl)}</td>
-                <td className={`px-3 py-1.5 text-right ${tone(r.takerPnl)}`}>{u(r.takerPnl)}</td>
-                <td className="px-3 py-1.5 text-right text-muted">{r.maxDd.toFixed(1)}</td>
-                <td className="px-3 py-1.5 text-right text-muted">{r.winRate == null ? "–" : `${(r.winRate * 100).toFixed(0)}%`}</td>
-              </tr>
-            ))}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

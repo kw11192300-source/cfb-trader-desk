@@ -1,15 +1,40 @@
 import Link from "next/link";
 
 import { EquityChart, HealthStrip, LeaderTable, MoneyLegend, SyndicateHeader, TradeList } from "@/components/SyndicateParts";
-import { getExchange, getExchangeGamesByIds, getExchangeSnapshots, getExchangeTrades, SORTS, sortRows, summarize } from "@/lib/syndicates";
+import { getEquityDayAgo, getExchange, getExchangeGamesByIds, getExchangeSnapshots, getExchangeTrades, type Row, SORTS, sortRows, summarize } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
-export default async function SyndicatesPage({ searchParams }: { searchParams: Promise<{ sort?: string; dir?: string }> }) {
+const sgn = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(1)}`;
+
+/** A short list of accounts for a glance: who is leading on something, or who needs a look. */
+function Spotlight({ title, note, rows, line }: { title: string; note: string; rows: Row[]; line: (r: Row) => React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-border bg-surface p-3">
+      <p className="text-xs font-semibold text-foreground">{title}</p>
+      <p className="mb-2 text-[10px] text-muted">{note}</p>
+      {rows.length === 0 ? <p className="text-[11px] text-muted">Nobody yet.</p> : rows.map((r) => (
+        <Link key={r.id} href={`/syndicates/traders/${r.id}`} className="flex items-center justify-between gap-2 border-t border-border py-1.5 text-[11px] hover:text-accent">
+          <span className="min-w-0 truncate"><span className="mr-1.5 inline-block h-2 w-2 rounded-full" style={{ background: r.color }} />{r.name}<span className="ml-1.5 text-[10px] text-muted">{r.syndicate}</span></span>
+          <span className="shrink-0 font-mono">{line(r)}</span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+export default async function SyndicatesPage({ searchParams }: { searchParams: Promise<{ sort?: string; dir?: string; cols?: string; syn?: string; all?: string }> }) {
   const q = await searchParams;
   const sort = SORTS.some((s) => s.key === q.sort) ? q.sort! : "clvlow";
   const dir = q.dir === "asc" ? "asc" : "desc";
-  const sortHref = (k: string, d: "asc" | "desc") => `/syndicates?sort=${k}&dir=${d}`;
+  const full = q.cols === "all";
+  const href = (o: { sort?: string; dir?: string; cols?: string | null; syn?: string | null; all?: string | null }) => {
+    const p = new URLSearchParams();
+    const v = { sort: o.sort ?? sort, dir: o.dir ?? dir, cols: o.cols === undefined ? q.cols : o.cols, syn: o.syn === undefined ? q.syn : o.syn, all: o.all === undefined ? q.all : o.all };
+    for (const [k, x] of Object.entries(v)) if (x) p.set(k, x);
+    return `/syndicates?${p}`;
+  };
+  const sortHref = (k: string, d: "asc" | "desc") => href({ sort: k, dir: d });
   const { syndicates, members, meta, ratingsMeta, configured } = await getExchange();
   if (!configured || !syndicates.length) {
     return (
@@ -22,11 +47,19 @@ export default async function SyndicatesPage({ searchParams }: { searchParams: P
       </div>
     );
   }
-  const [snaps, trades] = await Promise.all([getExchangeSnapshots("syn:"), getExchangeTrades({ limit: 40 })]);
+  const [snaps, trades, agoS, agoM] = await Promise.all([getExchangeSnapshots("syn:"), getExchangeTrades({ limit: 40 }), getEquityDayAgo("syn:"), getEquityDayAgo("mem:")]);
   const games = await getExchangeGamesByIds([...new Set(trades.map((t) => t.game_id))]);
-  const { members: mrows, syndicates: srows } = summarize(syndicates, members);
-  const mrowsS = sortRows(mrows, sort, dir);
+  const { members: mrows0, syndicates: srows0 } = summarize(syndicates, members);
+  const withChg = (rows: Row[], ago: Record<string, number>): Row[] => rows.map((r) => ({ ...r, chg24: ago[r.id] != null ? r.equity - ago[r.id] : null }));
+  const mrows = withChg(mrows0, agoM), srows = withChg(srows0, agoS);
+  const synFilter = syndicates.find((s) => s.name === q.syn)?.name ?? null;
+  const tradersIn = synFilter ? mrows.filter((r) => r.syndicate === synFilter) : mrows;
   const srowsS = sortRows(srows, sort, dir);
+  const mrowsS = sortRows(tradersIn, sort, dir);
+  const real = mrows.filter((r) => !r.isPublic);
+  const bestClv = sortRows(real.filter((r) => r.clvN > 0 && r.sGames >= 10), "clvlow").slice(0, 3);
+  const bestPnl = sortRows(real.filter((r) => r.sGames > 0), "spnl").slice(0, 3);
+  const attention = [...real].sort((a, b) => a.available / Math.max(1, a.bankroll) - b.available / Math.max(1, b.bankroll)).slice(0, 3);
   const names = Object.fromEntries(members.map((m) => [m.id, `${syndicates.find((s) => s.id === m.syndicate_id)?.name ?? ""} · ${m.name}`]));
   const colors = Object.fromEntries(syndicates.map((s) => [s.id, s.color]));
   const sNames = Object.fromEntries(syndicates.map((s) => [s.id, s.name]));
@@ -57,10 +90,22 @@ export default async function SyndicatesPage({ searchParams }: { searchParams: P
           <span className="ml-3">By sport</span>
           {["nfl", "cfb", "nhl", "nba", "cbb"].map((s) => <Link key={s} href={`/syndicates/sports?sport=${s}`} className="ml-1 rounded px-2 py-1 text-muted hover:text-foreground">{s.toUpperCase()}</Link>)}
         </p>
-        <LeaderTable rows={srowsS} linkBase="/syndicates" title="Syndicates" sort={sort} dir={dir} sortHref={sortHref} />
+        <LeaderTable rows={srowsS} linkBase="/syndicates" title="Syndicates" sort={sort} dir={dir} sortHref={sortHref} full={full} fullHref={href({ cols: full ? null : "all" })} />
         <MoneyLegend />
         <EquityChart snaps={snaps} colors={colors} names={sNames} start={start} />
-        <LeaderTable rows={mrowsS} linkBase="/syndicates/traders" showSyn title="Every trader" sort={sort} dir={dir} sortHref={sortHref} />
+        <h2 className="mb-2 text-sm font-semibold text-foreground">Traders</h2>
+        <div className="mb-4 grid gap-3 sm:grid-cols-3">
+          <Spotlight title="Best closing-line value" note="Low end of the range, 10+ finished games" rows={bestClv} line={(r) => <span className="text-up">+{((r.clv ?? 0) * 100).toFixed(1)}¢</span>} />
+          <Spotlight title="Most settled profit" note="Games that have finished" rows={bestPnl} line={(r) => <span className={r.sPnl >= 0 ? "text-up" : "text-down"}>{sgn(r.sPnl)}</span>} />
+          <Spotlight title="Needs a look" note="Least cash free to trade" rows={attention} line={(r) => <span className="text-warn">{r.available.toFixed(0)} of {r.bankroll.toFixed(0)}</span>} />
+        </div>
+        <div className="mb-3 flex flex-wrap items-center gap-1 text-[11px]">
+          <span className="mr-1 text-muted">Syndicate</span>
+          <Link href={href({ syn: null, all: null })} className={`rounded px-2 py-1 ${!synFilter ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>All</Link>
+          {syndicates.map((s) => <Link key={s.id} href={href({ syn: s.name, all: null })} className={`rounded px-2 py-1 ${synFilter === s.name ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>{s.name}</Link>)}
+        </div>
+        <LeaderTable rows={mrowsS} linkBase="/syndicates/traders" showSyn title={synFilter ? `${synFilter} traders` : "Every trader"} sort={sort} dir={dir} sortHref={sortHref} full={full} fullHref={href({ cols: full ? null : "all" })} pageSize={q.all === "1" ? undefined : 25} />
+        {q.all !== "1" && mrowsS.length > 25 && <p className="-mt-6 mb-8 text-[11px]"><Link href={href({ all: "1" })} className="text-accent hover:underline">Show all {mrowsS.length} traders</Link></p>}
         <TradeList trades={trades} games={games} names={names} moreHref="/syndicates/trades" />
       </main>
     </div>

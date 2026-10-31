@@ -175,6 +175,18 @@ export async function getExchangeBoard(maxHours?: number): Promise<ExGame[]> {
   return (data ?? []) as unknown as ExGame[];
 }
 
+/** Each subject's equity about a day ago ("syn:" or "mem:" subjects): the snapshot closest to 24 hours back, read from a two-hour slice so it stays a single page. */
+export async function getEquityDayAgo(prefix: string): Promise<Record<string, number>> {
+  const mid = Date.now() - 24 * 3600000;
+  const { data } = await supabase.from("ex_snapshots").select("ts,subject,equity").like("subject", `${prefix}%`).gte("ts", new Date(mid - 3600000).toISOString()).lte("ts", new Date(mid + 3600000).toISOString()).limit(5000);
+  const best: Record<string, { d: number; v: number }> = {};
+  for (const r of (data ?? []) as ExSnap[]) {
+    const d = Math.abs(new Date(r.ts).getTime() - mid);
+    if (!best[r.subject] || d < best[r.subject].d) best[r.subject] = { d, v: Number(r.equity) };
+  }
+  return Object.fromEntries(Object.entries(best).map(([k, v]) => [k.slice(prefix.length), v.v]));
+}
+
 export async function getExchangeSnapshots(subjectPrefix: string, days = 14): Promise<ExSnap[]> {
   const since = new Date(Date.now() - days * 86400000).toISOString();
   return pageAll<ExSnap>((a, b) => supabase.from("ex_snapshots").select("ts,subject,equity").like("subject", `${subjectPrefix}%`).gte("ts", since).order("ts").order("id").range(a, b));
@@ -224,7 +236,18 @@ export type Row = {
   sTraded: number;
   sRoi: number | null;
   sGames: number;
+  /** cash on hand, how much of it is free to trade (above the reserve a trader never commits), and the collateral tied up in open positions */
+  cash: number;
+  available: number;
+  pending: number;
+  /** maker, taker, both, lab or public: what kind of account this is ("" for a syndicate that is none of those) */
+  kind: string;
+  /** change in equity over the last 24 hours, filled in by the page that has the snapshots */
+  chg24?: number | null;
 };
+
+/** The reserve share of its starting bankroll that a trader never commits as cash (the engine's RESERVE_FRAC). */
+export const RESERVE_FRAC = 0.2;
 
 function clvSe(sum: number, sq: number, n: number): number | null {
   if (n < 2 || sq <= 0) return null;
@@ -235,7 +258,7 @@ function clvSe(sum: number, sq: number, n: number): number | null {
 /** One summary row per member, and one per syndicate (its members added up), in the same shape so the same table renders both. */
 export function summarize(syndicates: ExSyndicate[], members: ExMember[]): { members: Row[]; syndicates: Row[] } {
   const syn = Object.fromEntries(syndicates.map((s) => [s.id, s]));
-  const rowOf = (id: string, name: string, syndicate: string, color: string, ms: ExMember[], start: number, note = "", isPublic = false): Row => {
+  const rowOf = (id: string, name: string, syndicate: string, color: string, ms: ExMember[], start: number, note = "", isPublic = false, kind = ""): Row => {
     const equity = ms.reduce((a, m) => a + equityOf(m), 0);
     const bankroll = ms.reduce((a, m) => a + m.cash + m.locked, 0);
     const st = ms.map((m) => m.stats);
@@ -250,10 +273,11 @@ export function summarize(syndicates: ExSyndicate[], members: ExMember[]): { mem
       clv: clvN > 0 ? sum((s) => s.clv_sum) / clvN : null, clvSe: clvSe(sum((s) => s.clv_sum), sum((s) => s.clv_sq ?? 0), clvN), clvN, capture: sum((s) => s.cap_q ?? 0) > 0 ? sum((s) => s.cap_sum ?? 0) / sum((s) => s.cap_q ?? 0) : null, makerPnl: sum((s) => s.pnl_maker), takerPnl: sum((s) => s.pnl_taker),
       maxDd: Math.max(0, ...st.map((s) => s.max_dd)), winRate: decided > 0 ? sum((s) => s.wins) / decided : null, note, isPublic,
       sPnl: sum((s) => s.s_pnl ?? 0), sTraded: sum((s) => s.s_traded ?? 0), sRoi: sum((s) => s.s_traded ?? 0) > 0 ? sum((s) => s.s_pnl ?? 0) / sum((s) => s.s_traded ?? 0) : null, sGames: sum((s) => s.s_games ?? 0),
+      cash: ms.reduce((a, m) => a + m.cash, 0), available: ms.reduce((a, m) => a + Math.max(0, m.cash - RESERVE_FRAC * m.start_units), 0), pending: ms.reduce((a, m) => a + m.locked, 0), kind,
     };
   };
-  const mrows = members.map((m) => rowOf(m.id, m.name, syn[m.syndicate_id]?.name ?? m.syndicate_id, syn[m.syndicate_id]?.color ?? "#888", [m], m.start_units, m.params.public ? `public · ${String(m.params.style)}` : `${m.role === "both" ? "maker + taker" : m.role} · ${Array.isArray(m.params.focus) ? (m.params.focus as string[]).map((x) => x.toUpperCase()).join(", ") : ""}`, !!m.params.public));
-  const srows = syndicates.map((s) => rowOf(s.id, s.name, s.name, s.color, members.filter((m) => m.syndicate_id === s.id), s.start_units, "", s.engine === "public"));
+  const mrows = members.map((m) => rowOf(m.id, m.name, syn[m.syndicate_id]?.name ?? m.syndicate_id, syn[m.syndicate_id]?.color ?? "#888", [m], m.start_units, m.params.public ? `public · ${String(m.params.style)}` : `${m.role === "both" ? "maker + taker" : m.role} · ${Array.isArray(m.params.focus) ? (m.params.focus as string[]).map((x) => x.toUpperCase()).join(", ") : ""}`, !!m.params.public, m.params.public ? "public" : syn[m.syndicate_id]?.engine === "agent" ? "lab" : m.role === "both" ? "maker + taker" : m.role));
+  const srows = syndicates.map((s) => rowOf(s.id, s.name, s.name, s.color, members.filter((m) => m.syndicate_id === s.id), s.start_units, "", s.engine === "public", s.engine === "public" ? "public" : s.engine === "agent" ? "lab" : ""));
   return { members: mrows.sort((a, b) => b.pnl - a.pnl), syndicates: srows.sort((a, b) => b.pnl - a.pnl) };
 }
 
@@ -425,7 +449,10 @@ export async function getDiscoveries(): Promise<Discovery[]> {
 }
 
 export const SORTS: { key: string; label: string; get: (r: Row) => number | null }[] = [
+  { key: "bank", label: "Bankroll", get: (r) => r.bankroll },
+  { key: "avail", label: "Available", get: (r) => r.available },
   { key: "equity", label: "Equity", get: (r) => r.equity },
+  { key: "chg24", label: "24h change", get: (r) => r.chg24 ?? null },
   { key: "pnl", label: "Total P&L", get: (r) => r.pnl },
   { key: "realized", label: "Realized P&L", get: (r) => r.realized },
   { key: "open", label: "Open P&L", get: (r) => r.open },
