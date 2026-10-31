@@ -1,23 +1,28 @@
 import Link from "next/link";
 
-import { EquityChart, HealthStrip, LeaderTable, MoneyLegend, SyndicateHeader, TradeList } from "@/components/SyndicateParts";
+import { ago, EquityChart, HealthStrip, LeaderTable, MoneyLegend, SyndicateHeader, TradeList } from "@/components/SyndicateParts";
 import { getEquityDayAgo, getExchange, getExchangeGamesByIds, getExchangeSnapshots, getExchangeTrades, type Row, SORTS, sortRows, summarize } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
 const sgn = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(1)}`;
 
-/** A short list of accounts for a glance: who is leading on something, or who needs a look. */
-function Spotlight({ title, note, rows, line }: { title: string; note: string; rows: Row[]; line: (r: Row) => React.ReactNode }) {
+/** A short list of accounts for a glance: who is leading on something, or who needs a look. A card can hold more than one list. */
+function Spotlight({ title, note, lists }: { title: string; note: string; lists: { label?: string; rows: Row[]; line: (r: Row) => React.ReactNode }[] }) {
   return (
     <div className="rounded-lg border border-border bg-surface p-3">
       <p className="text-xs font-semibold text-foreground">{title}</p>
       <p className="mb-2 text-[10px] text-muted">{note}</p>
-      {rows.length === 0 ? <p className="text-[11px] text-muted">Nobody yet.</p> : rows.map((r) => (
-        <Link key={r.id} href={`/syndicates/traders/${r.id}`} className="flex items-center justify-between gap-2 border-t border-border py-1.5 text-[11px] hover:text-accent">
-          <span className="min-w-0 truncate"><span className="mr-1.5 inline-block h-2 w-2 rounded-full" style={{ background: r.color }} />{r.name}<span className="ml-1.5 text-[10px] text-muted">{r.syndicate}</span></span>
-          <span className="shrink-0 font-mono">{line(r)}</span>
-        </Link>
+      {lists.map((l, i) => (
+        <div key={i} className={i ? "mt-3" : ""}>
+          {l.label && <p className="text-[10px] uppercase tracking-wide text-muted">{l.label}</p>}
+          {l.rows.length === 0 ? <p className="border-t border-border py-1.5 text-[11px] text-muted">Nobody yet.</p> : l.rows.map((r) => (
+            <Link key={r.id} href={`/syndicates/traders/${r.id}`} className="flex items-center justify-between gap-2 border-t border-border py-1.5 text-[11px] hover:text-accent">
+              <span className="min-w-0 truncate"><span className="mr-1.5 inline-block h-2 w-2 rounded-full" style={{ background: r.color }} />{r.name}<span className="ml-1.5 text-[10px] text-muted">{r.syndicate}</span></span>
+              <span className="shrink-0 font-mono">{l.line(r)}</span>
+            </Link>
+          ))}
+        </div>
       ))}
     </div>
   );
@@ -59,6 +64,12 @@ export default async function SyndicatesPage({ searchParams }: { searchParams: P
   const real = mrows.filter((r) => !r.isPublic);
   const bestClv = sortRows(real.filter((r) => r.clvN > 0 && r.sGames >= 10), "clvlow").slice(0, 5);
   const bestPnl = sortRows(real.filter((r) => r.sGames > 0), "spnl").slice(0, 5);
+  const moved = real.filter((r) => r.chg24 != null);
+  const up = [...moved].sort((a, b) => b.chg24! - a.chg24!).slice(0, 3);
+  const down = [...moved].sort((a, b) => a.chg24! - b.chg24!).slice(0, 3);
+  const traded = real.filter((r) => r.lastTrade);
+  const recent = [...traded].sort((a, b) => b.lastTrade!.localeCompare(a.lastTrade!)).slice(0, 3);
+  const quiet = [...traded].sort((a, b) => a.lastTrade!.localeCompare(b.lastTrade!)).slice(0, 3);
   const attention = [...real].sort((a, b) => a.available / Math.max(1, a.bankroll) - b.available / Math.max(1, b.bankroll)).slice(0, 5);
   const names = Object.fromEntries(members.map((m) => [m.id, `${syndicates.find((s) => s.id === m.syndicate_id)?.name ?? ""} · ${m.name}`]));
   const colors = Object.fromEntries(syndicates.map((s) => [s.id, s.color]));
@@ -95,9 +106,17 @@ export default async function SyndicatesPage({ searchParams }: { searchParams: P
         <EquityChart snaps={snaps} colors={colors} names={sNames} start={start} />
         <h2 className="mb-2 text-sm font-semibold text-foreground">Traders</h2>
         <div className="mb-4 grid gap-3 sm:grid-cols-3">
-          <Spotlight title="Best closing-line value" note="Low end of the range, 10+ finished games" rows={bestClv} line={(r) => <span className="text-up">+{((r.clv ?? 0) * 100).toFixed(1)}¢</span>} />
-          <Spotlight title="Most settled profit" note="Games that have finished" rows={bestPnl} line={(r) => <span className={r.sPnl >= 0 ? "text-up" : "text-down"}>{sgn(r.sPnl)}</span>} />
-          <Spotlight title="Needs a look" note="Least cash free to trade" rows={attention} line={(r) => <span className="text-warn">{r.available.toFixed(0)} of {r.bankroll.toFixed(0)}</span>} />
+          <Spotlight title="Best closing-line value" note="Low end of the range, 10+ finished games" lists={[{ rows: bestClv, line: (r) => <span className="text-up">+{((r.clv ?? 0) * 100).toFixed(1)}¢</span> }]} />
+          <Spotlight title="Most settled profit" note="Games that have finished" lists={[{ rows: bestPnl, line: (r) => <span className={r.sPnl >= 0 ? "text-up" : "text-down"}>{sgn(r.sPnl)}</span> }]} />
+          <Spotlight title="24 hour movers" note="Change in equity over the last day" lists={[
+            { label: "Up", rows: up, line: (r) => <span className="text-up">{sgn(r.chg24!)}</span> },
+            { label: "Down", rows: down, line: (r) => <span className="text-down">{sgn(r.chg24!)}</span> },
+          ]} />
+          <Spotlight title="Activity" note="When each trader last traded" lists={[
+            { label: "Most recent", rows: recent, line: (r) => <span className="text-muted">{r.lastApprox ? "~" : ""}{ago(r.lastTrade).text}</span> },
+            { label: "Longest since a trade", rows: quiet, line: (r) => <span className="text-warn">{r.lastApprox ? "~" : ""}{ago(r.lastTrade).text}</span> },
+          ]} />
+          <Spotlight title="Needs a look" note="Least cash free to trade" lists={[{ rows: attention, line: (r) => <span className="text-warn">{r.available.toFixed(0)} of {r.bankroll.toFixed(0)}</span> }]} />
         </div>
         <div className="mb-3 flex flex-wrap items-center gap-1 text-[11px]">
           <span className="mr-1 text-muted">Syndicate</span>

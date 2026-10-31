@@ -1396,6 +1396,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     active_ = {x for t in new_trades for x in (t["buyer"], t["seller"])}
     for m_ in members.values():
         m_["stats"]["idle"] = 0 if m_["id"] in active_ else min(PATIENCE_MAX + 4, m_["stats"].get("idle", 0) + 1)
+        if m_["id"] in active_:
+            m_["stats"]["last_trade"] = _iso(now)  # shown on the leaderboard as time since the last trade
 
     # ---- write back
     store.upsert("ex_games", list(games.values()))

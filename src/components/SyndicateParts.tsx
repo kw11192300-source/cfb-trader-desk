@@ -132,6 +132,7 @@ export function LeaderTable({ rows, linkBase, title, showSyn = false, sort = "cl
                     )}
                     {r.isPublic ? <span className="ml-2 rounded bg-warn/20 px-1.5 py-0.5 text-[10px] font-medium text-warn" title="Public money: recreational flow that pays a few cents over fair. It is in the table for reference and is never treated as sharp">public</span> : r.kind ? <span className="ml-2 rounded bg-surface-raised px-1.5 py-0.5 text-[10px] font-normal text-muted">{r.kind}</span> : null}
                     {(!linkBase || showSyn) && <span className="block pl-4 text-[10px] text-muted">{r.syndicate}{r.note ? ` · ${r.note}` : ""}</span>}
+                    {r.lastTrade && <span className="block pl-4 text-[10px] text-muted/80" title="Time since this account last traded. Until the exact time has been recorded it is estimated from rounds idle">{r.lastApprox ? "~" : ""}traded {ago(r.lastTrade).text}</span>}
                   </td>
                   <td className="min-w-[170px] px-3 py-2 text-left">
                     <span className="text-sm text-foreground">{r.bankroll.toFixed(0)}</span>
@@ -303,7 +304,7 @@ export function MoneyLegend() {
   );
 }
 
-const ago = (iso: string | undefined | null): { text: string; mins: number } => {
+export const ago = (iso: string | undefined | null): { text: string; mins: number } => {
   if (!iso) return { text: "never", mins: Infinity };
   const mins = Math.max(0, (Date.now() - new Date(iso).getTime()) / 60000);
   return { text: mins < 1 ? "just now" : mins < 90 ? `${Math.round(mins)} min ago` : mins < 2880 ? `${Math.round(mins / 60)} h ago` : `${Math.round(mins / 1440)} d ago`, mins };

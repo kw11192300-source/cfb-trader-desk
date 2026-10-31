@@ -52,6 +52,9 @@ export type ExMemberStats = {
   /** spread captured by this trader's quotes against DraftKings at the moment of each fill: sum of qty x capture, and contracts */
   cap_sum?: number;
   cap_q?: number;
+  /** rounds since it last traded, and when it last traded (set from the round the engine started recording it) */
+  idle?: number;
+  last_trade?: string;
 };
 export type ExMember = {
   id: string;
@@ -244,6 +247,9 @@ export type Row = {
   kind: string;
   /** change in equity over the last 24 hours, filled in by the page that has the snapshots */
   chg24?: number | null;
+  /** when it last traded (a syndicate: when any of its traders did); an estimate from idle rounds until the exact time has been recorded */
+  lastTrade: string | null;
+  lastApprox: boolean;
 };
 
 /** The reserve share of its starting bankroll that a trader never commits as cash (the engine's RESERVE_FRAC). */
@@ -256,6 +262,18 @@ function clvSe(sum: number, sq: number, n: number): number | null {
 }
 
 /** One summary row per member, and one per syndicate (its members added up), in the same shape so the same table renders both. */
+/** The latest time any of these accounts traded: the recorded time, else a guess from how many rounds it has sat idle (a round is about ten minutes). */
+function lastTraded(ms: ExMember[]): { lastTrade: string | null; lastApprox: boolean } {
+  let best = -Infinity, approx = false;
+  for (const m of ms) {
+    const exact = m.stats.last_trade ? new Date(m.stats.last_trade).getTime() : null;
+    const guess = exact == null && m.stats.idle != null ? Date.now() - m.stats.idle * 600000 : null;
+    const t = exact ?? guess;
+    if (t != null && t > best) { best = t; approx = exact == null; }
+  }
+  return best === -Infinity ? { lastTrade: null, lastApprox: false } : { lastTrade: new Date(best).toISOString(), lastApprox: approx };
+}
+
 export function summarize(syndicates: ExSyndicate[], members: ExMember[]): { members: Row[]; syndicates: Row[] } {
   const syn = Object.fromEntries(syndicates.map((s) => [s.id, s]));
   const rowOf = (id: string, name: string, syndicate: string, color: string, ms: ExMember[], start: number, note = "", isPublic = false, kind = ""): Row => {
@@ -274,6 +292,7 @@ export function summarize(syndicates: ExSyndicate[], members: ExMember[]): { mem
       maxDd: Math.max(0, ...st.map((s) => s.max_dd)), winRate: decided > 0 ? sum((s) => s.wins) / decided : null, note, isPublic,
       sPnl: sum((s) => s.s_pnl ?? 0), sTraded: sum((s) => s.s_traded ?? 0), sRoi: sum((s) => s.s_traded ?? 0) > 0 ? sum((s) => s.s_pnl ?? 0) / sum((s) => s.s_traded ?? 0) : null, sGames: sum((s) => s.s_games ?? 0),
       cash: ms.reduce((a, m) => a + m.cash, 0), available: ms.reduce((a, m) => a + Math.max(0, m.cash - RESERVE_FRAC * m.start_units), 0), pending: ms.reduce((a, m) => a + m.locked, 0), kind,
+      ...lastTraded(ms),
     };
   };
   const mrows = members.map((m) => rowOf(m.id, m.name, syn[m.syndicate_id]?.name ?? m.syndicate_id, syn[m.syndicate_id]?.color ?? "#888", [m], m.start_units, m.params.public ? `public · ${String(m.params.style)}` : `${m.role === "both" ? "maker + taker" : m.role} · ${Array.isArray(m.params.focus) ? (m.params.focus as string[]).map((x) => x.toUpperCase()).join(", ") : ""}`, !!m.params.public, m.params.public ? "public" : syn[m.syndicate_id]?.engine === "agent" ? "lab" : m.role === "both" ? "maker + taker" : m.role));
