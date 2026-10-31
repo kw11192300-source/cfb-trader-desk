@@ -33,7 +33,8 @@ W_FLOOR_EXCH = 0.5  # with no market to anchor to, a syndicate trusts its own mo
 CUTOFF_MIN = 3
 SNAP_EVERY = 3  # rounds between equity snapshots
 VOID_AFTER_DAYS = 6
-TOTAL_FRAC = 0.50  # worst-case loss, summed over a trader's games, may not pass this share of its bankroll (the football ramp and the maker lab's limits filled the old 30% in one round)
+TOTAL_FRAC = 0.75  # worst-case loss, summed over a trader's games, may not pass this share of its bankroll (it was 30%, then 50%: with 200+ games listed the sum kept filling up)
+FAR_H, FAR_FRAC = 24.0, 0.5  # games more than a day away may use at most this share of the total budget, so the games about to start always have room to be quoted and traded
 SYN_GAME = 150.0  # a syndicate's combined worst case on one game, all its traders together, at the kickoff end of the ramp
 TAKE_CLIP = 40.0  # most contracts a trader will take in one go
 MAX_FILLS = 2  # most hits a trader makes each time it acts
@@ -630,7 +631,12 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     delta: dict[str, float] = {}
     sd_of = {"nhl": (2.3, 2.4), **{sp: v[:2] for sp, v in pricing.SIGMA.items()}}
 
+    touched: dict[str, int] = {}  # game -> the last step at which anything in it changed (a fill, or a shift in the flow or a maker's read); makers only re-post quotes on games touched since they last posted
+    last_post: dict[str, int] = {}
+    tick_no = [0]
+
     def refresh(gid: str) -> None:
+        touched[gid] = tick_no[0]
         dm, dt = flow.get(gid, [0.0, 0.0])
         d0 = refs[gid][0]
         d1 = Dist(d0.sport, d0.m + dm, d0.t + dt)
@@ -708,6 +714,15 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             v = tcache[mid] = sum(pos(mid, g)[2] + pos(mid, g)[3] for g in games_of.get(mid, ()))
         return v
 
+    fcache: dict[str, float] = {}
+
+    def trisk_far(mid: str) -> float:
+        """Worst-case loss summed over the trader's games that are still more than FAR_H hours from kickoff."""
+        v = fcache.get(mid)
+        if v is None:
+            v = fcache[mid] = sum(pos(mid, g)[2] + pos(mid, g)[3] for g in games_of.get(mid, ()) if g in games and (_pdate(games[g]["start_utc"]) - now).total_seconds() / 3600 > FAR_H)
+        return v
+
     def total_limit(m: dict) -> float:
         return TOTAL_FRAC * (m["cash"] + m["locked"])
 
@@ -727,6 +742,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         vm, vt, rm, rt = pos(m["id"], mk["gid"])
         u = (mk["ov"] - px) if side == "buy" else (px - mk["ov"])
         slack = max(0.0, total_limit(m) * (MAKER_SOFT if soft else 1.0) - trisk(m["id"]))
+        if mk["hrs"] > FAR_H:  # a game more than a day away may only use its share of the budget, so tonight's games are never starved by next week's
+            slack = min(slack, max(0.0, total_limit(m) * (MAKER_SOFT if soft else 1.0) * FAR_FRAC - trisk_far(m["id"])))
         bonus = 1.0 + SPORT_BONUS * float((m["stats"].get("sharp") or {}).get(mk["sport"], 0.0))
         lim = min(m["params"]["max_risk"] * lscale(m) * bonus * mk["ramp"] * mk["srcf"], rm + rt + slack)
         q = risk.room(vm if mk["dim"] == "m" else vt, u, lim - (rt if mk["dim"] == "m" else rm))
@@ -799,6 +816,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             pdcache.pop((who["id"], mk["gid"]), None)
             scache.pop((who["syndicate_id"], mk["gid"]), None)
             tcache.pop(who["id"], None)
+            fcache.pop(who["id"], None)
             games_of.setdefault(who["id"], set()).add(mk["gid"])
         if tr["rem_b"] > 1e-9:
             lots_g.setdefault((buyer["id"], mk["gid"]), []).append(tr)
@@ -806,6 +824,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             lots_g.setdefault((seller["id"], mk["gid"]), []).append(tr)
         last_px[k] = px
         first_px.setdefault(k, px)
+        touched[mk["gid"]] = tick_no[0]
         taker = buyer if maker is seller else seller
         cap = (px - mk["ref"]) if maker is seller else (mk["ref"] - px)  # what the maker earned against DraftKings at the moment of the fill
         ms = maker["stats"]
@@ -915,9 +934,11 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             tmult = 1.0 + p.get("tox", 1.0) * float(np.clip(-avg_ / 0.02, 0.0, 1.5)) if avg_ < 0 else (0.85 if avg_ > 0.01 else 1.0)
         polm = pol.get(m["syndicate_id"]) or {}
         for k, on in mine[m["id"]]:
+            mk = markets[k]
+            if touched.get(mk["gid"], -1) < last_post.get(m["id"], -1):
+                continue  # nothing has changed on this game since this maker last posted: its quotes stand
             bids[k] = [q for q in bids[k] if q[2] != m["id"]]
             asks[k] = [q for q in asks[k] if q[2] != m["id"]]
-            mk = markets[k]
             pl = polm.get(k)
             if mm:  # lean against the whole book on the game, not just this line, and quote wider where it has just been hit
                 dm_, dt_ = delta_exp(m["id"], mk["gid"])
@@ -956,6 +977,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 qstat["posted"] += 1
             else:
                 qstat["no_room_ask"] += 1
+        last_post[m["id"]] = tick_no[0]
 
     def best(book, me):
         for q in book:
@@ -1180,6 +1202,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         if m["role"] in ("maker", "both") and not m["params"].get("public"):  # public money only ever takes, never rests a quote
             post_quotes(m)
     for tick in range(ticks):
+        tick_no[0] = tick
         clock["ts"] = _iso(t0 + (now - t0) * ((tick + 1) / (ticks + 1)))
         rng.shuffle(order)
         if tick > 0 and (mmb or tox):  # between steps a market maker's read of a game relaxes back toward the reference prices
