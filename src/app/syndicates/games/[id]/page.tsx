@@ -88,8 +88,9 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
       if (ex != null) exLine.push([t, ex * 100]);
       if (lineKind) {
         const L = mk.lines[i][1];
-        (t >= dkFrom ? dkNum : baseNum).push([t, L]);
-        if (ex != null) exNum.push([t, balancedLine(lineKind, game.sport, L, ex)]);
+        const sg = lineKind === "spread" ? -1 : 1; // the spread is drawn upside down: the higher the line, the more the home team is favoured
+        (t >= dkFrom ? dkNum : baseNum).push([t, sg * L]);
+        if (ex != null) exNum.push([t, sg * balancedLine(lineKind, game.sport, L, ex)]);
       }
     }
   }
@@ -104,7 +105,7 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
   const dots: Dot[] = lineMode ? [] : selTrades.filter((t) => new Date(t.ts).getTime() >= startMs).map((t) => ({ x: new Date(t.ts).getTime(), y: t.price * 100, color: "#38bdf8", r: Math.min(5, 1.5 + t.qty / 40), tip: `${(t.price * 100).toFixed(0)}¢ × ${t.qty.toFixed(0)} · ${names[takerOf(t)] ?? ""} took` }));
   // the moment DraftKings posted: a purple dot where its line starts (it is blank before then)
   const dkFirst = (lineMode ? dkNum : dkLine)[0];
-  if (dkFirst && dkFirst[0] >= startMs && dkFirst[0] <= endMs) dots.push({ x: dkFirst[0], y: dkFirst[1], color: "#a78bfa", r: 3.5, tip: `DraftKings posts at ${lineMode ? dkFirst[1].toFixed(1) : `${dkFirst[1].toFixed(0)}¢`}` });
+  if (dkFirst && dkFirst[0] >= startMs && dkFirst[0] <= endMs) dots.push({ x: dkFirst[0], y: dkFirst[1], color: "#a78bfa", r: 3.5, tip: `DraftKings posts at ${lineMode ? (lineKind === "spread" ? -dkFirst[1] : dkFirst[1]).toFixed(1) : `${dkFirst[1].toFixed(0)}¢`}` });
   const yAll = [...series.flatMap((x) => x.pts.map((q) => q[1])), ...dots.map((d) => d.y)];
   const priceDec = yAll.length && Math.max(...yAll) - Math.min(...yAll) < 6 ? 1 : 0; // a narrow window needs the decimals or the axis repeats itself
   if (series.length === 0 && selRow && !lineMode) series.push({ id: "now", name: dkLive ? "DraftKings now" : "Baseline now", color: dkLive ? "#a78bfa" : "#fbbf24", pts: [[startMs, selRow[2] * 100], [endMs, selRow[2] * 100]] });
@@ -248,13 +249,13 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
                 {winOpts.map(([k]) => <Link key={k} href={hrefWith({ w: k === "3h" ? undefined : k })} scroll={false} className={`rounded px-2 py-1 ${winKey === k ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>{k}</Link>)}
               </div>
             </div>
-            <LineChart series={series} dots={dots} height={340} legend={false} xTime={winH <= 12 ? { hour: "numeric", minute: "2-digit" } : TIME_OPTS} yFmt={lineMode ? (v) => (lineKind === "spread" && v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1)) : (v) => `${v.toFixed(priceDec)}¢`} />
+            <LineChart series={series} dots={dots} height={340} legend={false} xTime={winH <= 12 ? { hour: "numeric", minute: "2-digit" } : TIME_OPTS} yFmt={lineMode ? (v) => (lineKind === "spread" ? (-v > 0 ? `+${(-v).toFixed(1)}` : (-v).toFixed(1)) : v.toFixed(1)) : (v) => `${v.toFixed(priceDec)}¢`} />
             <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] text-muted">
               {series.map((s) => <span key={s.id}><span className="mr-1 inline-block h-0.5 w-4 align-middle" style={{ background: s.color }} />{s.name}</span>)}
               {!lineMode && <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ background: "#38bdf8" }} />Trades (bigger dot, bigger trade)</span>}
               {dkFirst && dkFirst[0] >= startMs && <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ background: "#a78bfa" }} />DraftKings posts here</span>}
               {!lineMode && !mainSel && <span>Only the main lines keep a price history, so this line shows its trades.</span>}
-              {lineMode && <span>{lineKind === "spread" ? `${game.home.abbr} spread` : "Total"}: the exchange line is the number at which the exchange&rsquo;s price would be 50-50. It moves in fractions of a point, DraftKings&rsquo; posted line in half points.</span>}
+              {lineMode && <span>{lineKind === "spread" ? `${game.home.abbr} spread, drawn so that up means ${game.home.abbr} more favoured` : "Total, higher at the top"}: the exchange line is the number at which the exchange&rsquo;s price would be 50-50. It moves in fractions of a point, DraftKings&rsquo; posted line in half points.</span>}
               {!dkLive && <span>DraftKings has not posted this game yet, so only the exchange is shown; the DraftKings line starts the moment it posts.</span>}
             </div>
           </section>
