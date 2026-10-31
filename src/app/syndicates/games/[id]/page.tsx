@@ -95,11 +95,14 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
   }
   const series: Series[] = [];
   if (lineMode) {
-    if (baseNum.length) series.push({ id: "base", name: "Line the syndicates made", color: "#fbbf24", pts: inWindow(baseNum), step: true });
+    const seed = (game.ref as { seed?: [number, number] } | null)?.seed;
+    if (!dkLive && seed && lineKind) {  // no DraftKings line yet: a flat reference at the line the ratings opened it at
+      const open = lineKind === "spread" ? -seed[0] : seed[1];
+      series.push({ id: "open", name: `Opening line (${open > 0 && lineKind === "spread" ? "+" : ""}${open.toFixed(1)})`, color: "#fbbf24", pts: [[startMs, open], [endMs, open]], step: true });
+    }
     if (dkNum.length) series.push({ id: "dk", name: "DraftKings line", color: "#a78bfa", pts: inWindow(dkNum), step: true });
     if (exNum.length) series.push({ id: "ex", name: "Exchange balanced line", color: "#34d399", pts: inWindow(exNum), step: true });
   } else {
-    if (baseLine.length) series.push({ id: "base", name: "Baseline the syndicates made", color: "#fbbf24", pts: inWindow(baseLine), step: true });
     if (dkLine.length) series.push({ id: "dk", name: "DraftKings", color: "#a78bfa", pts: inWindow(dkLine), step: true });
     if (exLine.length) series.push({ id: "ex", name: "Exchange", color: "#34d399", pts: inWindow(exLine), step: true });
   }
@@ -253,7 +256,7 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
               {!lineMode && <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ background: "#38bdf8" }} />Trades (bigger dot, bigger trade)</span>}
               {!lineMode && !mainSel && <span>Only the main lines keep a price history, so this line shows its trades.</span>}
               {lineMode && <span>{lineKind === "spread" ? `${game.home.abbr} spread` : "Total"}: the exchange line is the number at which the exchange&rsquo;s price would be 50-50. It moves in fractions of a point, DraftKings&rsquo; posted line in half points.</span>}
-              {!dkLive && <span>DraftKings has not posted this game yet: the amber line is the one the syndicates made.</span>}
+              {!dkLive && <span>DraftKings has not posted this game yet, so there is no DraftKings line to compare with.</span>}
             </div>
           </section>
         )}
