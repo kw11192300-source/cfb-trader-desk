@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Bars } from "@/components/SyndicateCharts";
 import { SyndicateHeader } from "@/components/SyndicateParts";
 import { takerOf } from "@/lib/syndicateGame";
-import { getExchange, getExchangeBoard, getGamesFull, getRecentTrades, label, pct } from "@/lib/syndicates";
+import { getExchange, getExchangeBoard, getGamesFull, getRecentTrades, label, pct, dkPosted } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
@@ -48,12 +48,12 @@ export default async function VolumePage({ searchParams }: { searchParams: Promi
   const topGames = Object.entries(byGame).sort((a, b) => b[1].qty - a[1].qty).slice(0, 10).filter(([id]) => games[id]);
   const topContracts = Object.values(byContract).sort((a, b) => b.qty - a.qty).slice(0, 12).filter((c) => games[c.gid]);
 
-  const gaps = board.flatMap((g) => (g.book ?? []).filter((r) => r[9] != null).map((r) => ({ g, r, d: (r[9]! - r[2]) * 100 })))
+  const gaps = board.filter((g) => dkPosted(g)).flatMap((g) => (g.book ?? []).filter((r) => r[9] != null).map((r) => ({ g, r, d: (r[9]! - r[2]) * 100 })))
     .filter((x) => Math.abs(x.d) >= 1).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, 12);
 
   // main lines where another price disagrees with DraftKings: Kalshi, the exchange, the house, and the syndicates' own views weighted by what they have earned
   const wOf = (sid: string, sport: string) => syndicates.find((s) => s.id === sid)?.learn?.w?.[sport] ?? 0.25;
-  const ideas = board.flatMap((g) => (g.views?.lines ?? []).map((ln, i) => {
+  const ideas = board.filter((g) => dkPosted(g)).flatMap((g) => (g.views?.lines ?? []).map((ln, i) => {
     const dk = g.views!.r![i];
     const ks = g.views!.kal?.find((x) => x[0] === ln[0] && x[1] === ln[1])?.[2] ?? null;
     const ex = g.views!.x?.[i] ?? null;

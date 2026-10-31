@@ -4,7 +4,7 @@ import LocalDateTime from "@/components/LocalDateTime";
 import { LadderDepth } from "@/components/SyndicateCharts";
 import { SyndicateHeader } from "@/components/SyndicateParts";
 import { takerOf } from "@/lib/syndicateGame";
-import { type ExGame, getAllOpenTrades, getExchange, getExchangeBoard, getGamesFull, getRecentTrades, label, pct } from "@/lib/syndicates";
+import { type ExGame, getAllOpenTrades, getExchange, getExchangeBoard, getGamesFull, getRecentTrades, label, pct, dkPosted } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
@@ -172,7 +172,7 @@ export default async function SyndicateMarketsPage({ searchParams }: { searchPar
                           <td className="px-3 py-1.5 text-right">{n0(c.qty)}</td>
                           <td className="px-3 py-1.5 text-right text-muted">{n0(c.oi)}</td>
                           <td className="px-3 py-1.5 text-right">{c.takers.size}</td>
-                          <td className="px-3 py-1.5 text-right text-muted">{pct(row?.[2])} / {pct(row?.[9])}</td>
+                          <td className="px-3 py-1.5 text-right text-muted">{pct(dkPosted(g) ? row?.[2] : null)} / {pct(row?.[9])}</td>
                         </tr>
                       );
                     })}

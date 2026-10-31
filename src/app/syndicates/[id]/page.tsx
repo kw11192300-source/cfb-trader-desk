@@ -7,7 +7,7 @@ import { LineChart } from "@/components/SyndicateCharts";
 import { PositionCards } from "@/components/PositionCards";
 import { EquityChart, LeaderTable, MoneyLegend, SyndicateHeader, TradeFilters, TradeList } from "@/components/SyndicateParts";
 import {
-  type ExGame, type ExTrade, fairOf, getExchange, getExchangeSnapshots, getExchangeTrades, getGamesFull, getSyndicateOpenTrades, getWeightHistory, label, openLots, payoff, pct, ramp, SORTS, sortRows, summarize, SYN_GAME_LIMIT,
+  type ExGame, type ExTrade, fairOf, getExchange, getExchangeSnapshots, getExchangeTrades, getGamesFull, getSyndicateOpenTrades, getWeightHistory, label, openLots, payoff, pct, ramp, SORTS, sortRows, summarize, SYN_GAME_LIMIT, dkPosted
 } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
@@ -296,7 +296,7 @@ export default async function SyndicatePage({ params, searchParams }: { params: 
                         <td className="px-3 py-1.5 text-right text-down">{p.short ? p.short.toFixed(0) : ""}</td>
                         <td className={`px-3 py-1.5 text-right ${net > 0 ? "text-up" : net < 0 ? "text-down" : ""}`}>{net > 0 ? "+" : ""}{net.toFixed(0)}</td>
                         <td className="px-3 py-1.5 text-right">{pct(avg)}</td>
-                        <td className="px-3 py-1.5 text-right text-muted">{pct(fairOf(g, p.kind, p.line))}</td>
+                        <td className="px-3 py-1.5 text-right text-muted">{pct(dkPosted(g) ? fairOf(g, p.kind, p.line) : null)}</td>
                         <td className="px-3 py-1.5 font-sans text-[11px] text-muted">
                           {Object.entries(p.holders).map(([h, q]) => `${first[h] ?? h} ${q > 0 ? "+" : ""}${q.toFixed(0)}`).join(" · ")}
                         </td>

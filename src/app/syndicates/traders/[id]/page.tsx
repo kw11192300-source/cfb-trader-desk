@@ -6,7 +6,7 @@ import { PositionCards } from "@/components/PositionCards";
 import { rankIn, sharpOf } from "@/components/SharpMoney";
 import { EquityChart, SyndicateHeader, TradeFilters, TradeList } from "@/components/SyndicateParts";
 import { scenarioPnl, scenarios, yesNo } from "@/lib/syndicateGame";
-import { type ExTrade, fairOf, getExchange, getExchangeSnapshots, getExchangeTrades, getGamesFull, getTraderOpenTrades, label, openLots, pct, ramp, traderLimit, type ExGame, type Lot } from "@/lib/syndicates";
+import { type ExTrade, fairOf, getExchange, getExchangeSnapshots, getExchangeTrades, getGamesFull, getTraderOpenTrades, label, openLots, pct, ramp, traderLimit, type ExGame, type Lot, dkPosted } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
@@ -207,7 +207,7 @@ export default async function TraderPage({ params, searchParams }: { params: Pro
                       <td className={`px-3 py-1.5 font-sans ${p.net > 0 ? "text-up" : "text-down"}`}>{p.net > 0 ? "Long yes" : "Short yes (long no)"}</td>
                       <td className="px-3 py-1.5 text-right">{Math.abs(p.net).toFixed(0)}</td>
                       <td className="px-3 py-1.5 text-right">{pct(p.avg)}</td>
-                      <td className="px-3 py-1.5 text-right text-muted">{pct(p.dk)}</td>
+                      <td className="px-3 py-1.5 text-right text-muted">{pct(dkPosted(p.g) ? p.dk : null)}</td>
                       <td className={`px-3 py-1.5 text-right ${tone(p.yes)}`}>{u(p.yes)}</td>
                       <td className={`px-3 py-1.5 text-right ${tone(p.no)}`}>{u(p.no)}</td>
                       <td className={`px-3 py-1.5 text-right ${tone(p.mtm)}`}>{u(p.mtm)}</td>

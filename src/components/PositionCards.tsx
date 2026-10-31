@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import LocalDateTime from "@/components/LocalDateTime";
 import { type Band, type GameCard, gameCards } from "@/lib/positions";
-import { type ExGame, fairOf, type Lot, pct } from "@/lib/syndicates";
+import { dkPosted, type ExGame, fairOf, type Lot, pct } from "@/lib/syndicates";
 
 const SPORT: Record<string, string> = { cfb: "CFB", nfl: "NFL", nhl: "NHL", cbb: "CBB", nba: "NBA" };
 const u = (n: number, d = 1) => `${n > 0.05 ? "+" : ""}${n.toFixed(d)}`;
@@ -49,7 +49,7 @@ function Card({ c, limit, holder }: { c: GameCard; limit?: number; holder?: (id:
         <p className="text-[11px] text-muted">
           <LocalDateTime iso={g.start_utc} options={{ weekday: "short", hour: "numeric", minute: "2-digit" }} />
           {hrs > 0 && ` · in ${hrs >= 24 ? `${Math.floor(hrs / 24)}d ${Math.round(hrs % 24)}h` : `${hrs.toFixed(1)}h`}`}
-          {mainLines && ` · DK ${mainLines}`}
+          {mainLines && ` · ${dkPosted(g) ? "DK" : "line"} ${mainLines}`}
         </p>
       </div>
       <div className="mt-2 grid grid-cols-5 gap-2 text-[11px]">

@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { SyndicateHeader } from "@/components/SyndicateParts";
-import { fairOf, getAllOpenTrades, getExchange, getExchangeBoard, getGamesFull, label, openLots, pct, type ExGame, type Lot } from "@/lib/syndicates";
+import { fairOf, getAllOpenTrades, getExchange, getExchangeBoard, getGamesFull, label, openLots, pct, type ExGame, type Lot, dkPosted } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
@@ -89,7 +89,7 @@ export default async function PositionsPage({ searchParams }: { searchParams: Pr
                     <td className="px-3 py-1.5 text-right">{Math.abs(p.net).toFixed(0)}</td>
                     <td className="px-3 py-1.5 text-right">{p.cost.toFixed(0)}</td>
                     <td className="px-3 py-1.5 text-right">{pct(p.avg)}</td>
-                    <td className="px-3 py-1.5 text-right text-muted">{pct(p.dk)}</td>
+                    <td className="px-3 py-1.5 text-right text-muted">{pct(dkPosted(p.g) ? p.dk : null)}</td>
                     <td className={`px-3 py-1.5 text-right ${tone(p.mtm)}`}>{u(p.mtm)}</td>
                   </tr>
                 ))}

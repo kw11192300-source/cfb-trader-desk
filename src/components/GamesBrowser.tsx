@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 
-import { ramp, tierMult } from "@/lib/limits";
+import { dkPosted, ramp, tierMult } from "@/lib/limits";
 import type { GameRow } from "@/lib/syndicates";
 
 const SPORTS = ["nfl", "cfb", "nhl", "nba", "cbb"];
@@ -32,7 +32,7 @@ function Card({ g }: { g: GameRow }) {
   const idx = (kind: string) => g.lines?.findIndex((l) => l[0] === kind) ?? -1;
   const price = (kind: string) => {
     const i = idx(kind);
-    return i < 0 ? { line: null as number | null, dk: null as number | null, x: null as number | null } : { line: g.lines![i][1], dk: g.dk?.[i] ?? null, x: g.x?.[i] ?? null };
+    return i < 0 ? { line: null as number | null, dk: null as number | null, x: null as number | null } : { line: g.lines![i][1], dk: dkPosted(g) ? g.dk?.[i] ?? null : null, x: g.x?.[i] ?? null };
   };
   const ml = price("ml"), sp = price("spread"), tt = price("total");
   const start = new Date(g.start_utc);

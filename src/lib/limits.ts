@@ -14,3 +14,6 @@ export const ramp = (hours: number, sport = ""): number => {
   const i = RAMP_EDGES.findIndex((e) => hours > e);
   return i < 0 ? row[row.length - 1] : row[i];
 };
+
+/** True when DraftKings has actually posted a game. Until then the game's "reference" price is the line the syndicates made themselves, which is not DraftKings' price and is never shown as it. */
+export const dkPosted = (g: { ref?: { src?: string } | null } | null | undefined): boolean => !g?.ref?.src || g.ref.src === "dk";

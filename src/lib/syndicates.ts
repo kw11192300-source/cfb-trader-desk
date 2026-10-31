@@ -297,7 +297,7 @@ export function payoff(trades: ExTrade[], who: (id: string) => string | null, xs
   return out;
 }
 
-export { ramp, tierMult } from "./limits";
+export { dkPosted, ramp, tierMult } from "./limits";
 export const SYN_GAME_LIMIT = 100;
 export const TRADER_GAME_LIMIT = 100;
 

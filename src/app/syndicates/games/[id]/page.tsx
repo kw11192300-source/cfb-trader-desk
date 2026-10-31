@@ -298,7 +298,7 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
                             </td>
                             <td className="px-2 py-1.5 text-right">
                               <span className="text-sm text-foreground">{Math.round(chance * 100)}%</span>
-                              <span className="ml-1 text-[10px] text-muted">DK {Math.round(r[2] * 100)}%{kal(r[0], r[1]) != null ? ` · KS ${Math.round(kal(r[0], r[1])! * 100)}%` : ""}{dif != null && Math.abs(dif) >= 1 ? ` · ${dif > 0 ? "+" : ""}${dif.toFixed(0)}` : ""}</span>
+                              <span className="ml-1 text-[10px] text-muted">{dkLive ? `DK ${Math.round(r[2] * 100)}%` : ""}{kal(r[0], r[1]) != null ? ` · KS ${Math.round(kal(r[0], r[1])! * 100)}%` : ""}{dif != null && Math.abs(dif) >= 1 ? ` · ${dif > 0 ? "+" : ""}${dif.toFixed(0)}` : ""}</span>
                             </td>
                             <td className="px-2 py-1.5 text-right"><span className="rounded bg-up/15 px-1.5 py-0.5 text-up">{cents(r[4])}</span></td>
                             <td className="px-2 py-1.5 text-right"><span className="rounded bg-down/15 px-1.5 py-0.5 text-down">{r[3] == null ? "–" : `${Math.round((1 - r[3]) * 100)}¢`}</span></td>
@@ -438,7 +438,7 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
                       <td className={`px-3 py-1.5 font-sans ${r.net > 0 ? "text-up" : "text-down"}`}>{r.net > 0 ? "Long yes" : "Short yes (long no)"}</td>
                       <td className="px-3 py-1.5 text-right">{Math.abs(r.net).toFixed(0)}</td>
                       <td className="px-3 py-1.5 text-right">{cents(r.avg)}</td>
-                      <td className="px-3 py-1.5 text-right text-muted">{cents(r.now)} / {cents(r.dk)}</td>
+                      <td className="px-3 py-1.5 text-right text-muted">{cents(r.now)} / {dkLive ? cents(r.dk) : "–"}</td>
                       <td className={`px-3 py-1.5 text-right ${tone(r.yes)}`}>{u(r.yes)}</td>
                       <td className={`px-3 py-1.5 text-right ${tone(r.no)}`}>{u(r.no)}</td>
                       <td className={`px-3 py-1.5 text-right ${tone(r.mtm)}`}>{u(r.mtm)}</td>
