@@ -27,11 +27,12 @@ def build(store) -> int:
 
 
 def mult(tier: str, hours: float) -> float:
-    """The factor on a college basketball game's limit from the two teams' tiers, a little larger for the biggest games as kickoff nears."""
+    """The factor on a college basketball game's limit from the two teams' tiers: bigger for the biggest games, smaller early in the week for the smallest, and all of them at full size by three hours out."""
+    p = min(1.0, max(0.0, (24.0 - hours) / 21.0))  # 0 a day out, 1 at three hours: the smaller games catch up to full size by then
     if tier == "AA":
         return 1.5 if hours <= 12 else 1.25
     if tier in ("AB", "BB", "AC"):
         return 1.0
     if tier == "BC":
-        return 0.8
-    return 0.6 if hours <= 6 else 0.5  # two small-conference teams
+        return 0.8 + 0.2 * p
+    return 0.5 + 0.5 * p  # two small-conference teams: half size early in the week, full size from three hours out

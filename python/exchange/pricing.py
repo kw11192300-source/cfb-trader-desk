@@ -17,6 +17,7 @@ HOCKEY_TOTAL = 6.0
 
 FB_OFFS = [-6, -4, -2, -1, 0, 1, 2, 4, 6]
 BB_TOTAL_OFFS = [-8, -5, -3, -1, 0, 1, 3, 5, 8]
+CBB_OFFS = [-3, -2, -1, 0, 1, 2, 3]  # college basketball: seven lines either side of the main number, one point apart, so there is little to move when the line does
 HK_SPREADS = [-2.5, -1.5, 1.5, 2.5]  # +-0.5 are left out: with no ties they are the same event as the moneyline
 HK_TOTAL_OFFS = [-2, -1, 0, 1, 2]
 
@@ -152,9 +153,9 @@ def lines_for(sport: str, snap: dict | None) -> list[tuple[str, float]]:
         if sport == "nhl":
             out += [("spread", x) for x in HK_SPREADS]
         else:
-            out += [("spread", x) for x in ladder(snap["spread"], FB_OFFS) if abs(x) != 0.5]  # no ties: +-0.5 is just the moneyline
+            out += [("spread", x) for x in ladder(snap["spread"], CBB_OFFS if sport == "cbb" else FB_OFFS) if abs(x) != 0.5]  # no ties: +-0.5 is just the moneyline
     if snap.get("total") is not None and snap.get("over") is not None:
-        offs = HK_TOTAL_OFFS if sport == "nhl" else BB_TOTAL_OFFS if sport in ("nba", "cbb") else FB_OFFS
+        offs = HK_TOTAL_OFFS if sport == "nhl" else CBB_OFFS if sport == "cbb" else BB_TOTAL_OFFS if sport == "nba" else FB_OFFS
         out += [("total", x) for x in ladder(snap["total"], offs) if x > 0]
     return out
 
