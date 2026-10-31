@@ -45,6 +45,7 @@ FLOW_DECAY = 0.6  # how much of that market move is still felt a round later
 SHARP_CLV = 0.02  # average closing-line value (2 cents) that makes a taker fully "sharp"
 SHARP_N = 10.0  # effective trades of evidence before a taker's record counts in full
 MM_REACT = 2.0  # a market maker moves its own view of a game this many times harder than a follower when its quote is hit
+LEAN_CAP = 0.03  # a market maker's inventory lean moves its quotes at most this far (3 cents): past it, a position is worked off by stopping the heavy side, not by paying ever more (Careful Book gave up 472 units on fills 3 to 19 cents off DraftKings)
 MAKER_SOFT = 0.7  # a market maker stops offering new risk once it has used this share of its risk limit, so it always has room to keep quoting
 RESERVE_FRAC = 0.20  # share of its starting bankroll a trader never commits as cash
 MARGIN_CREDIT = 0.8  # offsetting positions cannot all lose: the collateral posted above the worst-case loss counts as free to trade, at this share (cash can dip below zero as a bucket; equity and bankroll are cash plus locked, so they do not move)
@@ -1010,13 +1011,18 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             bids[k] = [q for q in bids[k] if q[2] != m["id"]]
             asks[k] = [q for q in asks[k] if q[2] != m["id"]]
             pl = polm.get(k)
+            stop_buy = stop_sell = False
             if mm:  # lean against the whole book on the game, not just this line, and quote wider where it has just been hit
                 dm_, dt_ = delta_exp(m["id"], mk["gid"])
                 pm_, pt_ = delta_pub(m["id"], mk["gid"])  # inventory taken from public bettors is not a signal, so it is leaned against less
                 dm_, dt_ = dm_ - relief(dm_, pm_), dt_ - relief(dt_, pt_)
                 s0 = smax(mk["gid"], mk["dim"])
                 inv = (dm_ if mk["dim"] == "m" else dt_) / max(1e-9, p["size"] * s0) * (sens_of(mk["gid"], mk["kind"], mk["line"]) / s0)
-                c = fairs[(m["id"], k)] - 2.0 * p["half"] * p.get("inv", 1.0) * inv * (float(np.clip(pl.get("inv_scale", 1.0), 0.0, 1.5)) if pl else 1.0)
+                lean_ = 2.0 * p["half"] * p.get("inv", 1.0) * inv * (float(np.clip(pl.get("inv_scale", 1.0), 0.0, 1.5)) if pl else 1.0)
+                if abs(lean_) > LEAN_CAP:
+                    stop_buy, stop_sell = lean_ > 0, lean_ < 0  # long (or short) past the cap: do not add to it
+                    lean_ = LEAN_CAP if lean_ > 0 else -LEAN_CAP
+                c = fairs[(m["id"], k)] - lean_
                 half = max(RULES["half_min"], p["half"] * patience(m)) * tmult * (1.3 if mk["hrs"] < 1 else 1.0) + 0.004 * tox.get((m["id"], k), 0.0)
             else:
                 c = fairs[(m["id"], k)] - 2.0 * p["half"] * net.get((m["id"], k), 0.0) / max(1.0, p["size"])  # a full-size position moves both quotes two half-spreads
@@ -1036,8 +1042,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             core = mk["core"]
             if core:
                 size = max(size, CORE_MIN)
-            qb = min(size * sz_b, room_for(m, mk, "buy", bid, True, core), cash_room(m, k, "buy", bid)) if size * sz_b >= 5 else 0.0
-            qa = min(size * sz_a, room_for(m, mk, "sell", ask, True, core), cash_room(m, k, "sell", ask)) if size * sz_a >= 5 else 0.0
+            qb = min(size * sz_b, room_for(m, mk, "buy", bid, True, core), cash_room(m, k, "buy", bid)) if size * sz_b >= 5 and not (stop_buy and not core) else 0.0
+            qa = min(size * sz_a, room_for(m, mk, "sell", ask, True, core), cash_room(m, k, "sell", ask)) if size * sz_a >= 5 and not (stop_sell and not core) else 0.0
             if qb >= 5:
                 bids[k].append([bid, round(qb, 2), m["id"]])
                 bids[k].sort(key=lambda x: -x[0])
