@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import random
 import time
+import zlib
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -126,6 +127,19 @@ def adapt(m: dict, now: str) -> None:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _res_add(st: dict, sport: str, gid: str, r: float) -> None:
+    """Result edge: how much more (or less) a side won than the closing price said it would, outcome minus closing price for a buyer and the reverse for a seller.
+    Kept per sport as a running sum, sum of squares and count, plus the same sums for two halves of the games (split by game id) so a later check can ask whether it repeats.
+    It is the other half of a trader's profit: price paid against the close is closing-line value, the close against the result is this."""
+    d = st.setdefault("res", {}).setdefault(sport, {"s": 0.0, "q": 0.0, "n": 0, "h": [[0.0, 0], [0.0, 0]]})
+    d["s"] += r
+    d["q"] += r * r
+    d["n"] += 1
+    h = d["h"][zlib.crc32(gid.encode()) & 1]
+    h[0] += r
+    h[1] += 1
 
 
 def _iso(d: datetime) -> str:
@@ -259,6 +273,18 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         if t.get("rem_s") is None:
             t["rem_s"] = t["qty"]
     traded_games = {t["game_id"] for t in open_trades}
+    res_backfilled = None
+    if "res_v1" not in meta:  # once: build the result-edge record from every settled trade still in the ledger (nothing settled this round is in the database yet, so nothing is counted twice)
+        res_backfilled = 0
+        for t_ in store.rows("ex_trades", {"settled": True}):
+            o_, c_ = t_.get("outcome"), t_.get("close_p")
+            if o_ is None or c_ is None or o_ == 0.5:
+                continue
+            for side_ in ("buyer", "seller"):
+                m_ = members.get(t_[side_])
+                if m_ is not None:
+                    _res_add(m_["stats"], t_["game_id"].split(":")[0], t_["game_id"], (o_ - c_) if side_ == "buyer" else (c_ - o_))
+            res_backfilled += 1
 
     # ---- ingest
     events = espn.window(sports)
@@ -441,6 +467,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 st["clv_sum"] += c
                 st["clv_sq"] = st.get("clv_sq", 0.0) + c * c
                 st["clv_n"] += 1
+                if out != 0.5:
+                    _res_add(st, g["sport"], t["game_id"], (out - close_p) if side == "buyer" else (close_p - out))
                 st[f"clv_{role}_sum"] = st.get(f"clv_{role}_sum", 0.0) + c
                 st[f"clv_{role}_n"] = st.get(f"clv_{role}_n", 0) + 1
                 if role == "taker":  # the track record other traders read: closing-line value on what this trader chose to hit, by sport
@@ -1441,6 +1469,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         store.insert("ex_snapshots", snaps)
     if marks:
         store.insert("ex_marks", marks)
+    if res_backfilled is not None:
+        store.upsert("ex_meta", [{"key": "res_v1", "value": {"trades": res_backfilled, "ts": _iso(now)}}])
     store.upsert("ex_meta", [{"key": "round", "value": {"n": rnd, "ts": _iso(now), "markets": len(markets), "games": len(by_gid),
                                                          "new_trades": len(new_trades), "settled": stats["settled"], "ticks": ticks, "pub": pubstat, "quotes": qstat, "liq": liq,
                                                          "secs": round(time.time() - t_start, 1), "errors": [s["id"] for s in syns.values() if ((s.get("learn") or {}).get("agent") or {}).get("error")]}}])
