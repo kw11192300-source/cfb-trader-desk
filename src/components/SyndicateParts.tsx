@@ -13,6 +13,17 @@ export function SyndicateHeader({ active, round }: { active: "board" | "markets"
       {text}
     </Link>
   );
+  // a drop-down that opens on a click and lights up when the page you are on is inside it; opening one closes the others
+  const menu = (name: string, items: [string, string, string][]) => (
+    <details name="syndicates-menu" className="relative">
+      <summary className={`cursor-pointer list-none whitespace-nowrap rounded px-3 py-1.5 ${items.some((x) => x[2] === active) ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>{name} <span className="text-[9px]">▾</span></summary>
+      <div className="absolute left-0 z-30 mt-1 min-w-[170px] rounded-lg border border-border bg-surface p-1 shadow-lg">
+        {items.map(([href, text, key]) => (
+          <Link key={key} href={href} className={`block whitespace-nowrap rounded px-3 py-1.5 ${active === key ? "bg-accent text-background" : "text-muted hover:bg-surface-raised hover:text-foreground"}`}>{text}</Link>
+        ))}
+      </div>
+    </details>
+  );
   return (
     <header className="border-b border-border bg-surface px-6 py-4">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
@@ -35,22 +46,10 @@ export function SyndicateHeader({ active, round }: { active: "board" | "markets"
         <nav className="flex w-full flex-wrap items-center gap-x-1 gap-y-1 text-xs">
           {tab("/syndicates", "Leaderboard", "board")}
           {tab("/syndicates/games", "Games", "games")}
-          {tab("/syndicates/markets", "Markets", "markets")}
-          {tab("/syndicates/positions", "Positions", "positions")}
-          {tab("/syndicates/sharp", "Sharp money", "sharp")}
-          {tab("/syndicates/volume", "Volume", "volume")}
-          {tab("/syndicates/trades", "Trades", "trades")}
-          {tab("/syndicates/history", "Results", "history")}
-          {tab("/syndicates/digest", "Digest", "digest")}
-          {tab("/syndicates/crowding", "Crowding", "crowding")}
-          {tab("/syndicates/closing", "Vs DK", "closing")}
-          {tab("/syndicates/models", "Models", "models")}
-          {tab("/syndicates/disagreement", "Disagree", "disagreement")}
-          {tab("/syndicates/news", "News", "news")}
-          {tab("/syndicates/reliability", "Reliability", "reliability")}
-          {tab("/syndicates/signals", "Signals", "signals")}
-          {tab("/syndicates/discovery", "Discovery", "discovery")}
-          <Link href="/today" className="ml-3 text-muted hover:text-foreground">
+          {menu("Trading", [["/syndicates/markets", "Markets", "markets"], ["/syndicates/positions", "Positions", "positions"], ["/syndicates/trades", "Trades", "trades"], ["/syndicates/volume", "Volume", "volume"], ["/syndicates/crowding", "Crowding", "crowding"]])}
+          {menu("Performance", [["/syndicates/history", "Results", "history"], ["/syndicates/digest", "Daily digest", "digest"], ["/syndicates/closing", "Exchange vs DK", "closing"], ["/syndicates/models", "Model scorecard", "models"], ["/syndicates/reliability", "Reliability", "reliability"]])}
+          {menu("Research", [["/syndicates/sharp", "Sharp money", "sharp"], ["/syndicates/disagreement", "Disagreement", "disagreement"], ["/syndicates/news", "News", "news"], ["/syndicates/signals", "Signals", "signals"], ["/syndicates/discovery", "Line discovery", "discovery"]])}
+          <Link href="/today" className="ml-3 whitespace-nowrap text-muted hover:text-foreground">
             ← Trader Desk
           </Link>
         </nav>

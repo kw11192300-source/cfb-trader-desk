@@ -13,13 +13,13 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
-from . import espn, house, kalshi, news, pricing, piles, ratings, reliability, results, risk, signals
+from . import cbbtiers, espn, house, kalshi, news, pricing, piles, ratings, reliability, results, risk, signals
 from .agents import manage as agent_manage, sandbox as agent_sandbox
 from .members import roster
 from .pricing import Dist, ckey, clip
 
 HORIZON_H = 168  # a week out
-HORIZON_BY_SPORT = {"nfl": 336}  # the NFL's slate is small, so look two weeks ahead
+HORIZON_BY_SPORT = {"nfl": 336, "cbb": 72}  # the NFL's slate is small, so look two weeks ahead; college basketball has hundreds of games a day, so only the next three days
 
 
 def horizon(sport: str) -> int:
@@ -72,7 +72,7 @@ ADAPT_EVERY = 40  # settled trades of one kind between a trader reviewing its ow
 # and the last hour is allowed past 100% where the flow peaks (not in college basketball, whose games are many and thin)
 RAMPS = {"nfl": (0.5, 0.65, 0.75, 0.9, 1.0, 1.0, 1.0, 1.0, 1.0), "cfb": (0.5, 0.65, 0.75, 0.9, 1.0, 1.0, 1.0, 1.0, 1.0),
          "nba": (0.10, 0.10, 0.15, 0.20, 0.40, 0.70, 0.85, 1.0, 1.2), "nhl": (0.10, 0.10, 0.15, 0.20, 0.40, 0.70, 0.85, 1.0, 1.1),
-         "cbb": (0.05, 0.05, 0.08, 0.12, 0.25, 0.50, 0.70, 0.90, 1.0)}
+         "cbb": (0.10, 0.10, 0.15, 0.20, 0.35, 0.60, 0.80, 1.0, 1.0)}  # college basketball: scaled again by the two teams' conference tiers (cbbtiers.mult)
 RAMP_EDGES = (120.0, 72.0, 36.0, 24.0, 12.0, 6.0, 3.0, 1.0)
 
 
@@ -467,6 +467,12 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 ms_["s_games"] = ms_.get("s_games", 0) + 1
 
     # ---- markets
+    cbb_tiers = (rat.get("cbb|tiers") or {}).get("tiers", {})
+
+    def tier_pair(g: dict) -> str:
+        """The two teams' conference tiers, strongest first: AA, AB, AC, BB, BC or CC."""
+        return "".join(sorted([cbb_tiers.get(g["home"]["id"], "C"), cbb_tiers.get(g["away"]["id"], "C")]))
+
     lo = now + timedelta(minutes=CUTOFF_MIN)
     markets: dict[str, dict] = {}  # ckey -> {gid, sport, kind, line, ref, near, dim, ov}
     for gid, g in games.items():
@@ -484,7 +490,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             srcf = SRC_LIMIT[(g["ref"].get("src") or "dk")]
             markets[k] = {"gid": gid, "sport": g["sport"], "kind": kind, "line": line, "ref": p_ref(gid, kind, line), "srcf": srcf, "src": g["ref"].get("src") or "dk",
                           "hrs": (_pdate(g["start_utc"]) - now).total_seconds() / 3600,
-                          "ramp": ramp((_pdate(g["start_utc"]) - now).total_seconds() / 3600, g["sport"]),
+                          "ramp": ramp((_pdate(g["start_utc"]) - now).total_seconds() / 3600, g["sport"]) * (cbbtiers.mult(tier_pair(g), (_pdate(g["start_utc"]) - now).total_seconds() / 3600) if g["sport"] == "cbb" else 1.0),
                           "near": kind == "ml" or (main is not None and abs(line - main) <= 2)}
     by_gid: dict[str, list[str]] = {}
     for k, mk in markets.items():
@@ -535,6 +541,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     for gid, keys in by_gid.items():
         g, (d, ml) = games[gid], refs[gid]
         views = {"lines": [], "r": [], "e": {}, "src": g["ref"].get("src") or "dk"}
+        if g["sport"] == "cbb":
+            views["tier"] = tier_pair(g)
         for kd, ln in [("ml", 0.0), ("spread", pricing.main_half(g["ref"].get("spread"))), ("total", pricing.main_half(g["ref"].get("total")))]:
             if ln is not None and ckey(gid, kd, ln) in markets:
                 views["lines"].append([kd, ln])
@@ -953,6 +961,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         polm = pol.get(m["syndicate_id"]) or {}
         for k, on in mine[m["id"]]:
             mk = markets[k]
+            if mk["hrs"] > 24 and not mk["near"]:
+                continue  # more than a day out, makers quote only the lines near the main number; the wings wait until the game is closer
             if touched.get(mk["gid"], -1) < last_post.get(m["id"], -1):
                 continue  # nothing has changed on this game since this maker last posted: its quotes stand
             bids[k] = [q for q in bids[k] if q[2] != m["id"]]

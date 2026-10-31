@@ -7,7 +7,7 @@ import { GamePositions } from "@/components/GamePositions";
 import { SharpMoney } from "@/components/SharpMoney";
 import { SyndicateHeader, TradeList } from "@/components/SyndicateParts";
 import { scenarioPnl, scenarios, takerOf, yesNo } from "@/lib/syndicateGame";
-import { fairOf, getExchange, getExchangeGame, getGameMarks, getGameTrades, getResult, label, openLots, payoff, ramp, SYN_GAME_LIMIT, type ExGame, type ExTrade, type Lot } from "@/lib/syndicates";
+import { fairOf, getExchange, getExchangeGame, getGameMarks, getGameTrades, getResult, label, openLots, payoff, ramp, tierMult, SYN_GAME_LIMIT, type ExGame, type ExTrade, type Lot } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
@@ -140,7 +140,7 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
             </p>
           </div>
           <p className="text-[11px] text-muted">
-            {trades.length} trades · {Math.round(trades.reduce((a, t) => a + t.qty, 0)).toLocaleString()} contracts traded · syndicate limit {Math.round(SYN_GAME_LIMIT * ramp(Math.max(0, hrs), game.sport))}-{Math.round(2 * SYN_GAME_LIMIT * ramp(Math.max(0, hrs), game.sport))} units now
+            {trades.length} trades · {Math.round(trades.reduce((a, t) => a + t.qty, 0)).toLocaleString()} contracts traded · syndicate limit {Math.round(SYN_GAME_LIMIT * ramp(Math.max(0, hrs), game.sport) * tierMult(game.views?.tier, hrs))}-{Math.round(2 * SYN_GAME_LIMIT * ramp(Math.max(0, hrs), game.sport) * tierMult(game.views?.tier, hrs))} units now
           </p>
         </div>
 
