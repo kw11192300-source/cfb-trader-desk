@@ -55,6 +55,9 @@ LIMIT_SCALE = (0.5, 3.0)  # per-game limits are a share of the bankroll: a trade
 TAKE_SHARP_MIN = 5.0  # the maker lab's one taker only hits a quote when sharp-weighted pressure on that line is at least this big and points the same way
 UNPROVEN_SIZE = 0.6  # an unproven model's takers trade at this share of normal size, rising to full as the weight is earned
 CAP_BASE, CAP_FULL = 100.0, 200.0  # a syndicate's per-game limit starts here and grows to the full limit as its closing-line value proves out
+CORE_MIN = 10.0  # the main lines (moneyline and the spread and total nearest the DraftKings number) are always quoted: a maker posts at least this many contracts a side there,
+CORE_TAPER = 0.35  # a maker past its soft cap still quotes the main lines at this share of its normal size (never less than CORE_MIN)
+CORE_RAMP = 0.25  # as if the game were at least this far up its limit ramp, and past its soft risk cap (up to its hard limits), so a game never sits with no price to trade at
 SPORT_BONUS = 0.5  # a trader whose takes have beaten the close in a sport gets up to this much more room on that sport's games (and so does its syndicate)
 PATIENCE_STEP, PATIENCE_MAX = 0.05, 6  # every round a trader goes without a trade it asks for 5% less edge (or quotes 5% tighter), up to six rounds' worth
 PUBLIC_CAP = 500.0  # the public-money firm's combined worst case on one game: a crowd is bigger than any one desk
@@ -492,7 +495,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             markets[k] = {"gid": gid, "sport": g["sport"], "kind": kind, "line": line, "ref": p_ref(gid, kind, line), "srcf": srcf, "src": g["ref"].get("src") or "dk",
                           "hrs": (_pdate(g["start_utc"]) - now).total_seconds() / 3600,
                           "ramp": ramp((_pdate(g["start_utc"]) - now).total_seconds() / 3600, g["sport"]) * (cbbtiers.mult(tier_pair(g), (_pdate(g["start_utc"]) - now).total_seconds() / 3600) if g["sport"] == "cbb" else 1.0),
-                          "near": kind == "ml" or (main is not None and abs(line - main) <= 2)}
+                          "near": kind == "ml" or (main is not None and abs(line - main) <= 2),
+                          "core": kind == "ml" or (main is not None and abs(line - main) <= 0.5 + 1e-9)}
     by_gid: dict[str, list[str]] = {}
     for k, mk in markets.items():
         by_gid.setdefault(mk["gid"], []).append(k)
@@ -763,19 +767,21 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         """Idle traders loosen up: a trader that has not traded for a few rounds asks for a little less edge and quotes a little tighter, so the market keeps moving."""
         return 1.0 - PATIENCE_STEP * min(PATIENCE_MAX, m["stats"].get("idle", 0))
 
-    def room_for(m: dict, mk: dict, side: str, px: float, soft: bool = False) -> float:
+    def room_for(m: dict, mk: dict, side: str, px: float, soft: bool = False, core: bool = False) -> float:
         """Contracts this trader can add on this side at this price before a game's worst case passes the per-game limit or its total
         worst case passes its share of the bankroll."""
         vm, vt, rm, rt = pos(m["id"], mk["gid"])
         u = (mk["ov"] - px) if side == "buy" else (px - mk["ov"])
+        soft = soft and not core  # a main line is quoted up to the hard limits, not the maker's soft cap
         slack = max(0.0, total_limit(m) * (MAKER_SOFT if soft else 1.0) - trisk(m["id"]))
-        if mk["hrs"] > FAR_H:  # a game more than a day away may only use its share of the budget, so tonight's games are never starved by next week's
+        if mk["hrs"] > FAR_H and not core:  # a game more than a day away may only use its share of the budget, so tonight's games are never starved by next week's
             slack = min(slack, max(0.0, total_limit(m) * (MAKER_SOFT if soft else 1.0) * FAR_FRAC - trisk_far(m["id"])))
         bonus = 1.0 + SPORT_BONUS * float((m["stats"].get("sharp") or {}).get(mk["sport"], 0.0))
-        lim = min(m["params"]["max_risk"] * lscale(m) * bonus * mk["ramp"] * mk["srcf"], rm + rt + slack)
+        rp = max(mk["ramp"], CORE_RAMP) if core else mk["ramp"]
+        lim = min(m["params"]["max_risk"] * lscale(m) * bonus * rp * mk["srcf"], rm + rt + slack)
         q = risk.room(vm if mk["dim"] == "m" else vt, u, lim - (rt if mk["dim"] == "m" else rm))
         sm, st_, srm, srt = spos(m["syndicate_id"], mk["gid"])
-        q2 = risk.room(sm if mk["dim"] == "m" else st_, u, syn_cap[m["syndicate_id"]] * syn_bonus.get((m["syndicate_id"], mk["sport"]), 1.0) * mk["ramp"] * mk["srcf"] - (srt if mk["dim"] == "m" else srm))
+        q2 = risk.room(sm if mk["dim"] == "m" else st_, u, syn_cap[m["syndicate_id"]] * syn_bonus.get((m["syndicate_id"], mk["sport"]), 1.0) * rp * mk["srcf"] - (srt if mk["dim"] == "m" else srm))
         return min(q, q2)
 
     def cash_room(m: dict, k: str, side: str, px: float) -> float:
@@ -947,12 +953,14 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         Each side is sized on its own against the risk limits, so a one-sided fill can never push a maker past them."""
         p = m["params"]
         taper = max(0.0, 1 - trisk(m["id"]) / max(1e-9, total_limit(m) * MAKER_SOFT))
-        if taper <= 0:
+        full = taper <= 0
+        if full:  # no soft budget left: every quote comes down except the main lines, which stay up at a small size
             qstat["makers_full"] += 1
-            for k, _on in mine[m["id"]]:  # no budget left: take every quote down and stop
-                bids[k] = [q for q in bids[k] if q[2] != m["id"]]
-                asks[k] = [q for q in asks[k] if q[2] != m["id"]]
-            return
+            taper = CORE_TAPER
+            for k, _on in mine[m["id"]]:
+                if not markets[k]["core"]:
+                    bids[k] = [q for q in bids[k] if q[2] != m["id"]]
+                    asks[k] = [q for q in asks[k] if q[2] != m["id"]]
         mm = bool(p.get("mm"))
         tmult = 1.0
         if mm:  # widen when the maker's own fills have been closing against it, tighten when they have been harmless
@@ -962,6 +970,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         polm = pol.get(m["syndicate_id"]) or {}
         for k, on in mine[m["id"]]:
             mk = markets[k]
+            if full and not mk["core"]:
+                continue
             if mk["hrs"] > 24 and not mk["near"]:
                 continue  # more than a day out, makers quote only the lines near the main number; the wings wait until the game is closer
             if touched.get(mk["gid"], -1) < last_post.get(m["id"], -1):
@@ -992,8 +1002,11 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 qstat["crossed"] += 1
                 continue
             size = p["size"] * taper * (1.0 if on else 0.5) * max(0.3, mk["ramp"])
-            qb = min(size * sz_b, room_for(m, mk, "buy", bid, True), cash_room(m, k, "buy", bid)) if size * sz_b >= 5 else 0.0
-            qa = min(size * sz_a, room_for(m, mk, "sell", ask, True), cash_room(m, k, "sell", ask)) if size * sz_a >= 5 else 0.0
+            core = mk["core"]
+            if core:
+                size = max(size, CORE_MIN)
+            qb = min(size * sz_b, room_for(m, mk, "buy", bid, True, core), cash_room(m, k, "buy", bid)) if size * sz_b >= 5 else 0.0
+            qa = min(size * sz_a, room_for(m, mk, "sell", ask, True, core), cash_room(m, k, "sell", ask)) if size * sz_a >= 5 else 0.0
             if qb >= 5:
                 bids[k].append([bid, round(qb, 2), m["id"]])
                 bids[k].sort(key=lambda x: -x[0])
@@ -1007,6 +1020,13 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             else:
                 qstat["no_room_ask"] += 1
         last_post[m["id"]] = tick_no[0]
+
+    def top(book):
+        """The best quote with size left: a quote a fill has used up stays in the list at zero until the next post, and must not stand in for the price."""
+        for q in book:
+            if q[1] > 0.5:
+                return q
+        return None
 
     def best(book, me):
         for q in book:
@@ -1253,15 +1273,16 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 take(m)
     open_all = open_trades + new_trades
 
-    liq = {"lines": len(markets), "two_sided": sum(1 for k in markets if bids[k] and asks[k]), "one_sided": sum(1 for k in markets if bool(bids[k]) != bool(asks[k])),
+    liq = {"lines": len(markets), "two_sided": sum(1 for k in markets if top(bids[k]) and top(asks[k])), "one_sided": sum(1 for k in markets if bool(top(bids[k])) != bool(top(asks[k]))),
+           "core": [sum(1 for k, mk in markets.items() if mk["core"] and top(bids[k]) and top(asks[k])), sum(1 for mk in markets.values() if mk["core"])],
            "makers_full": qstat["makers_full"], "makers": sum(1 for m in members.values() if m["role"] in ("maker", "both"))}
 
     # ---- the exchange's own price for each contract: size-weighted mid of the best bid and ask, else the last trade
     eco: dict[str, float | None] = {}
     two_sided: dict[str, float] = {}  # prices backed by both a bid and an ask: the only ones allowed to move a self-made line
     for k in markets:
-        b, a = (bids[k][0] if bids[k] else None), (asks[k][0] if asks[k] else None)
-        eco[k] = round((b[0] * a[1] + a[0] * b[1]) / (a[1] + b[1]), 4) if b and a and a[1] + b[1] > 0 else last_px.get(k)
+        b, a = top(bids[k]), top(asks[k])
+        eco[k] = round((b[0] * a[1] + a[0] * b[1]) / (a[1] + b[1]), 4) if b and a and a[1] + b[1] > 0 else last_px.get(k, prev_eco.get(k))  # no two-sided book: the last trade, else last round's price, so a price is never blank
         if b and a and a[1] + b[1] > 0:
             two_sided[k] = eco[k]
     for gid, g in games.items():
@@ -1363,7 +1384,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
 
     by_game: dict[str, list] = {}
     for k, mk in markets.items():
-        b, a = (bids[k][0] if bids[k] else None), (asks[k][0] if asks[k] else None)
+        b, a = top(bids[k]), top(asks[k])
         by_game.setdefault(mk["gid"], []).append([mk["kind"], mk["line"], round(mk["ref"], 3), b and b[0], a and a[0], last_px.get(k), first_px.get(k),
                                                   b and b[1], a and a[1], eco.get(k), [levels(bids[k]), levels(asks[k])]])
     for gid, rows in by_game.items():
