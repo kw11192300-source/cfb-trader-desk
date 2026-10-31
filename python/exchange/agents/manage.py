@@ -88,7 +88,8 @@ def check_predictions(preds: dict, slate: list[dict]) -> list[str]:
 
 
 def fit_and_store(store, sid: str, code: str, s: dict, *, timeout: int = 900, root: Path = PACK_DIR) -> dict:
-    state = sandbox.call(code, "fit", timeout=timeout, pack={"root": str(root), "asof": None, "lines_ok": lines_ok(s)})
+    _, old_state = load(store, sid)
+    state = sandbox.call(code, "fit", timeout=timeout, pack={"root": str(root), "asof": None, "lines_ok": lines_ok(s)}, prev=(old_state or {}).get("state"))
     blob = json.dumps(state)
     if len(blob) > MAX_STATE_MB * 1_000_000:
         raise SystemExit(f"state is {len(blob) / 1e6:.1f} MB; the limit is {MAX_STATE_MB} MB")

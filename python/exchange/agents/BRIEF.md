@@ -25,6 +25,9 @@ One file, `python/exchange/agents/labs/<your id>/model.py`:
 PORTABLE = True        # True when fit() uses only the ESPN results in the pack, so the hosted job can refit it every few hours
 
 def fit(pack) -> dict: ...                 # all learning; returns a JSON-serialisable state (<= 6 MB). Must finish in 15 minutes.
+# fit may also be declared fit(pack, prev=None): `prev` is the state from the previous fit. The hosted refit job (every few hours) has only the ESPN results, not the
+# files under pack.path, so a model that uses extra data should do this: when a file it needs is missing, keep the matching part of `prev` and refit only the ESPN-based parts.
+# Then it can stay PORTABLE = True: the hosted job refreshes the results-based parts, and your own sessions refresh the rest from the full data.
 def predict(state, games) -> dict: ...     # {game_id: [expected home margin, expected total score]}; omit a game to abstain
 ```
 

@@ -41,7 +41,12 @@ try:
     elif fn == "fit":
         from exchange.agents.pack import Pack
         p = req["pack"]
-        out = mod.fit(Pack(p["root"], p.get("asof"), p.get("lines_ok", True)))
+        try:  # a model may take the previous state too, to keep the parts it cannot refit where its data files are missing
+            out = mod.fit(Pack(p["root"], p.get("asof"), p.get("lines_ok", True)), prev=req.get("prev"))
+        except TypeError as e:
+            if "prev" not in str(e):
+                raise
+            out = mod.fit(Pack(p["root"], p.get("asof"), p.get("lines_ok", True)))
     elif fn == "predict":
         out = mod.predict(req["state"], req["games"])
     elif fn == "quote":
