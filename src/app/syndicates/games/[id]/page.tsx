@@ -98,7 +98,7 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
     const seed = (game.ref as { seed?: [number, number] } | null)?.seed;
     if (!dkLive && seed && lineKind) {  // no DraftKings line yet: a flat reference at the line the ratings opened it at
       const open = lineKind === "spread" ? -seed[0] : seed[1];
-      series.push({ id: "open", name: `Opening line (${open > 0 && lineKind === "spread" ? "+" : ""}${open.toFixed(1)})`, color: "#fbbf24", pts: [[startMs, open], [endMs, open]], step: true });
+      series.push({ id: "open", name: `Exchange opening line (${open > 0 && lineKind === "spread" ? "+" : ""}${open.toFixed(1)})`, color: "#fbbf24", pts: [[startMs, open], [endMs, open]], step: true });
     }
     if (dkNum.length) series.push({ id: "dk", name: "DraftKings line", color: "#a78bfa", pts: inWindow(dkNum), step: true });
     if (exNum.length) series.push({ id: "ex", name: "Exchange balanced line", color: "#34d399", pts: inWindow(exNum), step: true });
