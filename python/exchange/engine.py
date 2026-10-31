@@ -473,6 +473,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         """The two teams' conference tiers, strongest first: AA, AB, AC, BB, BC or CC."""
         return "".join(sorted([cbb_tiers.get(g["home"]["id"], "C"), cbb_tiers.get(g["away"]["id"], "C")]))
 
+    held_lines = {(x["game_id"], x["kind"], x["line"]) for x in open_trades if (x.get("rem_b") or 0) > 1e-9 or (x.get("rem_s") or 0) > 1e-9}
     lo = now + timedelta(minutes=CUTOFF_MIN)
     markets: dict[str, dict] = {}  # ckey -> {gid, sport, kind, line, ref, near, dim, ov}
     for gid, g in games.items():
@@ -483,7 +484,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         offered = pricing.lines_for(g["sport"], g["ref"])
         if g["ref"].get("src") == "exchange":
             have = set(offered)
-            offered += [(r[0], r[1]) for r in (g.get("book") or []) if (r[0], r[1]) not in have][:30]
+            offered += [(r[0], r[1]) for r in (g.get("book") or []) if (r[0], r[1]) not in have and (gid, r[0], r[1]) in held_lines][:30]  # a line that moved away stays only while someone holds it
         for kind, line in offered:
             main = g["ref"].get("spread" if kind == "spread" else "total")
             k = ckey(gid, kind, line)
