@@ -42,6 +42,12 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
     v.qty += t.qty; v.n += 1; v.last = t.price;
   }
   for (const l of lots) if (l.qty > 0) (vol[`${l.kind}|${l.line}`] ??= { qty: 0, n: 0, oi: 0, last: null }).oi += l.qty;
+  // volume across every line of a market type (all spread lines together, all total lines together)
+  const kindVol: Record<string, { qty: number; n: number }> = {};
+  for (const t of trades) {
+    const v = (kindVol[t.kind] ??= { qty: 0, n: 0 });
+    v.qty += t.qty; v.n += 1;
+  }
 
   // the contract on show
   const main = (kind: string): number => marks.at(-1)?.lines.find((x) => x[0] === kind)?.[1] ?? (kind === "spread" ? game.ref?.spread ?? 0 : kind === "total" ? game.ref?.total ?? 0 : 0);
@@ -78,9 +84,9 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
   const lineMode = sp.m === "line" && !!lineKind;
   const dkLine: [number, number][] = [], baseLine: [number, number][] = [], exLine: [number, number][] = [];
   const dkNum: [number, number][] = [], baseNum: [number, number][] = [], exNum: [number, number][] = [];
-  if ((mainSel || lineMode) && sel) {
+  if (sel) {
     for (const mk of marks) {
-      const i = mk.lines.findIndex((x) => x[0] === sel.kind);
+      const i = mainSel || lineMode ? mk.lines.findIndex((x) => x[0] === sel.kind) : mk.lines.findIndex((x) => x[0] === sel.kind && x[1] === sel.line);
       if (i < 0) continue;
       const t = new Date(mk.ts).getTime();
       const ex = mk.e && mk.e[i] != null ? (mk.e as number[])[i] : null;
@@ -101,6 +107,15 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
   } else {
     if (dkLine.length) series.push({ id: "dk", name: "DraftKings", color: "#a78bfa", pts: inWindow(dkLine), step: true });
     if (exLine.length) series.push({ id: "ex", name: "Exchange", color: "#34d399", pts: inWindow(exLine), step: true });
+  }
+  if (!lineMode && !mainSel && selTrades.length) {  // marks only record the main lines: for any other contract the exchange's price is drawn from its trades
+    const pts = selTrades.map((q) => [new Date(q.ts).getTime(), q.price * 100] as [number, number]).sort((a, b) => a[0] - b[0]);
+    const ex = series.find((x) => x.id === "ex");
+    if (!ex || ex.pts.length < 3) {
+      if (ex) series.splice(series.indexOf(ex), 1);
+      series.push({ id: "ex", name: "Exchange (last trade)", color: "#34d399", pts: inWindow(pts), step: true });
+    }
+    if (!series.some((x) => x.id === "dk") && selRow) series.unshift({ id: "dk", name: dkLive ? "DraftKings now" : "Baseline now", color: dkLive ? "#a78bfa" : "#fbbf24", pts: [[startMs, selRow[2] * 100], [endMs, selRow[2] * 100]] });
   }
   const dots: Dot[] = lineMode ? [] : selTrades.filter((t) => new Date(t.ts).getTime() >= startMs).map((t) => ({ x: new Date(t.ts).getTime(), y: t.price * 100, color: "#38bdf8", r: Math.min(5, 1.5 + t.qty / 40), tip: `${(t.price * 100).toFixed(0)}¢ × ${t.qty.toFixed(0)} · ${names[takerOf(t)] ?? ""} took` }));
   // the moment DraftKings posted: a purple dot where its line starts (it is blank before then)
@@ -269,7 +284,7 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
               return (
                 <div key={kind} className="mb-4 overflow-hidden rounded-lg border border-border bg-surface">
                   <div className="flex items-center justify-between border-b border-border px-3 py-2 text-xs font-semibold text-foreground">
-                    <span>{title}</span>
+                    <span>{title}{kindVol[kind] && <span className="ml-2 font-normal text-muted">{Math.round(kindVol[kind].qty).toLocaleString()} contracts · {kindVol[kind].n.toLocaleString()} trades</span>}</span>
                     {(kind === "total" || (kind === "spread" && game.sport !== "nhl")) && <Link href={hrefWith({ c: `${kind}|${main(kind)}`, m: "line" })} scroll={false} className="text-[11px] font-normal text-accent hover:underline">Line movement →</Link>}
                   </div>
                   <table className="w-full text-xs">
