@@ -923,6 +923,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         return c
 
     pdcache: dict[tuple[str, str], tuple[float, float]] = {}
+    full_ids: set[str] = set()  # makers past their soft risk cap as of their latest post: counted once each, not once per step
     qstat = {"posted": 0, "crossed": 0, "no_room_bid": 0, "no_room_ask": 0, "makers_full": 0}  # why quotes did or did not go up, kept in the round record
 
     def delta_pub(mid: str, gid: str) -> tuple[float, float]:
@@ -954,8 +955,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         p = m["params"]
         taper = max(0.0, 1 - trisk(m["id"]) / max(1e-9, total_limit(m) * MAKER_SOFT))
         full = taper <= 0
+        (full_ids.add if full else full_ids.discard)(m["id"])
         if full:  # no soft budget left: every quote comes down except the main lines, which stay up at a small size
-            qstat["makers_full"] += 1
             taper = CORE_TAPER
             for k, _on in mine[m["id"]]:
                 if not markets[k]["core"]:
@@ -1273,6 +1274,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 take(m)
     open_all = open_trades + new_trades
 
+    qstat["makers_full"] = len(full_ids)
     liq = {"lines": len(markets), "two_sided": sum(1 for k in markets if top(bids[k]) and top(asks[k])), "one_sided": sum(1 for k in markets if bool(top(bids[k])) != bool(top(asks[k]))),
            "core": [sum(1 for k, mk in markets.items() if mk["core"] and top(bids[k]) and top(asks[k])), sum(1 for mk in markets.values() if mk["core"])],
            "makers_full": qstat["makers_full"], "makers": sum(1 for m in members.values() if m["role"] in ("maker", "both"))}

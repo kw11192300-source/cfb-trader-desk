@@ -118,7 +118,7 @@ export type ExGame = {
 };
 export type ExMark = { ts: string; game_id: string; lines: [string, number][]; r: number[]; e: (number | null)[] | null };
 export type ExSnap = { ts: string; subject: string; equity: number };
-export type ExMeta = { n: number; ts: string; markets: number; games: number; new_trades: number; settled: number; secs?: number; errors?: string[]; liq?: { lines: number; two_sided: number; one_sided: number; makers_full: number; makers: number }; pub?: { bets: number; filled: number } } | null;
+export type ExMeta = { n: number; ts: string; markets: number; games: number; new_trades: number; settled: number; secs?: number; errors?: string[]; liq?: { lines: number; two_sided: number; one_sided: number; makers_full: number; makers: number; core?: [number, number] }; pub?: { bets: number; filled: number } } | null;
 export type ExRatingsMeta = { ts: string; sports: string[] } | null;
 
 /** The database returns at most 1,000 rows per request whatever limit is asked for, so anything that can pass that is read in pages. */

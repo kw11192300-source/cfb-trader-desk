@@ -277,25 +277,27 @@ const ago = (iso: string | undefined | null): { text: string; mins: number } => 
 };
 
 /** Is the exchange running? Last round and its health, the last ratings fit, and any lab whose model is failing. */
-export function HealthStrip({ round, ratings, labs }: { round: { n: number; ts: string; new_trades: number; games: number; secs?: number; errors?: string[]; liq?: { lines: number; two_sided: number; one_sided: number; makers_full: number; makers: number } } | null; ratings: { ts: string } | null; labs: { name: string; error?: string | null; version?: number }[] }) {
+export function HealthStrip({ round, ratings, labs }: { round: { n: number; ts: string; new_trades: number; games: number; secs?: number; errors?: string[]; liq?: { lines: number; two_sided: number; one_sided: number; makers_full: number; makers: number; core?: [number, number] } } | null; ratings: { ts: string } | null; labs: { name: string; error?: string | null; version?: number }[] }) {
   const r = ago(round?.ts), f = ago(ratings?.ts);
   const roundTone = r.mins < 25 ? "bg-up" : r.mins < 60 ? "bg-warn" : "bg-down";
   const ratingsTone = f.mins < 9 * 60 ? "bg-up" : f.mins < 24 * 60 ? "bg-warn" : "bg-down";
   const broken = labs.filter((l) => l.error);
   const liq = round?.liq;
-  const share = liq && liq.lines ? liq.two_sided / liq.lines : null;
+  const core = liq?.core && liq.core[1] ? liq.core[0] / liq.core[1] : null; // the moneyline and main spread and total of every game: the lines that must always have a market
+  const share = core ?? (liq && liq.lines ? liq.two_sided / liq.lines : null);
   const liqTone = share == null ? "bg-warn" : share < 0.2 ? "bg-down" : share < 0.5 ? "bg-warn" : "bg-up";
   return (
     <div className="mb-6 flex flex-wrap items-center gap-x-6 gap-y-1 rounded-lg border border-border bg-surface px-3 py-2 text-[11px] text-muted">
       {liq && share != null && share < 0.2 && (
-        <span className="w-full rounded bg-down/15 px-2 py-1 text-down">Thin book: only {(share * 100).toFixed(0)}% of lines have a bid and an ask, and {liq.makers_full} of {liq.makers} makers have used their risk budget.</span>
+        <span className="w-full rounded bg-down/15 px-2 py-1 text-down">Thin book: only {(share * 100).toFixed(0)}% of {liq.core ? "main lines" : "lines"} have a bid and an ask.</span>
       )}
       <span className="flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${roundTone}`} /> Last round <span className="text-foreground">{round ? `#${round.n}, ${r.text}` : "none yet"}</span>{round?.secs ? ` (${round.secs.toFixed(0)} s)` : ""}</span>
       {round && <span>{round.games} games listed · {round.new_trades} new trades that round</span>}
       {liq && (
-        <span className="flex items-center gap-1.5" title="Lines with both a resting bid and a resting ask at the end of the round, and makers that have used up their total-risk budget">
-          <span className={`h-2 w-2 rounded-full ${liqTone}`} /> Two-sided book <span className="text-foreground">{liq.two_sided.toLocaleString()} of {liq.lines.toLocaleString()} lines</span>
-          {" "}· makers full <span className="text-foreground">{liq.makers_full}/{liq.makers}</span>
+        <span className="flex items-center gap-1.5" title="Main lines are every game's moneyline and the spread and total nearest the main number: they are always quoted. All lines include the wings of each ladder, which are quoted as a game gets closer. Makers past soft cap have used 70% of their risk budget and quote only main lines until positions settle.">
+          <span className={`h-2 w-2 rounded-full ${liqTone}`} /> Main lines two-sided {liq.core ? <span className="text-foreground">{liq.core[0].toLocaleString()} of {liq.core[1].toLocaleString()}</span> : null}
+          {" "}· all lines <span className="text-foreground">{liq.two_sided.toLocaleString()} of {liq.lines.toLocaleString()}</span>
+          {" "}· makers past soft cap <span className="text-foreground">{liq.makers_full}/{liq.makers}</span>
         </span>
       )}
       <span className="flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${ratingsTone}`} /> Ratings fitted <span className="text-foreground">{f.text}</span></span>
