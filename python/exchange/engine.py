@@ -59,6 +59,8 @@ TAKE_SHARP_MIN = 5.0  # the maker lab's one taker only hits a quote when sharp-w
 UNPROVEN_SIZE = 0.6  # an unproven model's takers trade at this share of normal size, rising to full as the weight is earned
 CAP_BASE, CAP_FULL = 100.0, 200.0  # a syndicate's per-game limit starts here and grows to the full limit as its closing-line value proves out
 CORE_MIN = 10.0  # the main lines (moneyline and the spread and total nearest the DraftKings number) are always quoted: a maker posts at least this many contracts a side there,
+CORE_MIN_NEAR = 25.0  # within CORE_NEAR_H hours of kickoff the main-line floor is larger, so the late public flow has depth to hit
+CORE_NEAR_H = 3.0
 CORE_TAPER = 0.35  # a maker past its soft cap still quotes the main lines at this share of its normal size (never less than CORE_MIN)
 CORE_RAMP = 0.25  # as if the game were at least this far up its limit ramp, and past its soft risk cap (up to its hard limits), so a game never sits with no price to trade at
 SPORT_BONUS = 0.5  # a trader whose takes have beaten the close in a sport gets up to this much more room on that sport's games (and so does its syndicate)
@@ -1041,7 +1043,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             size = p["size"] * taper * (1.0 if on else 0.5) * max(0.3, mk["ramp"])
             core = mk["core"]
             if core:
-                size = max(size, CORE_MIN)
+                size = max(size, CORE_MIN_NEAR if mk["hrs"] <= CORE_NEAR_H else CORE_MIN)
             qb = min(size * sz_b, room_for(m, mk, "buy", bid, True, core), cash_room(m, k, "buy", bid)) if size * sz_b >= 5 and not (stop_buy and not core) else 0.0
             qa = min(size * sz_a, room_for(m, mk, "sell", ask, True, core), cash_room(m, k, "sell", ask)) if size * sz_a >= 5 and not (stop_sell and not core) else 0.0
             if qb >= 5:
