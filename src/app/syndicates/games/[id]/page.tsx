@@ -95,11 +95,6 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
   }
   const series: Series[] = [];
   if (lineMode) {
-    const seed = (game.ref as { seed?: [number, number] } | null)?.seed;
-    if (!dkLive && seed && lineKind) {  // no DraftKings line yet: a flat reference at the line the ratings opened it at
-      const open = lineKind === "spread" ? -seed[0] : seed[1];
-      series.push({ id: "open", name: `Exchange opening line (${open > 0 && lineKind === "spread" ? "+" : ""}${open.toFixed(1)})`, color: "#fbbf24", pts: [[startMs, open], [endMs, open]], step: true });
-    }
     if (dkNum.length) series.push({ id: "dk", name: "DraftKings line", color: "#a78bfa", pts: inWindow(dkNum), step: true });
     if (exNum.length) series.push({ id: "ex", name: "Exchange balanced line", color: "#34d399", pts: inWindow(exNum), step: true });
   } else {
@@ -107,6 +102,9 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
     if (exLine.length) series.push({ id: "ex", name: "Exchange", color: "#34d399", pts: inWindow(exLine), step: true });
   }
   const dots: Dot[] = lineMode ? [] : selTrades.filter((t) => new Date(t.ts).getTime() >= startMs).map((t) => ({ x: new Date(t.ts).getTime(), y: t.price * 100, color: "#38bdf8", r: Math.min(5, 1.5 + t.qty / 40), tip: `${(t.price * 100).toFixed(0)}¢ × ${t.qty.toFixed(0)} · ${names[takerOf(t)] ?? ""} took` }));
+  // the moment DraftKings posted: a purple dot where its line starts (it is blank before then)
+  const dkFirst = (lineMode ? dkNum : dkLine)[0];
+  if (dkFirst && dkFirst[0] >= startMs && dkFirst[0] <= endMs) dots.push({ x: dkFirst[0], y: dkFirst[1], color: "#a78bfa", r: 3.5, tip: `DraftKings posts at ${lineMode ? dkFirst[1].toFixed(1) : `${dkFirst[1].toFixed(0)}¢`}` });
   const yAll = [...series.flatMap((x) => x.pts.map((q) => q[1])), ...dots.map((d) => d.y)];
   const priceDec = yAll.length && Math.max(...yAll) - Math.min(...yAll) < 6 ? 1 : 0; // a narrow window needs the decimals or the axis repeats itself
   if (series.length === 0 && selRow && !lineMode) series.push({ id: "now", name: dkLive ? "DraftKings now" : "Baseline now", color: dkLive ? "#a78bfa" : "#fbbf24", pts: [[startMs, selRow[2] * 100], [endMs, selRow[2] * 100]] });
@@ -254,9 +252,10 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
             <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] text-muted">
               {series.map((s) => <span key={s.id}><span className="mr-1 inline-block h-0.5 w-4 align-middle" style={{ background: s.color }} />{s.name}</span>)}
               {!lineMode && <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ background: "#38bdf8" }} />Trades (bigger dot, bigger trade)</span>}
+              {dkFirst && dkFirst[0] >= startMs && <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ background: "#a78bfa" }} />DraftKings posts here</span>}
               {!lineMode && !mainSel && <span>Only the main lines keep a price history, so this line shows its trades.</span>}
               {lineMode && <span>{lineKind === "spread" ? `${game.home.abbr} spread` : "Total"}: the exchange line is the number at which the exchange&rsquo;s price would be 50-50. It moves in fractions of a point, DraftKings&rsquo; posted line in half points.</span>}
-              {!dkLive && <span>DraftKings has not posted this game yet, so there is no DraftKings line to compare with.</span>}
+              {!dkLive && <span>DraftKings has not posted this game yet, so only the exchange is shown; the DraftKings line starts the moment it posts.</span>}
             </div>
           </section>
         )}
