@@ -13,13 +13,13 @@ export const dynamic = "force-dynamic";
 
 const SPAN: Record<string, { m: number; t: number }> = { nfl: { m: 30, t: 25 }, cfb: { m: 35, t: 30 }, nba: { m: 30, t: 45 }, cbb: { m: 30, t: 40 }, nhl: { m: 6, t: 4 } };
 const range = (a: number, b: number) => Array.from({ length: Math.max(0, Math.round(b - a) + 1) }, (_, i) => a + i);
-const fmtTime = (ms: number) => new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const TIME_OPTS: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" };
 const u = (n: number) => `${n > 0.05 ? "+" : ""}${n.toFixed(0)}`;
 const tone = (n: number) => (n > 0.5 ? "text-up" : n < -0.5 ? "text-down" : "text-muted");
 const cents = (p: number | null | undefined) => (p == null ? "–" : `${Math.round(p * 100)}¢`);
 const GROUPS = [["ml", "Winner"], ["spread", "Spread"], ["total", "Total points"]] as const;
 
-export default async function ExchangeGamePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ c?: string; syn?: string; pv?: string; col?: string; all?: string }> }) {
+export default async function ExchangeGamePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ c?: string; syn?: string; pv?: string; col?: string; all?: string; tl?: string }> }) {
   const id = decodeURIComponent((await params).id);
   const sp = await searchParams;
   const [game, { syndicates, members, meta }] = await Promise.all([getExchangeGame(id), getExchange()]);
@@ -189,7 +189,7 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
                 <span className="text-xs text-muted">DraftKings {Math.round(selRow[2] * 100)}%{kal(selRow[0], selRow[1]) != null ? ` · Kalshi ${Math.round(kal(selRow[0], selRow[1])! * 100)}%` : ""} · last trade {cents(selRow[5] ?? vol[`${sel.kind}|${sel.line}`]?.last)}</span>
               </div>
             </div>
-            <LineChart series={series} dots={dots} height={340} legend={false} xFmt={fmtTime} yFmt={(v) => `${v.toFixed(0)}¢`} />
+            <LineChart series={series} dots={dots} height={340} legend={false} xTime={TIME_OPTS} yFmt={(v) => `${v.toFixed(0)}¢`} />
             <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] text-muted">
               <span><span className="mr-1 inline-block h-0.5 w-4 align-middle" style={{ background: "#a78bfa" }} />DraftKings</span>
               <span><span className="mr-1 inline-block h-0.5 w-4 align-middle" style={{ background: "#34d399" }} />Exchange price</span>
@@ -389,7 +389,26 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
           </div>
         </details>
 
-        <TradeList trades={[...trades].reverse().slice(0, 60)} games={{ [game.id]: game as ExGame }} names={names} />
+        {(() => {
+          const opts = [...new Map(trades.map((t) => [`${t.kind}|${t.line}`, { key: `${t.kind}|${t.line}`, kind: t.kind, line: t.line, label: label(t, game as ExGame) }])).values()].sort((a, b) => (a.kind === b.kind ? a.line - b.line : a.kind.localeCompare(b.kind)));
+          const tl = opts.find((o) => o.key === sp.tl) ?? null;
+          const list = (tl ? trades.filter((t) => `${t.kind}|${t.line}` === tl.key) : trades).slice().reverse().slice(0, tl ? 150 : 60);
+          return (
+            <>
+              <form method="get" className="mb-2 flex flex-wrap items-center gap-2 text-[11px]">
+                {(["c", "syn", "pv", "col", "all"] as const).map((k) => (sp[k] ? <input key={k} type="hidden" name={k} value={sp[k]} /> : null))}
+                <span className="text-muted">Show trades on</span>
+                <select name="tl" defaultValue={tl?.key ?? ""} className="rounded border border-border bg-background px-2 py-1 text-foreground">
+                  <option value="">Every selection</option>
+                  {opts.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+                </select>
+                <button type="submit" className="rounded bg-accent px-2.5 py-1 font-medium text-background">Show</button>
+                {tl && <Link href={href(sp.c, sp.syn)} scroll={false} className="text-muted hover:text-foreground">Clear</Link>}
+              </form>
+              <TradeList trades={list} games={{ [game.id]: game as ExGame }} names={names} title={tl ? `Trades on ${tl.label} (${list.length}${list.length === 150 ? "+" : ""})` : "Recent trades"} />
+            </>
+          );
+        })()}
       </main>
     </div>
   );

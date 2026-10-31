@@ -462,7 +462,7 @@ export function sortRows(rows: Row[], key: string, dir: "asc" | "desc" = "desc")
   });
 }
 
-export type TradeQuery = { member?: string; syndicate?: string; sport?: string; game?: string; status?: "open" | "settled"; role?: "maker" | "taker"; from?: string; to?: string };
+export type TradeQuery = { kind?: string; line?: number; member?: string; syndicate?: string; sport?: string; game?: string; status?: "open" | "settled"; role?: "maker" | "taker"; from?: string; to?: string };
 
 /** One page of the trade ledger under any mix of filters, with the total count. Dates are US-Eastern days. */
 export async function getTradesPage(o: TradeQuery, page: number, size = 50): Promise<{ rows: ExTrade[]; total: number }> {
@@ -470,6 +470,7 @@ export async function getTradesPage(o: TradeQuery, page: number, size = 50): Pro
     let q = supabase.from("ex_trades").select(sel, count ? { count: "exact" } : undefined);
     if (o.game) q = q.eq("game_id", o.game);
     else if (o.sport) q = q.like("game_id", `${o.sport}:%`);
+    if (o.kind && o.line != null) q = q.eq("kind", o.kind).eq("line", o.line);
     if (o.status === "open") q = q.is("outcome", null);
     if (o.status === "settled") q = q.not("outcome", "is", null);
     if (o.from) q = q.gte("ts", etStart(o.from));
@@ -501,6 +502,7 @@ export async function getTradesSummary(o: TradeQuery, side: (t: ExTrade) => "buy
     let q = supabase.from("ex_trades").select("id,game_id,price,qty,buyer,seller,maker,outcome,close_p");
     if (o.game) q = q.eq("game_id", o.game);
     else if (o.sport) q = q.like("game_id", `${o.sport}:%`);
+    if (o.kind && o.line != null) q = q.eq("kind", o.kind).eq("line", o.line);
     if (o.status === "open") q = q.is("outcome", null);
     if (o.status === "settled") q = q.not("outcome", "is", null);
     if (o.from) q = q.gte("ts", etStart(o.from));
@@ -620,4 +622,29 @@ export type NewsEvent = {
 export async function getNews(): Promise<NewsEvent[]> {
   const { data } = await supabase.from("ex_meta").select("value").eq("key", "news").maybeSingle();
   return ((data?.value as { events?: NewsEvent[] } | undefined)?.events ?? []) as NewsEvent[];
+}
+
+/** One game for the Games tab: teams, status, DraftKings' and the exchange's price on its three main lines, and how much has been traded. */
+export type GameRow = {
+  id: string; sport: string; start_utc: string; state: string; completed: boolean;
+  home: { id: string; name: string; abbr: string }; away: { id: string; name: string; abbr: string };
+  home_score: number | null; away_score: number | null;
+  ref: { spread: number | null; total: number | null; ml_home: number | null; ml_away: number | null; src?: string } | null;
+  lines: [string, number][] | null; dk: number[] | null; x: (number | null)[] | null;
+  contracts: number; trades: number;
+};
+
+export async function getGamesWindow(fromIso: string, toIso: string): Promise<GameRow[]> {
+  const rows = await pageAll<Omit<GameRow, "contracts" | "trades">>((a, b) =>
+    supabase.from("ex_games").select("id,sport,start_utc,state,completed,home,away,home_score,away_score,ref,voided,lines:views->lines,dk:views->r,x:views->x").gte("start_utc", fromIso).lte("start_utc", toIso).order("start_utc").order("id").range(a, b),
+  );
+  const live = rows.filter((r) => !(r as unknown as { voided?: boolean }).voided);
+  const vol = ((await supabase.from("ex_meta").select("value").eq("key", "gamevol").maybeSingle()).data?.value ?? {}) as Record<string, [number, number]>;
+  const done = live.filter((r) => r.completed).map((r) => r.id);
+  const res: Record<string, { contracts: number; n_trades: number }> = {};
+  for (let i = 0; i < done.length; i += 200) {
+    const { data } = await supabase.from("ex_results").select("id,contracts,n_trades").in("id", done.slice(i, i + 200));
+    for (const r of (data ?? []) as { id: string; contracts: number; n_trades: number }[]) res[r.id] = r;
+  }
+  return live.map((r) => ({ ...r, contracts: res[r.id]?.contracts ?? vol[r.id]?.[0] ?? 0, trades: res[r.id]?.n_trades ?? vol[r.id]?.[1] ?? 0 }));
 }

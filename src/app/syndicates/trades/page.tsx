@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import LocalDateTime from "@/components/LocalDateTime";
 import { SyndicateHeader } from "@/components/SyndicateParts";
-import { type ExTrade, getExchange, getExchangeGamesByIds, getTradesPage, getTradesSummary, label, pct, type TradeQuery } from "@/lib/syndicates";
+import { type ExTrade, getExchange, getExchangeGamesByIds, getGameTrades, getTradesPage, getTradesSummary, label, pct, type TradeQuery } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +12,7 @@ const u = (n: number) => `${n > 0.005 ? "+" : ""}${n.toFixed(1)}`;
 const tone = (n: number) => (n > 0.005 ? "text-up" : n < -0.005 ? "text-down" : "text-muted");
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
-type Params = { syndicate?: string; trader?: string; sport?: string; game?: string; status?: string; role?: string; from?: string; to?: string; page?: string };
+type Params = { c?: string; syndicate?: string; trader?: string; sport?: string; game?: string; status?: string; role?: string; from?: string; to?: string; page?: string };
 
 export default async function TradesPage({ searchParams }: { searchParams: Promise<Params> }) {
   const sp = await searchParams;
@@ -29,6 +29,12 @@ export default async function TradesPage({ searchParams }: { searchParams: Promi
     from: sp.from && DAY.test(sp.from) ? sp.from : undefined,
     to: sp.to && DAY.test(sp.to) ? sp.to : undefined,
   };
+  // a selection filter, offered once a game is picked: every line traded in that game, labelled with the teams
+  const gameTrades = o.game ? await getGameTrades(o.game) : [];
+  const gameInfo = o.game ? (await getExchangeGamesByIds([o.game]))[o.game] : undefined;
+  const contracts = [...new Map(gameTrades.map((t) => [`${t.kind}|${t.line}`, { key: `${t.kind}|${t.line}`, kind: t.kind, line: t.line, label: label(t, gameInfo) }])).values()].sort((a, b) => (a.kind === b.kind ? a.line - b.line : a.kind.localeCompare(b.kind)));
+  const pickedC = contracts.find((c) => c.key === sp.c);
+  if (pickedC) { o.kind = pickedC.kind; o.line = pickedC.line; }
   const page = Math.max(0, Number(sp.page) || 0);
   const mine = (id: string) => (member ? id === member.id : syn ? id.startsWith(`${syn.id}-`) : false);
   const side = (t: ExTrade): "buy" | "sell" | null => {
@@ -102,6 +108,14 @@ export default async function TradesPage({ searchParams }: { searchParams: Promi
             <input type="date" name="to" defaultValue={o.to ?? ""} className={field} />
           </label>
           {o.game && <input type="hidden" name="game" value={o.game} />}
+          {o.game && contracts.length > 0 && (
+            <label className="flex flex-col gap-1 text-muted">Selection
+              <select name="c" defaultValue={pickedC?.key ?? ""} className={field}>
+                <option value="">Every selection</option>
+                {contracts.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+              </select>
+            </label>
+          )}
           <button type="submit" className="rounded bg-accent px-3 py-1.5 font-medium text-background">Apply</button>
           <Link href="/syndicates/trades" className="py-1.5 text-muted hover:text-foreground">Clear</Link>
         </form>

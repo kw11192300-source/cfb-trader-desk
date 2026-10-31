@@ -43,7 +43,7 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
       <SyndicateHeader active="history" round={meta} />
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-foreground">Results by day</h2>
+          <h2 className="text-base font-semibold text-foreground">Results by day <span className="text-[11px] font-normal text-muted">(US Eastern days, by when the game started)</span></h2>
           <div className="flex flex-wrap items-center gap-3 text-[11px]">
             <div className="flex gap-1">
               {WINDOWS.map(([lab, v]) => <Link key={v} href={q({ d: v })} className={`rounded px-2.5 py-1 ${v === days ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>{lab}</Link>)}

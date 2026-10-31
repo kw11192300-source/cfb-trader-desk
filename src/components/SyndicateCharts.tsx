@@ -1,3 +1,4 @@
+import LocalDateTime from "@/components/LocalDateTime";
 import { type ExGame, label, pct } from "@/lib/syndicates";
 
 export type Series = { id: string; name: string; color: string; pts: [number, number][]; step?: boolean };
@@ -7,9 +8,9 @@ const nice = (v: number) => (Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 
 
 /** A plain SVG line chart: several series on shared numeric axes, optional dots, an optional zero line and vertical marker. */
 export function LineChart({
-  series, dots = [], height = 220, zero = false, xLabel, yLabel, xFmt, yFmt, vline, legend = true,
+  series, dots = [], height = 220, zero = false, xLabel, yLabel, xFmt, xTime, yFmt, vline, legend = true,
 }: {
-  series: Series[]; dots?: Dot[]; height?: number; zero?: boolean; xLabel?: string; yLabel?: string; xFmt?: (x: number) => string; yFmt?: (y: number) => string; vline?: number; legend?: boolean;
+  series: Series[]; dots?: Dot[]; height?: number; zero?: boolean; xLabel?: string; yLabel?: string; xFmt?: (x: number) => string; xTime?: Intl.DateTimeFormatOptions; yFmt?: (y: number) => string; vline?: number; legend?: boolean;
 }) {
   const all = [...series.flatMap((s) => s.pts), ...dots.map((d) => [d.x, d.y] as [number, number])];
   if (all.length < 2) return <p className="rounded-lg border border-border bg-surface px-3 py-6 text-center text-xs text-muted">Nothing to chart yet.</p>;
@@ -41,7 +42,7 @@ export function LineChart({
         {[0, 0.25, 0.5, 0.75, 1].map((f) => (
           <g key={f}>
             <line x1={L + (W - L - R) * f} x2={L + (W - L - R) * f} y1={T} y2={H - B} stroke="currentColor" className="text-border" strokeWidth="0.3" />
-            <text x={L + (W - L - R) * f} y={H - 6} textAnchor={f === 0 ? "start" : f === 1 ? "end" : "middle"} className="fill-muted" fontSize="12">{xf(x0 + (x1 - x0) * f)}</text>
+            <text x={L + (W - L - R) * f} y={H - 6} textAnchor={f === 0 ? "start" : f === 1 ? "end" : "middle"} className="fill-muted" fontSize="12">{xTime ? <LocalDateTime iso={new Date(x0 + (x1 - x0) * f).toISOString()} options={xTime} /> : xf(x0 + (x1 - x0) * f)}</text>
           </g>
         ))}
         {zero && y0 < 0 && y1 > 0 && <line x1={L} x2={W - R} y1={y(0)} y2={y(0)} stroke="currentColor" className="text-muted" strokeDasharray="3 3" />}
@@ -170,7 +171,8 @@ export function PositionMatrix({ rows, cols }: { rows: MatrixRow[]; cols: { id: 
 }
 
 /** Plain vertical bars, one per bucket, with the first and last labels underneath. */
-export function Bars({ data, height = 120, color = "#38bdf8", fmt }: { data: { label: string; v: number }[]; height?: number; color?: string; fmt?: (v: number) => string }) {
+export function Bars({ data, height = 120, color = "#38bdf8", fmt, timeOpts }: { data: { label?: string; ts?: number; v: number }[]; height?: number; color?: string; fmt?: (v: number) => string; timeOpts?: Intl.DateTimeFormatOptions }) {
+  const lab = (d: { label?: string; ts?: number }) => (d.ts != null && timeOpts ? <LocalDateTime iso={new Date(d.ts).toISOString()} options={timeOpts} /> : d.label);
   if (!data.length) return <p className="rounded-lg border border-border bg-surface px-3 py-6 text-center text-xs text-muted">Nothing to chart yet.</p>;
   const max = Math.max(1, ...data.map((d) => d.v));
   const W = 900, H = height, L = 8, B = 18, gap = 2;
@@ -181,12 +183,12 @@ export function Bars({ data, height = 120, color = "#38bdf8", fmt }: { data: { l
         const h = (d.v / max) * (H - B - 8);
         return (
           <rect key={i} x={L + i * bw + gap / 2} y={H - B - h} width={Math.max(1, bw - gap)} height={h} fill={color} fillOpacity="0.8" rx="1">
-            <title>{`${d.label}: ${fmt ? fmt(d.v) : d.v}`}</title>
+            <title>{`${d.label ? `${d.label}: ` : ""}${fmt ? fmt(d.v) : d.v}`}</title>
           </rect>
         );
       })}
-      <text x={L} y={H - 4} className="fill-muted" fontSize="10">{data[0].label}</text>
-      <text x={W - L} y={H - 4} textAnchor="end" className="fill-muted" fontSize="10">{data[data.length - 1].label}</text>
+      <text x={L} y={H - 4} className="fill-muted" fontSize="10">{lab(data[0])}</text>
+      <text x={W - L} y={H - 4} textAnchor="end" className="fill-muted" fontSize="10">{lab(data[data.length - 1])}</text>
     </svg>
   );
 }

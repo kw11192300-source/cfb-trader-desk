@@ -25,7 +25,7 @@ export default async function VolumePage({ searchParams }: { searchParams: Promi
   const bucketMs = hours <= 6 ? 600000 : hours <= 48 ? 3600000 : 6 * 3600000;
   const t0 = Math.floor((Date.now() - hours * 3600000) / bucketMs) * bucketMs;
   const nb = Math.ceil((Date.now() - t0) / bucketMs);
-  const buckets = Array.from({ length: nb }, (_, i) => ({ label: new Date(t0 + i * bucketMs).toLocaleString(undefined, { weekday: hours > 48 ? "short" : undefined, hour: "numeric", minute: hours <= 6 ? "2-digit" : undefined }), v: 0 }));
+  const buckets = Array.from({ length: nb }, (_, i) => ({ ts: t0 + i * bucketMs, v: 0 }));
   for (const t of trades) {
     const i = Math.floor((new Date(t.ts).getTime() - t0) / bucketMs);
     if (i >= 0 && i < nb) buckets[i].v += t.qty;
@@ -92,7 +92,7 @@ export default async function VolumePage({ searchParams }: { searchParams: Promi
 
         <section className="mb-8">
           <h3 className="mb-2 text-sm font-semibold text-foreground">Contracts traded over time</h3>
-          <Bars data={buckets} fmt={n0} />
+          <Bars data={buckets} fmt={n0} timeOpts={{ weekday: hours > 48 ? "short" : undefined, hour: "numeric", minute: hours <= 6 ? "2-digit" : undefined }} />
           <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-muted">
             {Object.entries(bySport).sort((a, b) => b[1].qty - a[1].qty).map(([s, v]) => (
               <span key={s}><span className="text-foreground">{SPORT[s] ?? s}</span> {n0(v.qty)} contracts · {n0(v.n)} trades</span>

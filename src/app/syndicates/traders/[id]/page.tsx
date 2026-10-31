@@ -6,7 +6,7 @@ import { PositionCards } from "@/components/PositionCards";
 import { rankIn, sharpOf } from "@/components/SharpMoney";
 import { EquityChart, SyndicateHeader, TradeFilters, TradeList } from "@/components/SyndicateParts";
 import { scenarioPnl, scenarios, yesNo } from "@/lib/syndicateGame";
-import { fairOf, getExchange, getExchangeSnapshots, getExchangeTrades, getGamesFull, getTraderOpenTrades, label, openLots, pct, ramp, traderLimit, type ExGame, type Lot } from "@/lib/syndicates";
+import { type ExTrade, fairOf, getExchange, getExchangeSnapshots, getExchangeTrades, getGamesFull, getTraderOpenTrades, label, openLots, pct, ramp, traderLimit, type ExGame, type Lot } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,7 @@ const SPORT: Record<string, string> = { cfb: "CFB", nfl: "NFL", nhl: "NHL", cbb:
 const u = (n: number) => `${n > 0.05 ? "+" : ""}${n.toFixed(1)}`;
 const tone = (n: number) => (n > 0.5 ? "text-up" : n < -0.5 ? "text-down" : "text-muted");
 
-export default async function TraderPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ sport?: string; game?: string }> }) {
+export default async function TraderPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ c?: string; sport?: string; game?: string }> }) {
   const { id } = await params;
   const sp = await searchParams;
   const sportF = ["nfl", "cfb", "nhl", "nba", "cbb"].includes(sp.sport ?? "") ? sp.sport! : null;
@@ -63,6 +63,15 @@ export default async function TraderPage({ params, searchParams }: { params: Pro
     return { ...p, net, avg, dk, mtm, ...yesNo(p.ls), g };
   }).filter((p) => p.g && Math.abs(p.net) > 0.5).sort((a, b) => Math.min(a.yes, a.no) - Math.min(b.yes, b.no)).slice(0, 60);
 
+  const contractOf = (ts: ExTrade[], g: ExGame | undefined) => {
+    const seen = new Map<string, { key: string; label: string; line: number; kind: string }>();
+    for (const t of ts) if (!seen.has(`${t.kind}|${t.line}`)) seen.set(`${t.kind}|${t.line}`, { key: `${t.kind}|${t.line}`, label: label(t, g), line: t.line, kind: t.kind });
+    return [...seen.values()].sort((a, b) => (a.kind === b.kind ? a.line - b.line : a.kind.localeCompare(b.kind)));
+  };
+  const allGameTrades = trades;
+  const contracts = gameF ? contractOf(allGameTrades, games[gameF] as ExGame | undefined) : [];
+  const cF = gameF && sp.c && contracts.some((c) => c.key === sp.c) ? sp.c! : null;
+  const shownTrades = cF ? allGameTrades.filter((t) => `${t.kind}|${t.line}` === cF) : allGameTrades;
   const sharp = Object.entries(st.flow ?? {}).sort((a, b) => (st.sharp?.[b[0]] ?? 0) - (st.sharp?.[a[0]] ?? 0));
   const log = (Array.isArray(m.params.log) ? m.params.log : []) as (string | number)[][];
   const cl = (role: "maker" | "taker") => {
@@ -102,7 +111,7 @@ export default async function TraderPage({ params, searchParams }: { params: Pro
           ))}
         </div>
 
-        <TradeFilters base={`/syndicates/traders/${id}`} sport={sportF} game={gameF} games={tradedGames} />
+        <TradeFilters contracts={contracts} contract={cF} base={`/syndicates/traders/${id}`} sport={sportF} game={gameF} games={tradedGames} />
 
         <div className="mb-8 grid gap-4 lg:grid-cols-2">
           <section className="rounded-lg border border-border bg-surface p-3 text-xs text-muted">
@@ -213,7 +222,7 @@ export default async function TraderPage({ params, searchParams }: { params: Pro
           </div>
         </details>
 
-        <TradeList trades={trades} games={games} names={names} moreHref={`/syndicates/trades?trader=${id}${gameF ? `&game=${gameF}` : sportF ? `&sport=${sportF}` : ""}`} title={gameF || sportF ? `Trades (${gameF ? "this game" : sportF!.toUpperCase()}) - risk and positions above follow the filter` : "Recent trades"} />
+        <TradeList trades={shownTrades} games={games} names={names} moreHref={`/syndicates/trades?trader=${id}${gameF ? `&game=${gameF}` : sportF ? `&sport=${sportF}` : ""}`} title={gameF || sportF ? `Trades (${gameF ? "this game" : sportF!.toUpperCase()}) - risk and positions above follow the filter` : "Recent trades"} />
       </main>
     </div>
   );

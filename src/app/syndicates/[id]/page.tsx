@@ -7,7 +7,7 @@ import { LineChart } from "@/components/SyndicateCharts";
 import { PositionCards } from "@/components/PositionCards";
 import { EquityChart, LeaderTable, MoneyLegend, SyndicateHeader, TradeFilters, TradeList } from "@/components/SyndicateParts";
 import {
-  fairOf, getExchange, getExchangeSnapshots, getExchangeTrades, getGamesFull, getSyndicateOpenTrades, getWeightHistory, label, openLots, payoff, pct, ramp, SORTS, sortRows, summarize, SYN_GAME_LIMIT,
+  type ExGame, type ExTrade, fairOf, getExchange, getExchangeSnapshots, getExchangeTrades, getGamesFull, getSyndicateOpenTrades, getWeightHistory, label, openLots, payoff, pct, ramp, SORTS, sortRows, summarize, SYN_GAME_LIMIT,
 } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,7 @@ const range = (a: number, b: number) => Array.from({ length: Math.max(0, Math.ro
 const u = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(1)}`;
 const SPORT: Record<string, string> = { cfb: "CFB", nfl: "NFL", nhl: "NHL", cbb: "CBB", nba: "NBA" };
 
-export default async function SyndicatePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ sport?: string; game?: string; sort?: string; dir?: string }> }) {
+export default async function SyndicatePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ c?: string; sport?: string; game?: string; sort?: string; dir?: string }> }) {
   const { id } = await params;
   const sp = await searchParams;
   const sportF = ["nfl", "cfb", "nhl", "nba", "cbb"].includes(sp.sport ?? "") ? sp.sport! : null;
@@ -43,6 +43,15 @@ export default async function SyndicatePage({ params, searchParams }: { params: 
     getSyndicateOpenTrades(id),
   ]);
   const games = await getGamesFull([...new Set([...trades, ...open].map((t) => t.game_id))]);
+  const contractOf = (ts: ExTrade[], g: ExGame | undefined) => {
+    const seen = new Map<string, { key: string; label: string; line: number; kind: string }>();
+    for (const t of ts) if (!seen.has(`${t.kind}|${t.line}`)) seen.set(`${t.kind}|${t.line}`, { key: `${t.kind}|${t.line}`, label: label(t, g), line: t.line, kind: t.kind });
+    return [...seen.values()].sort((a, b) => (a.kind === b.kind ? a.line - b.line : a.kind.localeCompare(b.kind)));
+  };
+  const allGameTrades = trades;
+  const contracts = gameF ? contractOf(allGameTrades, games[gameF] as ExGame | undefined) : [];
+  const cF = gameF && sp.c && contracts.some((c) => c.key === sp.c) ? sp.c! : null;
+  const shownTrades = cF ? allGameTrades.filter((t) => `${t.kind}|${t.line}` === cF) : allGameTrades;
   const { members: mrows } = summarize([syn], mine);
   const names = Object.fromEntries(members.map((m) => [m.id, `${syndicates.find((s) => s.id === m.syndicate_id)?.name ?? ""} · ${m.name}`]));
   const first = Object.fromEntries(mine.map((m) => [m.id, m.name]));
@@ -99,7 +108,7 @@ export default async function SyndicatePage({ params, searchParams }: { params: 
         <p className="mb-6 mt-1 max-w-3xl text-xs text-muted">{syn.tagline}</p>
         <LeaderTable rows={sortRows(mrows, sort, dir).map((r) => ({ ...r, color: colors[r.id] ?? r.color }))} linkBase="/syndicates/traders" showSyn title="Traders" sort={sort} dir={dir} sortHref={qs} />
         <MoneyLegend />
-        <TradeFilters base={`/syndicates/${id}`} sport={sportF} game={gameF} games={tradedGames} />
+        <TradeFilters contracts={contracts} contract={cF} base={`/syndicates/${id}`} sport={sportF} game={gameF} games={tradedGames} />
 
         {syn.engine === "agent" && (
           <section className="mb-8 rounded-lg border border-border bg-surface p-4">
@@ -325,7 +334,7 @@ export default async function SyndicatePage({ params, searchParams }: { params: 
               <div>
                 <h3 className="mb-1 text-sm font-semibold text-foreground">Model weight over time</h3>
                 <p className="mb-2 text-[11px] text-muted">The share of this syndicate&rsquo;s own view that reaches its prices, by sport. It rises only when the model beats DraftKings on finished games.</p>
-                {wser.length > 0 ? <LineChart series={wser} height={200} yFmt={(v) => `${v.toFixed(0)}%`} xFmt={(t) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" })} /> : <p className="rounded-lg border border-border bg-surface px-3 py-6 text-center text-xs text-muted">Fills in over the first few rounds.</p>}
+                {wser.length > 0 ? <LineChart series={wser} height={200} yFmt={(v) => `${v.toFixed(0)}%`} xTime={{ month: "short", day: "numeric" }} /> : <p className="rounded-lg border border-border bg-surface px-3 py-6 text-center text-xs text-muted">Fills in over the first few rounds.</p>}
               </div>
               <div>
                 <h3 className="mb-1 text-sm font-semibold text-foreground">Calibration</h3>
@@ -365,7 +374,7 @@ export default async function SyndicatePage({ params, searchParams }: { params: 
           </div>
         </section>
         <EquityChart snaps={snaps} colors={colors} names={first} start={start} />
-        <TradeList trades={trades} games={games} names={names} moreHref={`/syndicates/trades?syndicate=${id}${gameF ? `&game=${gameF}` : sportF ? `&sport=${sportF}` : ""}`} title={gameF || sportF ? `Trades (${gameF ? "this game" : sportF!.toUpperCase()}) - risk, positions and scenarios above follow the filter` : "Recent trades"} />
+        <TradeList trades={shownTrades} games={games} names={names} moreHref={`/syndicates/trades?syndicate=${id}${gameF ? `&game=${gameF}` : sportF ? `&sport=${sportF}` : ""}`} title={gameF || sportF ? `Trades (${gameF ? "this game" : sportF!.toUpperCase()}) - risk, positions and scenarios above follow the filter` : "Recent trades"} />
       </main>
     </div>
   );

@@ -1,14 +1,15 @@
 import Link from "next/link";
 
+import GameSelect from "@/components/GameSelect";
 import LocalDateTime from "@/components/LocalDateTime";
 import { type ExGame, type ExSnap, type ExTrade, label, pct, type Row } from "@/lib/syndicates";
 
 const u = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}`;
 const tone = (n: number) => (n > 0.005 ? "text-up" : n < -0.005 ? "text-down" : "text-foreground");
 
-export function SyndicateHeader({ active, round }: { active: "board" | "markets" | "volume" | "history" | "digest" | "crowding" | "positions" | "sports" | "discovery" | "trades" | "closing" | "models" | "reliability" | "signals" | "sharp" | "disagreement" | "news"; round?: { n: number; ts: string } | null }) {
+export function SyndicateHeader({ active, round }: { active: "board" | "markets" | "volume" | "history" | "digest" | "crowding" | "positions" | "sports" | "discovery" | "trades" | "closing" | "models" | "reliability" | "signals" | "sharp" | "disagreement" | "news" | "games"; round?: { n: number; ts: string } | null }) {
   const tab = (href: string, text: string, key: string) => (
-    <Link href={href} className={`rounded px-3 py-1.5 ${active === key ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>
+    <Link href={href} className={`whitespace-nowrap rounded px-3 py-1.5 ${active === key ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>
       {text}
     </Link>
   );
@@ -31,8 +32,9 @@ export function SyndicateHeader({ active, round }: { active: "board" | "markets"
             ) : null}
           </p>
         </div>
-        <nav className="flex items-center gap-1 text-xs">
+        <nav className="flex w-full flex-wrap items-center gap-x-1 gap-y-1 text-xs">
           {tab("/syndicates", "Leaderboard", "board")}
+          {tab("/syndicates/games", "Games", "games")}
           {tab("/syndicates/markets", "Markets", "markets")}
           {tab("/syndicates/positions", "Positions", "positions")}
           {tab("/syndicates/sharp", "Sharp money", "sharp")}
@@ -311,7 +313,7 @@ export function HealthStrip({ round, ratings, labs }: { round: { n: number; ts: 
 const FILTER_SPORTS = ["nfl", "cfb", "nhl", "nba", "cbb"];
 
 /** Narrow a syndicate or trader page to one sport, or to one game, from a list of the games it has traded. Plain links and a plain form, so it works without scripts. */
-export function TradeFilters({ base, sport, game, games }: { base: string; sport: string | null; game: string | null; games: ExGame[] }) {
+export function TradeFilters({ base, sport, game, games, contracts = [], contract = null }: { base: string; sport: string | null; game: string | null; games: ExGame[]; contracts?: { key: string; label: string }[]; contract?: string | null }) {
   const opts = [...games].sort((a, b) => a.sport.localeCompare(b.sport) || a.start_utc.localeCompare(b.start_utc)).filter((g) => !sport || g.sport === sport);
   const chip = (on: boolean) => `rounded px-2.5 py-1 ${on ? "bg-accent text-background" : "text-muted hover:text-foreground"}`;
   const picked = game ? games.find((g) => g.id === game) : null;
@@ -324,13 +326,17 @@ export function TradeFilters({ base, sport, game, games }: { base: string; sport
       </div>
       <form method="get" action={base} className="flex items-center gap-2">
         {sport && !game ? <input type="hidden" name="sport" value={sport} /> : null}
-        <select name="game" defaultValue={game ?? ""} className="max-w-[260px] rounded border border-border bg-background px-2 py-1 text-foreground">
-          <option value="">Any game traded{sport ? ` (${sport.toUpperCase()})` : ""}</option>
-          {opts.map((g) => <option key={g.id} value={g.id}>{`${g.sport.toUpperCase()} · ${g.away.abbr} @ ${g.home.abbr} · ${new Date(g.start_utc).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}</option>)}
-        </select>
+        <GameSelect name="game" value={game ?? ""} anyLabel={`Any game traded${sport ? ` (${sport.toUpperCase()})` : ""}`} games={opts.map((g) => ({ id: g.id, sport: g.sport, away: g.away.abbr, home: g.home.abbr, start: g.start_utc }))} />
+        {game && contracts.length > 0 && (
+          <select name="c" defaultValue={contract ?? ""} title="Only trades on this selection" className="max-w-[200px] rounded border border-border bg-background px-2 py-1 text-foreground">
+            <option value="">Every selection</option>
+            {contracts.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+          </select>
+        )}
         <button type="submit" className="rounded bg-accent px-2.5 py-1 font-medium text-background">Show</button>
       </form>
       {(sport || game) && <Link href={base} className="text-muted hover:text-foreground">Clear</Link>}
+      {contract && <span className="text-foreground">Only trades on the selected line</span>}
       {picked && <span className="text-foreground">{picked.away.name} at {picked.home.name}</span>}
     </div>
   );

@@ -1373,6 +1373,12 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         store.upsert("ex_trades", list({t["id"]: t for t in changed}.values()))
     store.upsert("ex_members", list(members.values()))
     store.upsert("ex_syndicates", list(syns.values()))
+    gv: dict[str, list[float]] = {}  # contracts and trades so far on every game that has not finished, for the Games tab
+    for t_ in open_all:
+        v_ = gv.setdefault(t_["game_id"], [0.0, 0])
+        v_[0] += t_["qty"]
+        v_[1] += 1
+    store.upsert("ex_meta", [{"key": "gamevol", "value": {k_: [round(v_[0], 1), int(v_[1])] for k_, v_ in gv.items()}}])
     if nws["dirty"]:
         store.upsert("ex_meta", [{"key": "news", "value": news.dump(nws)}])
     if pst["dirty"]:

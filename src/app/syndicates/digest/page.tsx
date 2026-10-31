@@ -20,7 +20,7 @@ export default async function DigestPage({ searchParams }: { searchParams: Promi
       <SyndicateHeader active="digest" round={meta} />
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-foreground">{d ? `Digest for ${fmtDay(d.day)}` : "Daily digest"}</h2>
+          <h2 className="text-base font-semibold text-foreground">{d ? `Digest for ${fmtDay(d.day)}` : "Daily digest"} <span className="text-[11px] font-normal text-muted">(US Eastern day, by when the game started)</span></h2>
           <div className="flex flex-wrap gap-1 text-[11px]">
             {digests.slice(0, 10).map((x) => (
               <Link key={x.day} href={`/syndicates/digest?day=${x.day}`} className={`rounded px-2 py-1 ${d?.day === x.day ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>
