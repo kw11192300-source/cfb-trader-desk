@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 
+import { ramp, tierMult } from "@/lib/limits";
 import type { GameRow } from "@/lib/syndicates";
 
 const SPORTS = ["nfl", "cfb", "nhl", "nba", "cbb"];
@@ -35,6 +36,7 @@ function Card({ g }: { g: GameRow }) {
   };
   const ml = price("ml"), sp = price("spread"), tt = price("total");
   const start = new Date(g.start_utc);
+  const hrs = Math.max(0, (start.getTime() - Date.now()) / 3600000);
   const live = g.state === "in";
   const status = g.completed ? "Final" : live ? "Live" : start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   const score = g.completed || live;
@@ -74,6 +76,12 @@ function Card({ g }: { g: GameRow }) {
           <p className="border-t border-border pt-2 text-[11px] text-muted">Prices appear once DraftKings lists the game or the syndicates open a line.</p>
         )}
       </div>
+      {!g.completed && !live && start.getTime() > Date.now() && (
+        <div className="mt-2 flex items-center justify-between border-t border-border pt-2 text-[11px] text-muted" title="Most one trader can have at risk on this game right now, and at kickoff. Limits rise as kickoff nears; college basketball also scales with the two teams' conferences.">
+          <span>Limit now <span className="font-mono text-foreground">{Math.round(100 * ramp(hrs, g.sport) * (g.sport === "cbb" ? tierMult(g.tier, hrs) : 1))}</span> per trader{g.sport === "cbb" && g.tier ? <span className="ml-1.5 rounded bg-surface-raised px-1.5 py-0.5 text-[10px]" title="Conference tiers of the two teams: A power, B top mid-major, C other">{g.tier}</span> : null}</span>
+          <span>at tip-off <span className="font-mono text-foreground">{Math.round(100 * ramp(0.5, g.sport) * (g.sport === "cbb" ? tierMult(g.tier, 0.5) : 1))}</span></span>
+        </div>
+      )}
       <div className="mt-2 flex items-center justify-between border-t border-border pt-2 text-[11px] text-muted">
         <span>{g.contracts > 0 ? <><span className="font-mono text-foreground">{n0(g.contracts)}</span> contracts · {n0(g.trades)} trades</> : "No trades yet"}</span>
         <span className="text-accent">Open →</span>

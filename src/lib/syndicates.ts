@@ -297,20 +297,7 @@ export function payoff(trades: ExTrade[], who: (id: string) => string | null, xs
   return out;
 }
 
-/** The most of a game's risk limit that may be used this far from kickoff (mirrors python/exchange/engine.py ramp). */
-const RAMPS: Record<string, number[]> = {
-  nfl: [0.5, 0.65, 0.75, 0.9, 1, 1, 1, 1, 1], cfb: [0.5, 0.65, 0.75, 0.9, 1, 1, 1, 1, 1],
-  nba: [0.1, 0.1, 0.15, 0.2, 0.4, 0.7, 0.85, 1, 1.2], nhl: [0.1, 0.1, 0.15, 0.2, 0.4, 0.7, 0.85, 1, 1.1], cbb: [0.1, 0.1, 0.15, 0.2, 0.35, 0.6, 0.8, 1, 1],
-};
-const RAMP_EDGES = [120, 72, 36, 24, 12, 6, 3, 1];
-/** College basketball: the factor on a game's limit from its two teams' conference tiers (AA is power v power; mirrors python/exchange/cbbtiers.py). */
-export const tierMult = (tier: string | undefined | null, hours: number): number =>
-  !tier ? 1 : tier === "AA" ? (hours <= 12 ? 1.5 : 1.25) : ["AB", "BB", "AC"].includes(tier) ? 1 : tier === "BC" ? 0.8 + 0.2 * Math.min(1, Math.max(0, (24 - hours) / 21)) : 0.5 + 0.5 * Math.min(1, Math.max(0, (24 - hours) / 21));
-export const ramp = (hours: number, sport = ""): number => {
-  const row = RAMPS[sport] ?? RAMPS.nba;
-  const i = RAMP_EDGES.findIndex((e) => hours > e);
-  return i < 0 ? row[row.length - 1] : row[i];
-};
+export { ramp, tierMult } from "./limits";
 export const SYN_GAME_LIMIT = 100;
 export const TRADER_GAME_LIMIT = 100;
 
@@ -635,13 +622,13 @@ export type GameRow = {
   home: { id: string; name: string; abbr: string }; away: { id: string; name: string; abbr: string };
   home_score: number | null; away_score: number | null;
   ref: { spread: number | null; total: number | null; ml_home: number | null; ml_away: number | null; src?: string } | null;
-  lines: [string, number][] | null; dk: number[] | null; x: (number | null)[] | null;
+  lines: [string, number][] | null; dk: number[] | null; x: (number | null)[] | null; tier: string | null;
   contracts: number; trades: number;
 };
 
 export async function getGamesWindow(fromIso: string, toIso: string): Promise<GameRow[]> {
   const rows = await pageAll<Omit<GameRow, "contracts" | "trades">>((a, b) =>
-    supabase.from("ex_games").select("id,sport,start_utc,state,completed,home,away,home_score,away_score,ref,voided,lines:views->lines,dk:views->r,x:views->x").gte("start_utc", fromIso).lte("start_utc", toIso).order("start_utc").order("id").range(a, b),
+    supabase.from("ex_games").select("id,sport,start_utc,state,completed,home,away,home_score,away_score,ref,voided,lines:views->lines,dk:views->r,x:views->x,tier:views->tier").gte("start_utc", fromIso).lte("start_utc", toIso).order("start_utc").order("id").range(a, b),
   );
   const live = rows.filter((r) => !(r as unknown as { voided?: boolean }).voided);
   const vol = ((await supabase.from("ex_meta").select("value").eq("key", "gamevol").maybeSingle()).data?.value ?? {}) as Record<string, [number, number]>;
