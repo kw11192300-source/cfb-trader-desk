@@ -57,9 +57,9 @@ export default async function SyndicatesPage({ searchParams }: { searchParams: P
   const srowsS = sortRows(srows, sort, dir);
   const mrowsS = sortRows(tradersIn, sort, dir);
   const real = mrows.filter((r) => !r.isPublic);
-  const bestClv = sortRows(real.filter((r) => r.clvN > 0 && r.sGames >= 10), "clvlow").slice(0, 3);
-  const bestPnl = sortRows(real.filter((r) => r.sGames > 0), "spnl").slice(0, 3);
-  const attention = [...real].sort((a, b) => a.available / Math.max(1, a.bankroll) - b.available / Math.max(1, b.bankroll)).slice(0, 3);
+  const bestClv = sortRows(real.filter((r) => r.clvN > 0 && r.sGames >= 10), "clvlow").slice(0, 5);
+  const bestPnl = sortRows(real.filter((r) => r.sGames > 0), "spnl").slice(0, 5);
+  const attention = [...real].sort((a, b) => a.available / Math.max(1, a.bankroll) - b.available / Math.max(1, b.bankroll)).slice(0, 5);
   const names = Object.fromEntries(members.map((m) => [m.id, `${syndicates.find((s) => s.id === m.syndicate_id)?.name ?? ""} · ${m.name}`]));
   const colors = Object.fromEntries(syndicates.map((s) => [s.id, s.color]));
   const sNames = Object.fromEntries(syndicates.map((s) => [s.id, s.name]));
