@@ -70,8 +70,8 @@ export default async function SyndicatesPage({ searchParams }: { searchParams: P
   const traded = real.filter((r) => r.lastTrade);
   const recent = [...traded].sort((a, b) => b.lastTrade!.localeCompare(a.lastTrade!)).slice(0, 3);
   const quiet = [...traded].sort((a, b) => a.lastTrade!.localeCompare(b.lastTrade!)).slice(0, 3);
-  const capture = sortRows(real.filter((r) => r.capture != null), "cap").slice(0, 5);
-  const drawdown = sortRows(real.filter((r) => r.maxDd > 0), "dd").slice(0, 5);
+  const SPORTS5: [string, string][] = [["nfl", "NFL"], ["cfb", "CFB"], ["nhl", "NHL"], ["nba", "NBA"], ["cbb", "CBB"]];
+  const sharpBy = (sp: string) => real.filter((r) => (r.sharp[sp] ?? 0) >= 0.05).sort((x, y) => (y.sharp[sp] ?? 0) - (x.sharp[sp] ?? 0)).slice(0, 3);
   const names = Object.fromEntries(members.map((m) => [m.id, `${syndicates.find((s) => s.id === m.syndicate_id)?.name ?? ""} · ${m.name}`]));
   const colors = Object.fromEntries(syndicates.map((s) => [s.id, s.color]));
   const sNames = Object.fromEntries(syndicates.map((s) => [s.id, s.name]));
@@ -117,8 +117,23 @@ export default async function SyndicatesPage({ searchParams }: { searchParams: P
             { label: "Most recent", rows: recent, line: (r) => <span className="text-muted">{r.lastApprox ? "~" : ""}{ago(r.lastTrade).text}</span> },
             { label: "Longest since a trade", rows: quiet, line: (r) => <span className="text-warn">{r.lastApprox ? "~" : ""}{ago(r.lastTrade).text}</span> },
           ]} />
-          <Spotlight title="Spread captured" note="Cents per contract a quote earned inside DraftKings' price" lists={[{ rows: capture, line: (r) => <span className="text-up">+{((r.capture ?? 0) * 100).toFixed(2)}¢</span> }]} />
-          <Spotlight title="Deepest drawdown" note="Largest drop from a peak, in units" lists={[{ rows: drawdown, line: (r) => <span className="text-down">-{r.maxDd.toFixed(0)}</span> }]} />
+          <div className="rounded-lg border border-border bg-surface p-3 sm:col-span-2">
+            <p className="text-xs font-semibold text-foreground">Sharpest by sport</p>
+            <p className="mb-2 text-[10px] text-muted">How much the rest of the exchange should follow a trader&rsquo;s hits, 0 to 100, from its record against the close</p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-5">
+              {SPORTS5.map(([sp, name]) => (
+                <div key={sp}>
+                  <p className="text-[10px] uppercase tracking-wide text-muted">{name}</p>
+                  {sharpBy(sp).length === 0 ? <p className="border-t border-border py-1.5 text-[11px] text-muted">Nobody yet.</p> : sharpBy(sp).map((r) => (
+                    <Link key={r.id} href={`/syndicates/traders/${r.id}`} className="block border-t border-border py-1.5 text-[11px] hover:text-accent">
+                      <span className="flex items-center justify-between gap-1"><span className="min-w-0 truncate"><span className="mr-1.5 inline-block h-2 w-2 rounded-full" style={{ background: r.color }} />{r.name}</span><span className="shrink-0 font-mono text-up">{Math.round((r.sharp[sp] ?? 0) * 100)}</span></span>
+                      <span className="block truncate pl-3.5 text-[10px] text-muted">{r.syndicate}</span>
+                    </Link>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
         <div className="mb-3 flex flex-wrap items-center gap-1 text-[11px]">
           <span className="mr-1 text-muted">Firm</span>

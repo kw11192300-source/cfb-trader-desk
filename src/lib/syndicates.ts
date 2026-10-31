@@ -250,6 +250,8 @@ export type Row = {
   /** when it last traded (a syndicate: when any of its traders did); an estimate from idle rounds until the exact time has been recorded */
   lastTrade: string | null;
   lastApprox: boolean;
+  /** how much other traders should listen to this trader's hits, 0 to 1, by sport (empty for a syndicate row) */
+  sharp: Record<string, number>;
 };
 
 /** The reserve share of its starting bankroll that a trader never commits as cash (the engine's RESERVE_FRAC). */
@@ -295,6 +297,7 @@ export function summarize(syndicates: ExSyndicate[], members: ExMember[]): { mem
       sPnl: sum((s) => s.s_pnl ?? 0), sTraded: sum((s) => s.s_traded ?? 0), sRoi: sum((s) => s.s_traded ?? 0) > 0 ? sum((s) => s.s_pnl ?? 0) / sum((s) => s.s_traded ?? 0) : null, sGames: sum((s) => s.s_games ?? 0),
       cash: ms.reduce((a, m) => a + m.cash, 0), available: ms.reduce((a, m) => a + Math.max(0, m.cash + MARGIN_CREDIT * Math.max(0, m.locked - (m.open_risk ?? m.locked)) - RESERVE_FRAC * m.start_units), 0), pending: ms.reduce((a, m) => a + m.locked, 0), kind,
       ...lastTraded(ms),
+      sharp: ms.length === 1 ? ms[0].stats.sharp ?? {} : {},
     };
   };
   const mrows = members.map((m) => rowOf(m.id, m.name, syn[m.syndicate_id]?.name ?? m.syndicate_id, syn[m.syndicate_id]?.color ?? "#888", [m], m.start_units, m.params.public ? `public · ${String(m.params.style)}` : `${m.role === "both" ? "maker + taker" : m.role} · ${Array.isArray(m.params.focus) ? (m.params.focus as string[]).map((x) => x.toUpperCase()).join(", ") : ""}`, !!m.params.public, m.params.public ? "public" : syn[m.syndicate_id]?.engine === "agent" ? "lab" : m.role === "both" ? "maker + taker" : m.role));
