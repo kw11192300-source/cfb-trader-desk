@@ -79,7 +79,7 @@ export default async function ReliabilityPage({ searchParams }: { searchParams: 
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
         <h2 className="mb-1 text-base font-semibold text-foreground">Reliability: when a price says 60¢, does it happen 60% of the time?</h2>
         <p className="mb-4 max-w-3xl text-xs leading-relaxed text-muted">
-          Each dot is a group of settled trades at similar prices: how much the side cost against how often it won. A perfectly calibrated price sits on the dashed line. For the exchange the price is the yes-price traded; for a syndicate or a trader it is what they
+          Each dot is a group of settled trades at similar prices: how much the side cost against how often it won. A perfectly calibrated price sits on the dashed line. For the exchange the price is the yes-price traded; for a trading firm or a trader it is what they
           paid for the side they took, so a dot <em>above</em> the line means that side won more often than it cost (they were getting value) and <em>below</em> means they overpaid. Bars show a 95% range; they are wide until there are hundreds of trades.
           So far {rel.games} finished games are counted, and the record is kept forever.
         </p>
@@ -88,7 +88,7 @@ export default async function ReliabilityPage({ searchParams }: { searchParams: 
           <div className="flex gap-1">
             <span className="py-1 text-muted">Who</span>
             <Link href={q({ scope: "x", id: undefined })} className={chip(scope === "x")}>Exchange</Link>
-            <Link href={q({ scope: "s", id: sp.id && scope === "s" ? sp.id : syndicates[0]?.id })} className={chip(scope === "s")}>Syndicate</Link>
+            <Link href={q({ scope: "s", id: sp.id && scope === "s" ? sp.id : syndicates[0]?.id })} className={chip(scope === "s")}>Firm</Link>
             <Link href={q({ scope: "m", id: sp.id && scope === "m" ? sp.id : members[0]?.id })} className={chip(scope === "m")}>Trader</Link>
           </div>
           <div className="flex flex-wrap gap-1">
@@ -161,7 +161,7 @@ export default async function ReliabilityPage({ searchParams }: { searchParams: 
         )}
 
         <section className="mb-8">
-          <h3 className="mb-1 text-sm font-semibold text-foreground">{scope === "x" ? "By sport and market" : scope === "s" ? "Every syndicate, by sport and market" : "Every trader, by sport and market"}</h3>
+          <h3 className="mb-1 text-sm font-semibold text-foreground">{scope === "x" ? "By sport and market" : scope === "s" ? "Every trading firm, by sport and market" : "Every trader, by sport and market"}</h3>
           <p className="mb-2 text-[11px] text-muted">
             Each cell is the average gap between how often the side won and what it cost, per contract (green: got more than paid for), with the number of trades under it. Cells under 5 trades are left unshaded. Click a name to chart it.
           </p>
@@ -169,7 +169,7 @@ export default async function ReliabilityPage({ searchParams }: { searchParams: 
             <table className="w-full min-w-[1100px] text-[11px]">
               <thead className="bg-surface text-left text-muted">
                 <tr>
-                  <th className="px-3 py-1.5" rowSpan={2}>{scope === "x" ? "" : scope === "s" ? "Syndicate" : "Trader"}</th>
+                  <th className="px-3 py-1.5" rowSpan={2}>{scope === "x" ? "" : scope === "s" ? "Firm" : "Trader"}</th>
                   {SPORTS.map((s) => <th key={s} colSpan={3} className="border-l border-border px-2 py-1 text-center">{SPORT[s]}</th>)}
                 </tr>
                 <tr>{SPORTS.flatMap((s) => KINDS.map((k, i) => <th key={`${s}${k}`} className={`px-2 py-1 text-center font-normal ${i === 0 ? "border-l border-border" : ""}`}>{KIND[k].slice(0, 2) === "Mo" ? "ML" : KIND[k]}</th>))}</tr>

@@ -60,7 +60,7 @@ export default async function ModelsPage({ searchParams }: { searchParams: Promi
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
         <h2 className="mb-1 text-base font-semibold text-foreground">Model scorecard</h2>
         <p className="mb-4 max-w-3xl text-xs leading-relaxed text-muted">
-          Each syndicate with a model has its own price for every line before any trading. Once a game is over, that price is scored against what happened and compared with DraftKings&rsquo; closing price on the same line
+          Each trading firm with a model has its own price for every line before any trading. Once a game is over, that price is scored against what happened and compared with DraftKings&rsquo; closing price on the same line
           (Brier score: average squared miss, lower is better). A model that beats DraftKings has real information; one that does not should be trusted less, which is what the learned weights and the per-game limits do. These are the
           raw model prices, not the trades, so unlike closing-line value this shows whether the <em>view</em> is any good.
         </p>
@@ -81,7 +81,7 @@ export default async function ModelsPage({ searchParams }: { searchParams: Promi
                 <table className="w-full min-w-[820px] text-xs">
                   <thead className="bg-surface text-left text-muted">
                     <tr>
-                      <th className="px-3 py-2">Syndicate</th>
+                      <th className="px-3 py-2">Firm</th>
                       <th className="px-3 py-2 text-right">Prices scored</th>
                       <th className="px-3 py-2 text-right">DraftKings Brier</th>
                       <th className="px-3 py-2 text-right">Model Brier</th>

@@ -192,7 +192,7 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
               <LocalDateTime iso={game.start_utc} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
               {game.ref?.src && game.ref.src !== "dk" ? (
                 <span className="ml-2 rounded border border-warn/50 px-1.5 py-0.5 text-[10px] text-warn">
-                  No DraftKings line yet: the syndicates are making this line. It opened at the ratings&rsquo; consensus ({game.home.abbr} {game.ref.seed ? `${game.ref.seed[0] <= 0 ? "+" : "-"}${Math.abs(game.ref.seed[0]).toFixed(1)}, total ${game.ref.seed[1].toFixed(1)}` : ""}) and trading has moved it to {game.home.abbr} {game.ref.spread != null && game.ref.spread > 0 ? "+" : ""}{game.ref.spread}, total {game.ref.total}. Limits are small.
+                  No DraftKings line yet: the trading firms are making this line. It opened at the ratings&rsquo; consensus ({game.home.abbr} {game.ref.seed ? `${game.ref.seed[0] <= 0 ? "+" : "-"}${Math.abs(game.ref.seed[0]).toFixed(1)}, total ${game.ref.seed[1].toFixed(1)}` : ""}) and trading has moved it to {game.home.abbr} {game.ref.spread != null && game.ref.spread > 0 ? "+" : ""}{game.ref.spread}, total {game.ref.total}. Limits are small.
                 </span>
               ) : null}
               {game.ref && (!game.ref.src || game.ref.src === "dk") && (
@@ -212,10 +212,10 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
         {result && (
           <section className="mb-6 rounded-lg border border-border bg-surface p-4">
             <h3 className="mb-1 text-sm font-semibold text-foreground">Final result: {result.away.abbr} {result.away_score}, {result.home.abbr} {result.home_score}</h3>
-            <p className="mb-3 text-[11px] text-muted">What every syndicate and trader actually made or lost on this game, from all {result.n_trades} trades ({Math.round(result.contracts).toLocaleString()} contracts), including positions netted off along the way.</p>
+            <p className="mb-3 text-[11px] text-muted">What every trading firm and trader actually made or lost on this game, from all {result.n_trades} trades ({Math.round(result.contracts).toLocaleString()} contracts), including positions netted off along the way.</p>
             <div className="grid gap-4 lg:grid-cols-2">
               <table className="w-full text-xs">
-                <thead className="text-left text-muted"><tr><th className="py-1 font-medium">Syndicate</th><th className="py-1 text-right font-medium">Profit</th><th className="py-1 text-right font-medium">Traded</th><th className="py-1 text-right font-medium">CLV</th></tr></thead>
+                <thead className="text-left text-muted"><tr><th className="py-1 font-medium">Firm</th><th className="py-1 text-right font-medium">Profit</th><th className="py-1 text-right font-medium">Traded</th><th className="py-1 text-right font-medium">CLV</th></tr></thead>
                 <tbody className="font-mono">
                   {Object.entries(result.syn).sort((a, b) => b[1].pnl - a[1].pnl).map(([sid, v]) => (
                     <tr key={sid} className="border-t border-border">
@@ -423,13 +423,13 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
             </div>
           </div>
           {posRows.length === 0 ? (
-            <p className="text-xs text-muted">No open positions{synFilter ? " for that syndicate" : ""}.</p>
+            <p className="text-xs text-muted">No open positions{synFilter ? " for that firm" : ""}.</p>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-border">
               <table className="w-full min-w-[860px] text-xs">
                 <thead className="bg-surface text-left text-muted">
                   <tr>
-                    <th className="px-3 py-2">Syndicate · trader</th>
+                    <th className="px-3 py-2">Firm · trader</th>
                     <th className="px-3 py-2">Contract</th>
                     <th className="px-3 py-2">Side</th>
                     <th className="px-3 py-2 text-right">Size</th>

@@ -30,7 +30,7 @@ export function SyndicateHeader({ active, round }: { active: "board" | "markets"
         <div>
           <Link href="/syndicates">
             <h1 className="text-lg font-semibold tracking-tight text-foreground">
-              Syndicates <span className="text-accent">Exchange</span>
+              <span className="text-accent">Exchange</span>
             </h1>
           </Link>
           <p className="text-xs text-muted">

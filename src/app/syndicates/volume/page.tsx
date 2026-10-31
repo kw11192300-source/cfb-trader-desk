@@ -184,7 +184,7 @@ export default async function VolumePage({ searchParams }: { searchParams: Promi
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full min-w-[720px] text-xs">
               <thead className="bg-surface text-left text-muted">
-                <tr><th className="px-3 py-2">Main line</th><th className="px-3 py-2 text-right">DraftKings</th><th className="px-3 py-2 text-right">Kalshi</th><th className="px-3 py-2 text-right">Exchange</th><th className="px-3 py-2 text-right">House model</th><th className="px-3 py-2 text-right" title="What the syndicates collectively price: DraftKings moved toward each syndicate's own view by the weight that syndicate has earned, averaged">Syndicates blended</th><th className="px-3 py-2 text-right">Biggest gap</th></tr>
+                <tr><th className="px-3 py-2">Main line</th><th className="px-3 py-2 text-right">DraftKings</th><th className="px-3 py-2 text-right">Kalshi</th><th className="px-3 py-2 text-right">Exchange</th><th className="px-3 py-2 text-right">House model</th><th className="px-3 py-2 text-right" title="What the trading firms collectively price: DraftKings moved toward each trading firm's own view by the weight that trading firm has earned, averaged">Syndicates blended</th><th className="px-3 py-2 text-right">Biggest gap</th></tr>
               </thead>
               <tbody className="font-mono">
                 {ideas.length === 0 && <tr><td colSpan={7} className="px-3 py-3 font-sans text-muted">Everything is within two points of DraftKings.</td></tr>}
@@ -202,7 +202,7 @@ export default async function VolumePage({ searchParams }: { searchParams: Promi
               </tbody>
             </table>
           </div>
-          <p className="mt-1 text-[11px] text-muted">A starting point for digging, not a signal: a price is only worth listening to once it has a record. The blended column moves DraftKings toward each syndicate&rsquo;s view by the model weight that syndicate has earned from finished games, then averages, so it stays close to DraftKings until some of them prove themselves.</p>
+          <p className="mt-1 text-[11px] text-muted">A starting point for digging, not a signal: a price is only worth listening to once it has a record. The blended column moves DraftKings toward each trading firm&rsquo;s view by the model weight that trading firm has earned from finished games, then averages, so it stays close to DraftKings until some of them prove themselves.</p>
         </section>
 
         <section className="mb-8">
@@ -226,7 +226,7 @@ export default async function VolumePage({ searchParams }: { searchParams: Promi
               </tbody>
             </table>
           </div>
-          <p className="mt-1 text-[11px] text-muted">When a trader with a good record hits a quote, everyone who follows the flow moves their view of that game a little the same way, so quotes shift and the exchange price moves off DraftKings. A syndicate whose model has proven itself on settled games also counts as sharp. Followers differ in how much attention they pay.</p>
+          <p className="mt-1 text-[11px] text-muted">When a trader with a good record hits a quote, everyone who follows the flow moves their view of that game a little the same way, so quotes shift and the exchange price moves off DraftKings. A trading firm whose model has proven itself on settled games also counts as sharp. Followers differ in how much attention they pay.</p>
         </section>
       </main>
     </div>

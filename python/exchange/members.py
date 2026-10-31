@@ -48,7 +48,7 @@ SYNDICATES = [
     dict(id="pace", name="Totals Desk", engine="pace", color="#ca8a04", tagline="Totals specialists - scoring environment from the ratings, with no view on sides."),
     dict(id="mm", name="Liquidity Partners", engine="ref", color="#475569", tagline="The control group: no model at all, so they quote and trade straight off the DraftKings price."),
     dict(id="house", name="House Models", engine="house", color="#f59e0b",
-         tagline="The site's own CBB, NBA and NHL models entered as a syndicate, so they are judged against DraftKings and every other syndicate on finished games."),
+         tagline="The site's own CBB, NBA and NHL models entered as a trading firm, so they are judged against DraftKings and every other firm on finished games."),
     dict(id="labf", name="Fundamentals Lab", engine="agent", color="#f472b6", agent={"lines": False},
          tagline="A research agent that builds its own model from results, team and player data and never sees a betting line, so any edge it finds is its own."),
     dict(id="labm", name="Market Lab", engine="agent", color="#a3e635", agent={"lines": True},

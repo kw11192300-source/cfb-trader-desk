@@ -46,6 +46,7 @@ SHARP_N = 10.0  # effective trades of evidence before a taker's record counts in
 MM_REACT = 2.0  # a market maker moves its own view of a game this many times harder than a follower when its quote is hit
 MAKER_SOFT = 0.7  # a market maker stops offering new risk once it has used this share of its risk limit, so it always has room to keep quoting
 RESERVE_FRAC = 0.20  # share of its starting bankroll a trader never commits as cash
+MARGIN_CREDIT = 0.8  # offsetting positions cannot all lose: the collateral posted above the worst-case loss counts as free to trade, at this share (cash can dip below zero as a bucket; equity and bankroll are cash plus locked, so they do not move)
 TICKS = 12  # steps of simulated time inside one round
 ACT_PROB = 0.6  # chance a trader acts on a given tick after the first
 BAND = 0.12  # no fair price strays further than this from the DraftKings price
@@ -788,7 +789,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         """Contracts it can trade on this side: closing what it holds needs no cash, opening needs the unit cost and keeps the reserve."""
         n = net.get((m["id"], k), 0.0)
         closing = max(0.0, -n) if side == "buy" else max(0.0, n)
-        free = max(0.0, m["cash"] - RESERVE_FRAC * m["start_units"])
+        credit = MARGIN_CREDIT * max(0.0, m["locked"] - trisk(m["id"]))
+        free = max(0.0, m["cash"] + credit - RESERVE_FRAC * m["start_units"])
         return closing + free / (px if side == "buy" else 1 - px)
 
     prev_ts = _pdate(meta["round"]["ts"]) if meta.get("round") and meta["round"].get("ts") else now - timedelta(minutes=10)

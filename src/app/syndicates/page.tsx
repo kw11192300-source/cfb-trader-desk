@@ -70,7 +70,8 @@ export default async function SyndicatesPage({ searchParams }: { searchParams: P
   const traded = real.filter((r) => r.lastTrade);
   const recent = [...traded].sort((a, b) => b.lastTrade!.localeCompare(a.lastTrade!)).slice(0, 3);
   const quiet = [...traded].sort((a, b) => a.lastTrade!.localeCompare(b.lastTrade!)).slice(0, 3);
-  const attention = [...real].sort((a, b) => a.available / Math.max(1, a.bankroll) - b.available / Math.max(1, b.bankroll)).slice(0, 5);
+  const capture = sortRows(real.filter((r) => r.capture != null), "cap").slice(0, 5);
+  const drawdown = sortRows(real.filter((r) => r.maxDd > 0), "dd").slice(0, 5);
   const names = Object.fromEntries(members.map((m) => [m.id, `${syndicates.find((s) => s.id === m.syndicate_id)?.name ?? ""} · ${m.name}`]));
   const colors = Object.fromEntries(syndicates.map((s) => [s.id, s.color]));
   const sNames = Object.fromEntries(syndicates.map((s) => [s.id, s.name]));
@@ -80,10 +81,10 @@ export default async function SyndicatesPage({ searchParams }: { searchParams: P
       <SyndicateHeader active="board" round={meta} />
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
         <p className="mb-6 max-w-3xl text-xs leading-relaxed text-muted">
-          Sixteen firms trade here. Fifteen are syndicates, each with its own approach, starting with 10,000 units across five sport desks (NFL, CFB, NHL, NBA, CBB). The sixteenth, Main Street, is public money: eight recreational bettors with 25,000 units who lean to favorites, overs and underdog moneylines, bet mostly in the last few hours before a game, and pay a few cents over fair. They are in the table for reference and are not sharp; the market makers earn their living from flow like theirs. A contract pays 1 unit
+          Sixteen firms trade here. Fifteen are trading firms, each with its own approach, starting with 10,000 units across five sport desks (NFL, CFB, NHL, NBA, CBB). The sixteenth, Main Street, is public money: eight recreational bettors with 25,000 units who lean to favorites, overs and underdog moneylines, bet mostly in the last few hours before a game, and pay a few cents over fair. They are in the table for reference and are not sharp; the market makers earn their living from flow like theirs. A contract pays 1 unit
           if its side wins: the buyer posts the price, the seller posts the rest, so nobody can lose more than they put up. Every trader shares one goal (beat the
           closing DraftKings price) and one rulebook (fair value anchored to DraftKings and never more than 12¢ away, at most 100 units on a game and market, quarter Kelly
-          at most), then builds its own strategy inside it: how big an edge it demands, how tight it quotes, how far it trusts its syndicate&rsquo;s model. Each round
+          at most), then builds its own strategy inside it: how big an edge it demands, how tight it quotes, how far it trusts its trading firm&rsquo;s model. Each round
           plays out over twelve steps in which traders refresh quotes and hit each other&rsquo;s. Open positions are valued at DraftKings&rsquo; price (via ESPN) until they settle. No real money,
           no sportsbook, nothing connected to your bets.
         </p>
@@ -101,7 +102,7 @@ export default async function SyndicatesPage({ searchParams }: { searchParams: P
           <span className="ml-3">By sport</span>
           {["nfl", "cfb", "nhl", "nba", "cbb"].map((s) => <Link key={s} href={`/syndicates/sports?sport=${s}`} className="ml-1 rounded px-2 py-1 text-muted hover:text-foreground">{s.toUpperCase()}</Link>)}
         </p>
-        <LeaderTable rows={srowsS} linkBase="/syndicates" title="Syndicates" sort={sort} dir={dir} sortHref={sortHref} full={full} fullHref={href({ cols: full ? null : "all" })} />
+        <LeaderTable rows={srowsS} linkBase="/syndicates" title="Trading firms" sort={sort} dir={dir} sortHref={sortHref} full={full} fullHref={href({ cols: full ? null : "all" })} />
         <MoneyLegend />
         <EquityChart snaps={snaps} colors={colors} names={sNames} start={start} />
         <h2 className="mb-2 text-sm font-semibold text-foreground">Traders</h2>
@@ -116,10 +117,11 @@ export default async function SyndicatesPage({ searchParams }: { searchParams: P
             { label: "Most recent", rows: recent, line: (r) => <span className="text-muted">{r.lastApprox ? "~" : ""}{ago(r.lastTrade).text}</span> },
             { label: "Longest since a trade", rows: quiet, line: (r) => <span className="text-warn">{r.lastApprox ? "~" : ""}{ago(r.lastTrade).text}</span> },
           ]} />
-          <Spotlight title="Needs a look" note="Least cash free to trade" lists={[{ rows: attention, line: (r) => <span className="text-warn">{r.available.toFixed(0)} of {r.bankroll.toFixed(0)}</span> }]} />
+          <Spotlight title="Spread captured" note="Cents per contract a quote earned inside DraftKings' price" lists={[{ rows: capture, line: (r) => <span className="text-up">+{((r.capture ?? 0) * 100).toFixed(2)}¢</span> }]} />
+          <Spotlight title="Deepest drawdown" note="Largest drop from a peak, in units" lists={[{ rows: drawdown, line: (r) => <span className="text-down">-{r.maxDd.toFixed(0)}</span> }]} />
         </div>
         <div className="mb-3 flex flex-wrap items-center gap-1 text-[11px]">
-          <span className="mr-1 text-muted">Syndicate</span>
+          <span className="mr-1 text-muted">Firm</span>
           <Link href={href({ syn: null, all: null })} className={`rounded px-2 py-1 ${!synFilter ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>All</Link>
           {syndicates.map((s) => <Link key={s.id} href={href({ syn: s.name, all: null })} className={`rounded px-2 py-1 ${synFilter === s.name ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>{s.name}</Link>)}
         </div>

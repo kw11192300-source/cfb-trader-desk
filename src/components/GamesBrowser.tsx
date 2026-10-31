@@ -73,7 +73,7 @@ function Card({ g }: { g: GameRow }) {
             {row("Total", tt.line == null ? "" : `O/U ${tt.line}`, tt)}
           </>
         ) : (
-          <p className="border-t border-border pt-2 text-[11px] text-muted">Prices appear once DraftKings lists the game or the syndicates open a line.</p>
+          <p className="border-t border-border pt-2 text-[11px] text-muted">Prices appear once DraftKings lists the game or the trading firms open a line.</p>
         )}
       </div>
       {!g.completed && !live && start.getTime() > Date.now() && (

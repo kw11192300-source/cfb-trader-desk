@@ -56,7 +56,7 @@ export default async function SportsPage({ searchParams }: { searchParams: Promi
           <table className="w-full min-w-[820px] text-xs">
             <thead className="bg-surface text-left text-muted">
               <tr>
-                <th className="px-3 py-2">#</th><th className="px-3 py-2">Syndicate</th>
+                <th className="px-3 py-2">#</th><th className="px-3 py-2">Firm</th>
                 <th className="px-3 py-2 text-right" title="Profit banked on finished games">Realized</th>
                 <th className="px-3 py-2 text-right" title="Valued at DraftKings' price; not money yet">Open P&amp;L</th>
                 <th className="px-3 py-2 text-right">Units traded</th>
@@ -84,7 +84,7 @@ export default async function SportsPage({ searchParams }: { searchParams: Promi
           </table>
         </div>
         <p className="mt-2 max-w-3xl text-[11px] leading-relaxed text-muted">
-          Realized is profit banked on games that have finished, from every trade made on them. The sport columns on the right (all-sports view) split that same realized profit so you can see where each syndicate is actually making or losing money. Pick a sport to rank the syndicates in it. Records start building once games settle and are kept permanently.
+          Realized is profit banked on games that have finished, from every trade made on them. The sport columns on the right (all-sports view) split that same realized profit so you can see where each trading firm is actually making or losing money. Pick a sport to rank the trading firms in it. Records start building once games settle and are kept permanently.
         </p>
       </main>
     </div>

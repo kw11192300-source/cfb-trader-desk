@@ -35,21 +35,21 @@ export default async function DigestPage({ searchParams }: { searchParams: Promi
             The first digest is written the morning after games finish (after 6 am Eastern) and covers the previous day. Come back tomorrow.
           </p>
         ) : d.games === 0 ? (
-          <p className="rounded-lg border border-border bg-surface px-4 py-8 text-center text-sm text-muted">No games the syndicates traded finished that day.</p>
+          <p className="rounded-lg border border-border bg-surface px-4 py-8 text-center text-sm text-muted">No games the trading firms traded finished that day.</p>
         ) : (
           <>
             <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {[["Games settled", String(d.games)], ["Contracts traded", d.contracts.toLocaleString()], ["Units traded", d.traded.toLocaleString()], ["Syndicates in profit", `${d.syndicates.filter((s) => s.pnl > 0).length} of ${d.syndicates.length}`]].map(([k, v]) => (
+              {[["Games settled", String(d.games)], ["Contracts traded", d.contracts.toLocaleString()], ["Units traded", d.traded.toLocaleString()], ["Trading firms in profit", `${d.syndicates.filter((s) => s.pnl > 0).length} of ${d.syndicates.length}`]].map(([k, v]) => (
                 <div key={k} className="rounded-lg border border-border bg-surface px-3 py-2"><p className="text-[10px] uppercase tracking-wide text-muted">{k}</p><p className="text-lg font-semibold text-foreground">{v}</p></div>
               ))}
             </div>
 
             <div className="mb-6 grid gap-6 lg:grid-cols-2">
               <section>
-                <h3 className="mb-2 text-sm font-semibold text-foreground">Syndicates, by profit</h3>
+                <h3 className="mb-2 text-sm font-semibold text-foreground">Trading firms, by profit</h3>
                 <div className="overflow-x-auto rounded-lg border border-border">
                   <table className="w-full text-xs">
-                    <thead className="bg-surface text-left text-muted"><tr><th className="px-3 py-2">Syndicate</th><th className="px-3 py-2 text-right">Realized</th><th className="px-3 py-2 text-right">Traded</th><th className="px-3 py-2 text-right" title="Average closing-line value on that day's trades">CLV</th></tr></thead>
+                    <thead className="bg-surface text-left text-muted"><tr><th className="px-3 py-2">Firm</th><th className="px-3 py-2 text-right">Realized</th><th className="px-3 py-2 text-right">Traded</th><th className="px-3 py-2 text-right" title="Average closing-line value on that day's trades">CLV</th></tr></thead>
                     <tbody className="font-mono">
                       {d.syndicates.map((s) => (
                         <tr key={s.id} className="border-t border-border">

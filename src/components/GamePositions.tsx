@@ -171,7 +171,7 @@ function Heat({ game, lots, dim, colorOf, nameOf }: { game: ExGame; lots: Lot[];
       <table className="w-full text-[11px]">
         <thead className="bg-surface text-muted">
           <tr>
-            <th className="px-3 py-2 text-left font-medium">Syndicate</th>
+            <th className="px-3 py-2 text-left font-medium">Firm</th>
             {bands.map((b, i) => <th key={i} className="px-2 py-2 text-center align-bottom font-medium leading-tight" style={{ minWidth: 82 }}>{b.label}<span className="block font-mono text-[10px] font-normal">{b.chance == null ? "" : `${(b.chance * 100).toFixed(0)}%`}</span></th>)}
             <th className="border-l border-border px-2 py-2 text-right font-medium">Worst</th>
             <th className="px-2 py-2 text-right font-medium">Best</th>
@@ -218,7 +218,7 @@ export function GamePositions({ game, lots, syns, members, dim, colorBy, showAll
           </div>
           <div className="flex items-center gap-1">
             <span className="text-muted">Color by</span>
-            <Link href={hrefFor({ col: "syn" })} scroll={false} className={chip(colorBy === "syn")}>Syndicate</Link>
+            <Link href={hrefFor({ col: "syn" })} scroll={false} className={chip(colorBy === "syn")}>Firm</Link>
             <Link href={hrefFor({ col: "type" })} scroll={false} className={chip(colorBy === "type")}>Type of firm</Link>
             <Link href={hrefFor({ col: "sharp" })} scroll={false} className={chip(colorBy === "sharp")}>Sharpness</Link>
           </div>
@@ -236,7 +236,7 @@ export function GamePositions({ game, lots, syns, members, dim, colorBy, showAll
         </p>
       )}
       <p className="mb-3 max-w-3xl text-[11px] leading-relaxed text-muted">
-        {dim === "m" ? "Side and spread bets only; totals are on the other tab." : "Total bets only; side and spread bets are on the other tab."} The chart shows what each syndicate makes or loses at every final result,
+        {dim === "m" ? "Side and spread bets only; totals are on the other tab." : "Total bets only; side and spread bets are on the other tab."} The chart shows what each trading firm makes or loses at every final result,
         with the shaded hill showing how likely each result is by DraftKings&rsquo; price. Below it, each bar is a line on this game: how many contracts back each side, split by who holds them. The grid at the bottom reads the same books at the results that matter for the lines actually held.
       </p>
       <Payoff game={game} lots={lots} dim={dim} colorOf={colorOf} nameOf={nameOf} showAll={showAll} />

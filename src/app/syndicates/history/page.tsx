@@ -56,7 +56,7 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
         </div>
 
         {results.length === 0 ? (
-          <p className="rounded-lg border border-border bg-surface px-4 py-8 text-center text-sm text-muted">No finished games yet. Results appear here as the games the syndicates traded finish and settle, and stay here permanently.</p>
+          <p className="rounded-lg border border-border bg-surface px-4 py-8 text-center text-sm text-muted">No finished games yet. Results appear here as the games the trading firms traded finish and settle, and stay here permanently.</p>
         ) : (
           <>
             <section className="mb-8">
@@ -96,7 +96,7 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
                   </tbody>
                 </table>
               </div>
-              <p className="mt-1 text-[11px] text-muted">Profit or loss actually realized on each day&rsquo;s finished games (the day is the US-Eastern date of kickoff), for every trade made on them including positions that were netted off earlier. Every trade has a buyer and a seller, so each row adds up to zero across all syndicates.</p>
+              <p className="mt-1 text-[11px] text-muted">Profit or loss actually realized on each day&rsquo;s finished games (the day is the US-Eastern date of kickoff), for every trade made on them including positions that were netted off earlier. Every trade has a buyer and a seller, so each row adds up to zero across all trading firms.</p>
             </section>
 
             <section className="mb-8">

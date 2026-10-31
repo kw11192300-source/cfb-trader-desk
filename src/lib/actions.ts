@@ -195,7 +195,7 @@ export async function triggerCbbBoard(): Promise<{ ok: boolean; message: string 
   return { ok: false, message: `GitHub returned ${res.status}.` };
 }
 
-/** Starts one round of the Syndicates exchange (.github/workflows/exchange-round.yml). GitHub's own 10-minute schedule is best-effort and can run
+/** Starts one round of the exchange (.github/workflows/exchange-round.yml). GitHub's own 10-minute schedule is best-effort and can run
  * late or skip, so cron-job.org calls this every 10 minutes as the dependable trigger. The workflow queues overlapping runs, so extra calls are safe. */
 export async function triggerExchangeRound(): Promise<{ ok: boolean; message: string }> {
   if (!process.env.GITHUB_DISPATCH_TOKEN) {

@@ -39,7 +39,7 @@ export default async function TradesPage({ searchParams }: { searchParams: Promi
   const mine = (id: string) => (member ? id === member.id : syn ? id.startsWith(`${syn.id}-`) : false);
   const side = (t: ExTrade): "buy" | "sell" | null => {
     const b = mine(t.buyer), s = mine(t.seller);
-    return b && !s ? "buy" : s && !b ? "sell" : null; // a trade between two of its own members changes nothing for a syndicate
+    return b && !s ? "buy" : s && !b ? "sell" : null; // a trade between two of its own members changes nothing for a trading firm
   };
   const picked = !!(member || syn);
   const [{ rows, total }, summary] = await Promise.all([getTradesPage(o, page, SIZE), picked ? getTradesSummary(o, side) : Promise.resolve(null)]);
@@ -60,12 +60,12 @@ export default async function TradesPage({ searchParams }: { searchParams: Promi
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
         <h2 className="mb-1 text-base font-semibold text-foreground">Trade history</h2>
         <p className="mb-4 max-w-3xl text-xs leading-relaxed text-muted">
-          Every trade on the exchange, newest first, kept for 120 days. Pick a syndicate or one trader to see each trade from their side: whether they bought or sold, whether they were resting a quote (maker) or hitting one
+          Every trade on the exchange, newest first, kept for 120 days. Pick a trading firm or one trader to see each trade from their side: whether they bought or sold, whether they were resting a quote (maker) or hitting one
           (taker), what it made once the game finished, and how the price compared with the close (CLV). Game and sport links from other pages arrive here already filtered.
         </p>
 
         <form method="get" action="/syndicates/trades" className="mb-4 flex flex-wrap items-end gap-x-4 gap-y-3 rounded-lg border border-border bg-surface px-3 py-3 text-[11px]">
-          <label className="flex flex-col gap-1 text-muted">Syndicate
+          <label className="flex flex-col gap-1 text-muted">Firm
             <select name="syndicate" defaultValue={syn?.id ?? member?.syndicate_id ?? ""} className={field}>
               <option value="">All</option>
               {syndicates.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}

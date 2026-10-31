@@ -254,6 +254,8 @@ export type Row = {
 
 /** The reserve share of its starting bankroll that a trader never commits as cash (the engine's RESERVE_FRAC). */
 export const RESERVE_FRAC = 0.2;
+/** The engine's MARGIN_CREDIT: the collateral posted above a trader's worst-case loss counts as free to trade at this share, because offsetting positions cannot all lose. */
+export const MARGIN_CREDIT = 0.8;
 
 function clvSe(sum: number, sq: number, n: number): number | null {
   if (n < 2 || sq <= 0) return null;
@@ -291,7 +293,7 @@ export function summarize(syndicates: ExSyndicate[], members: ExMember[]): { mem
       clv: clvN > 0 ? sum((s) => s.clv_sum) / clvN : null, clvSe: clvSe(sum((s) => s.clv_sum), sum((s) => s.clv_sq ?? 0), clvN), clvN, capture: sum((s) => s.cap_q ?? 0) > 0 ? sum((s) => s.cap_sum ?? 0) / sum((s) => s.cap_q ?? 0) : null, makerPnl: sum((s) => s.pnl_maker), takerPnl: sum((s) => s.pnl_taker),
       maxDd: Math.max(0, ...st.map((s) => s.max_dd)), winRate: decided > 0 ? sum((s) => s.wins) / decided : null, note, isPublic,
       sPnl: sum((s) => s.s_pnl ?? 0), sTraded: sum((s) => s.s_traded ?? 0), sRoi: sum((s) => s.s_traded ?? 0) > 0 ? sum((s) => s.s_pnl ?? 0) / sum((s) => s.s_traded ?? 0) : null, sGames: sum((s) => s.s_games ?? 0),
-      cash: ms.reduce((a, m) => a + m.cash, 0), available: ms.reduce((a, m) => a + Math.max(0, m.cash - RESERVE_FRAC * m.start_units), 0), pending: ms.reduce((a, m) => a + m.locked, 0), kind,
+      cash: ms.reduce((a, m) => a + m.cash, 0), available: ms.reduce((a, m) => a + Math.max(0, m.cash + MARGIN_CREDIT * Math.max(0, m.locked - (m.open_risk ?? m.locked)) - RESERVE_FRAC * m.start_units), 0), pending: ms.reduce((a, m) => a + m.locked, 0), kind,
       ...lastTraded(ms),
     };
   };

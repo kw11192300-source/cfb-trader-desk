@@ -119,7 +119,7 @@ export default async function TraderPage({ params, searchParams }: { params: Pro
             <p>
               {m.role !== "maker" ? `Wants a ${(Number(m.params.thr ?? 0) * 100).toFixed(1)}¢ edge · ` : ""}
               {m.role !== "taker" ? `quotes ±${(Number(m.params.half ?? 0) * 100).toFixed(1)}¢ · ` : ""}
-              {Math.round(Number(m.params.kelly ?? 0) * 100)}% Kelly · quotes up to {String(m.params.size)} contracts · trusts the syndicate model {Number(m.params.trust ?? 1).toFixed(1)}× · follows sharp flow {Math.round(Number(m.params.follow ?? 0.5) * 100)}%
+              {Math.round(Number(m.params.kelly ?? 0) * 100)}% Kelly · quotes up to {String(m.params.size)} contracts · trusts the trading firm model {Number(m.params.trust ?? 1).toFixed(1)}× · follows sharp flow {Math.round(Number(m.params.follow ?? 0.5) * 100)}%
             </p>
             <p className="mt-1">Limits: {traderLimit(m).toFixed(0)} units worst case on a game at kickoff (a share of its bankroll: it grows and shrinks with it), 75% of bankroll in total (at most half of that on games more than a day away), 20% of the starting bankroll held back as cash.</p>
             <p className="mb-1 mt-3 text-[10px] uppercase tracking-wide">Changes it made itself</p>

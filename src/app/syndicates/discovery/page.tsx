@@ -33,14 +33,14 @@ export default async function DiscoveryPage() {
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
         <h2 className="mb-1 text-base font-semibold text-foreground">Line discovery: how close does the exchange get before DraftKings posts?</h2>
         <p className="mb-5 max-w-3xl text-xs leading-relaxed text-muted">
-          When DraftKings has not priced a game, the syndicates make the line themselves. It opens at what the rating models agree on, then every quote and trade moves it. When DraftKings
+          When DraftKings has not priced a game, the trading firms make the line themselves. It opens at what the rating models agree on, then every quote and trade moves it. When DraftKings
           finally posts, this page compares three numbers for the expected margin and total: where the line <em>opened</em>, where trading had <em>moved</em> it, and what DraftKings <em>posted</em>.
           If trading helps, the moved line should be closer to DraftKings than the opening line.
         </p>
 
         {!all ? (
           <p className="rounded-lg border border-border bg-surface px-4 py-8 text-center text-sm text-muted">
-            Nothing to compare yet. A game shows up here the moment DraftKings posts a line on a game the syndicates had already been trading; the first few usually arrive within a day or two.
+            Nothing to compare yet. A game shows up here the moment DraftKings posts a line on a game the trading firms had already been trading; the first few usually arrive within a day or two.
           </p>
         ) : (
           <>

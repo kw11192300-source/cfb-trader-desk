@@ -19,7 +19,7 @@ const srcNote = (g: ExGame) => {
   const r = g.ref;
   if (!r || !r.src || r.src === "dk") return null;
   const seed = r.seed ? ` · opened at ${r.seed[0] <= 0 ? "+" : "-"}${Math.abs(r.seed[0]).toFixed(1)} / ${r.seed[1].toFixed(1)}` : "";
-  return `no DraftKings line yet · the syndicates are making it: ${g.home.abbr} ${r.spread != null && r.spread > 0 ? "+" : ""}${r.spread}, total ${r.total}${seed}`;
+  return `no DraftKings line yet · the trading firms are making it: ${g.home.abbr} ${r.spread != null && r.spread > 0 ? "+" : ""}${r.spread}, total ${r.total}${seed}`;
 };
 
 export default async function SyndicateMarketsPage({ searchParams }: { searchParams: Promise<{ h?: string; sport?: string; sort?: string }> }) {

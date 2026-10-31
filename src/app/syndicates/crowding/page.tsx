@@ -71,7 +71,7 @@ export default async function CrowdingPage({ searchParams }: { searchParams: Pro
       <SyndicateHeader active="crowding" round={meta} />
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-foreground">Crowding: do the syndicates all want the same thing?</h2>
+          <h2 className="text-base font-semibold text-foreground">Crowding: do the trading firms all want the same thing?</h2>
           <div className="flex gap-1 text-[11px]">
             <Link href="/syndicates/crowding" className={`rounded px-2.5 py-1 ${!sport ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>All sports</Link>
             {SPORTS.map((s) => <Link key={s} href={`/syndicates/crowding?sport=${s}`} className={`rounded px-2.5 py-1 ${sport === s ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>{SPORT[s]}</Link>)}
@@ -80,7 +80,7 @@ export default async function CrowdingPage({ searchParams }: { searchParams: Pro
 
         <section className="mb-8">
           <h3 className="mb-1 text-sm font-semibold text-foreground">Views move together?</h3>
-          <p className="mb-2 max-w-3xl text-[11px] text-muted">For every main line on the board, how far each syndicate&rsquo;s own model sits from DraftKings. A cell is the correlation between two syndicates&rsquo; gaps: orange means they lean the same way (crowded), blue means opposite, blank means too little overlap. Bright orange all over would mean the exchange is learning little from having many syndicates.</p>
+          <p className="mb-2 max-w-3xl text-[11px] text-muted">For every main line on the board, how far each trading firm&rsquo;s own model sits from DraftKings. A cell is the correlation between two syndicates&rsquo; gaps: orange means they lean the same way (crowded), blue means opposite, blank means too little overlap. Bright orange all over would mean the exchange is learning little from having many trading firms.</p>
           {ids.length < 2 ? <p className="rounded-lg border border-border bg-surface px-4 py-6 text-center text-xs text-muted">No games on the board with syndicate views yet.</p> : (
             <>
               <div className="overflow-x-auto rounded-lg border border-border">
@@ -109,10 +109,10 @@ export default async function CrowdingPage({ searchParams }: { searchParams: Pro
 
         <section className="mb-8">
           <h3 className="mb-1 text-sm font-semibold text-foreground">Most one-sided games</h3>
-          <p className="mb-2 max-w-3xl text-[11px] text-muted">Where the syndicates that hold a position all lean the same way. Lean comes from each syndicate&rsquo;s own open positions: how much it makes if the home side wins big (or the total goes well over) versus if the other side does.</p>
+          <p className="mb-2 max-w-3xl text-[11px] text-muted">Where the trading firms that hold a position all lean the same way. Lean comes from each trading firm&rsquo;s own open positions: how much it makes if the home side wins big (or the total goes well over) versus if the other side does.</p>
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full min-w-[640px] text-xs">
-              <thead className="bg-surface text-left text-muted"><tr><th className="px-3 py-2">Game</th><th className="px-3 py-2">Market</th><th className="px-3 py-2 text-right">Syndicates holding</th><th className="px-3 py-2 text-right">One side</th><th className="px-3 py-2">Who is on it</th></tr></thead>
+              <thead className="bg-surface text-left text-muted"><tr><th className="px-3 py-2">Game</th><th className="px-3 py-2">Market</th><th className="px-3 py-2 text-right">Trading firms holding</th><th className="px-3 py-2 text-right">One side</th><th className="px-3 py-2">Who is on it</th></tr></thead>
               <tbody className="font-mono">
                 {crowded.length === 0 && <tr><td colSpan={5} className="px-3 py-3 font-sans text-muted">Not enough overlapping positions yet.</td></tr>}
                 {crowded.map((x, i) => {

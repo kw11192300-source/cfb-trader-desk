@@ -123,7 +123,7 @@ export default async function SyndicatePage({ params, searchParams }: { params: 
               )}
               . {syn.learn?.agent?.notes ? `Latest change: ${syn.learn.agent.notes}` : ""}
             </p>
-            {syn.learn?.agent?.error && <p className="mt-2 text-xs text-down">The model failed on its last run, so this syndicate is abstaining and trading off DraftKings alone: {syn.learn.agent.error.slice(-200)}</p>}
+            {syn.learn?.agent?.error && <p className="mt-2 text-xs text-down">The model failed on its last run, so this trading firm is abstaining and trading off DraftKings alone: {syn.learn.agent.error.slice(-200)}</p>}
             {syn.learn?.agent?.backtest && (
               <div className="mt-3 overflow-x-auto">
                 <p className="mb-1 text-[11px] text-muted">Walk-forward test on games it had not seen (average miss in points, lower is better):</p>
@@ -164,8 +164,8 @@ export default async function SyndicatePage({ params, searchParams }: { params: 
         <section className="mb-8">
           <h3 className="mb-2 text-sm font-semibold text-foreground">Risk by game</h3>
           <p className="mb-2 text-[11px] text-muted">
-            Worst case is the most the syndicate can lose on a game across every possible result, all five traders added together (one trader&rsquo;s long can offset another&rsquo;s short).
-            The limit is {Math.round(syn.learn?.cap ?? SYN_GAME_LIMIT)} units at kickoff (100 to start, up to 200 as the syndicate's closing-line value proves out, and a bit more in a sport where one of its takers has proven sharp) and is lower earlier, so money is deployed gradually. Each trader is held to 100 units on a game, up to 150 in a sport where its takes have beaten the close.
+            Worst case is the most the trading firm can lose on a game across every possible result, all five traders added together (one trader&rsquo;s long can offset another&rsquo;s short).
+            The limit is {Math.round(syn.learn?.cap ?? SYN_GAME_LIMIT)} units at kickoff (100 to start, up to 200 as the trading firm's closing-line value proves out, and a bit more in a sport where one of its takers has proven sharp) and is lower earlier, so money is deployed gradually. Each trader is held to 100 units on a game, up to 150 in a sport where its takes have beaten the close.
           </p>
           {riskRows.length === 0 ? (
             <p className="text-xs text-muted">No open positions.</p>
@@ -256,7 +256,7 @@ export default async function SyndicatePage({ params, searchParams }: { params: 
                 </tbody>
               </table>
             </div>
-            <p className="mt-1 text-[11px] text-muted">What the syndicate makes or loses on that game at a specific final score (hover a figure for the score). Big and close are set from how much that sport&rsquo;s margins usually vary. The side columns use moneyline and spread positions, the total columns use total positions; they are separate bets, so add one of each for the whole game.</p>
+            <p className="mt-1 text-[11px] text-muted">What the trading firm makes or loses on that game at a specific final score (hover a figure for the score). Big and close are set from how much that sport&rsquo;s margins usually vary. The side columns use moneyline and spread positions, the total columns use total positions; they are separate bets, so add one of each for the whole game.</p>
           </section>
         )}
 
@@ -333,7 +333,7 @@ export default async function SyndicatePage({ params, searchParams }: { params: 
             <section className="mb-8 grid gap-4 lg:grid-cols-2">
               <div>
                 <h3 className="mb-1 text-sm font-semibold text-foreground">Model weight over time</h3>
-                <p className="mb-2 text-[11px] text-muted">The share of this syndicate&rsquo;s own view that reaches its prices, by sport. It rises only when the model beats DraftKings on finished games.</p>
+                <p className="mb-2 text-[11px] text-muted">The share of this trading firm&rsquo;s own view that reaches its prices, by sport. It rises only when the model beats DraftKings on finished games.</p>
                 {wser.length > 0 ? <LineChart series={wser} height={200} yFmt={(v) => `${v.toFixed(0)}%`} xTime={{ month: "short", day: "numeric" }} /> : <p className="rounded-lg border border-border bg-surface px-3 py-6 text-center text-xs text-muted">Fills in over the first few rounds.</p>}
               </div>
               <div>
@@ -347,7 +347,7 @@ export default async function SyndicatePage({ params, searchParams }: { params: 
 
         <section className="mb-8">
           <p className="mb-2 text-xs text-muted">
-            Model weight is how much of this syndicate&rsquo;s own view goes into its prices (the rest is DraftKings). It starts at 25% and moves only as settled games show
+            Model weight is how much of this trading firm&rsquo;s own view goes into its prices (the rest is DraftKings). It starts at 25% and moves only as settled games show
             whether the model beat the market:{" "}
             {["nfl", "cfb", "nhl", "nba", "cbb"].map((sp) => `${sp.toUpperCase()} ${Math.round((syn.learn?.w?.[sp] ?? 0.25) * 100)}%`).join(" · ")}
           </p>

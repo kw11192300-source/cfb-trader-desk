@@ -61,7 +61,7 @@ export default async function PositionsPage({ searchParams }: { searchParams: Pr
           <h2 className="text-base font-semibold text-foreground">Biggest positions and liquidity</h2>
           <div className="flex flex-wrap items-center gap-3 text-[11px]">
             <div className="flex flex-wrap gap-1">
-              <Link href={q({ syn: null })} className={`rounded px-2 py-1 ${!synId ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>All syndicates</Link>
+              <Link href={q({ syn: null })} className={`rounded px-2 py-1 ${!synId ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>All trading firms</Link>
               {syndicates.map((s) => <Link key={s.id} href={q({ syn: s.id })} className={`rounded px-2 py-1 ${synId === s.id ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}><span className="mr-1 inline-block h-1.5 w-1.5 rounded-full" style={{ background: s.color }} />{s.name.split(" ")[0]}</Link>)}
             </div>
             <div className="flex gap-1">
@@ -76,7 +76,7 @@ export default async function PositionsPage({ searchParams }: { searchParams: Pr
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full min-w-[880px] text-xs">
               <thead className="bg-surface text-left text-muted">
-                <tr><th className="px-3 py-2">Syndicate · trader</th><th className="px-3 py-2">Game</th><th className="px-3 py-2">Contract</th><th className="px-3 py-2">Side</th><th className="px-3 py-2 text-right">Size</th><th className="px-3 py-2 text-right" title="Units put up behind the position">At stake</th><th className="px-3 py-2 text-right">Avg price</th><th className="px-3 py-2 text-right">DK now</th><th className="px-3 py-2 text-right">Open P&amp;L</th></tr>
+                <tr><th className="px-3 py-2">Firm · trader</th><th className="px-3 py-2">Game</th><th className="px-3 py-2">Contract</th><th className="px-3 py-2">Side</th><th className="px-3 py-2 text-right">Size</th><th className="px-3 py-2 text-right" title="Units put up behind the position">At stake</th><th className="px-3 py-2 text-right">Avg price</th><th className="px-3 py-2 text-right">DK now</th><th className="px-3 py-2 text-right">Open P&amp;L</th></tr>
               </thead>
               <tbody className="font-mono">
                 {pos.length === 0 && <tr><td colSpan={9} className="px-3 py-3 font-sans text-muted">No open positions match.</td></tr>}

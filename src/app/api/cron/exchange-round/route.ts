@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { triggerExchangeRound } from "@/lib/actions";
 
-// Runs one round of the Syndicates exchange (the GitHub Actions job behind it takes a minute or two). Call it from cron-job.org
+// Runs one round of the exchange (the GitHub Actions job behind it takes a minute or two). Call it from cron-job.org
 // every 10 minutes, around the clock. Exempt from the site password (src/proxy.ts) like the odds timer and guarded by the same
 // CRON_SECRET: `Authorization: Bearer <secret>` or `?key=<secret>`.
 export const dynamic = "force-dynamic";
