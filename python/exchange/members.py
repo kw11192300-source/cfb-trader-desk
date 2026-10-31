@@ -22,7 +22,7 @@ TRADERS_PER = 5
 TRADER_UNITS = SYNDICATE_UNITS / TRADERS_PER
 NAMES = ["Avery", "Blake", "Casey", "Drew", "Emery", "Finley", "Gray", "Harper", "Indigo", "Jules", "Kai", "Logan", "Morgan", "Nico", "Oakley", "Parker",
          "Quinn", "Reese", "Sage", "Tatum", "Uma", "Val", "Wren", "Xan", "Yael", "Zion", "Arden", "Bryn", "Cleo", "Dale", "Eden", "Flynn", "Gale", "Hollis",
-         "Ivy", "Jordan", "Kit", "Lane", "Marlow", "Nova", "Onyx", "Phoenix", "Remy", "Sky", "Teagan", "Ulric", "Vesper", "Wynn", "Yarrow", "Zeke", "Rune", "Sloane", "Tove", "Ash", "Bell", "Cove", "Dune", "Fern", "Glen", "Hale", "Ike", "Jett", "Kerry", "Lark", "Moss", "Noor", "Orin", "Pace", "Quill", "Rhys", "Sol", "Tarn", "Ulla", "Vance", "Wick", "Xia", "Yves", "Zora", "Alma", "Bram", "Cyra", "Dov", "Briar", "Cass", "Dex", "Elio", "Fable", "Gus", "Hux"]
+         "Ivy", "Jordan", "Kit", "Lane", "Marlow", "Nova", "Onyx", "Phoenix", "Remy", "Sky", "Teagan", "Ulric", "Vesper", "Wynn", "Yarrow", "Zeke", "Rune", "Sloane", "Tove", "Ash", "Bell", "Cove", "Dune", "Fern", "Glen", "Hale", "Ike", "Jett", "Kerry", "Lark", "Moss", "Noor", "Orin", "Pace", "Quill", "Rhys", "Sol", "Tarn", "Ulla", "Vance", "Wick", "Xia", "Yves", "Zora", "Alma", "Bram", "Cyra", "Dov", "Briar", "Cass", "Dex", "Elio", "Fable", "Gus", "Hux", "Iris", "Joss", "Kade", "Lyra", "Milo", "Nell", "Otis", "Pia", "Quin", "Rhea"]
 # (role, number of focus sports): two market makers (a specialist and a generalist), two takers, one who does both
 SEATS = [("maker", 2), ("maker", 3), ("taker", 2), ("taker", 1), ("both", 2)]
 PUBLIC_UNITS = 25_000.0  # the public-money firm is bigger than the others: a crowd has more money than any one desk
@@ -41,8 +41,8 @@ def strategy(sid: str, i: int, role: str) -> dict:
 SYNDICATES = [
     dict(id="elo", name="Elo Works", engine="elo", color="#2563eb", tagline="Margin Elo: every result moves a team's rating, the off-season pulls it back toward average."),
     dict(id="ridge", name="Ridge Rangers", engine="ridge_long", color="#7c3aed", tagline="Offence/defence ridge regression with a long memory - the slow, stable view of team quality."),
-    dict(id="form", name="Form Guide", engine="ridge_short", color="#ea580c", tagline="The same regression with a short memory: who is hot or cold right now."),
-    dict(id="blend", name="Consensus Desk", engine="blend", color="#059669", tagline="Averages the three rating systems, so it only disagrees with the market when they all do."),
+    dict(id="form", name="Form Guide", engine="situation", color="#ea580c", tagline="The schedule spot, not the team: DraftKings' price adjusted for rest, back-to-backs, byes, road trips and a busy week, with the size of each effect learned from results."),
+    dict(id="blend", name="Consensus Desk", engine="agree", color="#059669", tagline="No model of its own: it trades where several independent groups push the price the same way, and stays out where they disagree."),
     dict(id="tape", name="Tape Readers", engine="tape", color="#0891b2", tagline="No ratings: follows DraftKings line movement and bets that steam keeps going."),
     dict(id="fade", name="Fade Club", engine="fade", color="#dc2626", tagline="No ratings: bets that big line moves overshoot and fade them."),
     dict(id="pace", name="Pace Lab", engine="pace", color="#ca8a04", tagline="Totals specialists - scoring environment from the ratings, with no view on sides."),
@@ -61,6 +61,10 @@ SYNDICATES = [
          tagline="Pure market makers: quote both sides of every line tight and fast, earn the spread, stay flat, and move their price as order flow reveals where the game is."),
     dict(id="mmc", name="Careful Book", engine="mm", color="#6366f1", mmstyle="careful",
          tagline="Pure market makers who quote wider and smaller, back off after being picked off, and rebuild their price from who is trading against them."),
+    dict(id="labi", name="Injury Lab", engine="agent", color="#fb7185", agent={"lines": False},
+         tagline="A research agent that prices who is playing: injury lists, minutes and rotations, what a missing player is worth, built from player data and never from a betting line."),
+    dict(id="labt", name="Tempo Lab", engine="agent", color="#fbbf24", agent={"lines": False},
+         tagline="A research agent that builds from how teams play, not who they beat: tempo, shot profile and efficiency from box scores, and what a style matchup does to the score and the total. Never sees a betting line."),
     dict(id="main", name="Main Street", engine="public", color="#f97316", public=True,
          tagline="Public money: recreational bettors who lean to favorites, overs and underdog moneylines, pile in during the last few hours before a game, and pay a few cents over fair for it. Not sharp - the flow the market makers live on."),
     dict(id="labk", name="Maker Lab", engine="agent", color="#38bdf8", agent={"lines": True, "mode": "maker"}, mmstyle="lab",

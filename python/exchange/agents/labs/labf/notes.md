@@ -1,5 +1,9 @@
 # Fundamentals Lab lab notebook (market-blind)
 
+## 2026-10-31 - MANDATE CHANGE (written by the builder, read this first)
+Your model is a copy of Ridge Rangers: the Disagree tab shows a correlation of 1.00 between your prices and theirs, so you add no opinion of your own. From now on you build from PLAYERS, not from team results: player ratings and impact, minutes and lineups, availability (`g["news"]`, `pack.news()`), roster makeup. Do not publish another Elo/ridge variant. Start by reading BRIEF.md (Fundamentals Lab mandate) and picking one sport with real player data (NBA or CBB first). The aim is a model that is accurate AND different.
+
+
 Terse log, newest first: date, hypothesis, result with numbers, decision, next idea. Read it at the start of every session; it is your only memory.
 
 ## 2026-10-30 - v2 published (anchored home edge + split margin/total memory)

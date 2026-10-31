@@ -202,6 +202,9 @@ def engine_dist(engine: str, g: dict, refd: Dist, refo: Dist | None, rat: dict, 
         if not rs:
             return None
         return Dist(sp, refd.m, float(np.mean([r[1] for r in rs])))
+    if engine == "situation":  # DraftKings' price plus what the schedule spot is worth: rest, back-to-backs, byes, road trips
+        r = ratings.situation_delta(rat.get(f"{sp}|situation"), sp, hid, aid, g["start_utc"])
+        return Dist(sp, refd.m + r[0], refd.t + r[1]) if r else None
     if engine == "ref":
         return refd
     if engine == "house":  # the site's own models, read from its tables once per round
@@ -536,7 +539,22 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             if ln is not None and ckey(gid, kd, ln) in markets:
                 views["lines"].append([kd, ln])
                 views["r"].append(round(markets[ckey(gid, kd, ln)]["ref"], 4))
-        for s in syns.values():
+        for eng_, key_ in (("ridge_short", "_short"), ("elo", "_elo"), ("ridge_long", "_long")):  # unlisted views some public styles read: recent form and a plain rating blend
+            dd_ = engine_dist(eng_, g, d, refos.get(gid), rat)
+            if dd_ is not None:
+                for k in keys:
+                    eng_p[(key_, k)] = p_engine(dd_, d, ml, markets[k]["kind"], markets[k]["line"])
+        indep = [x["id"] for x in syns.values() if x["engine"] in ("elo", "ridge_long", "situation", "pace", "house", "agent")]
+        for s in sorted(syns.values(), key=lambda x: x["engine"] == "agree"):
+            if s["engine"] == "agree":  # the consensus desk: follows the price move several independent groups agree on, and nothing else
+                for k in keys:
+                    ref_ = markets[k]["ref"]
+                    devs = [eng_p[(i, k)] - ref_ for i in indep if (i, k) in eng_p]
+                    up, dn = [x for x in devs if x > 0.004], [x for x in devs if x < -0.004]
+                    n_ = len(devs)
+                    eng_p[(s["id"], k)] = ref_ + (sum(up) / len(up) if n_ >= 4 and len(up) / n_ >= 0.7 else sum(dn) / len(dn) if n_ >= 4 and len(dn) / n_ >= 0.7 else 0.0)
+                views["e"][s["id"]] = [round(eng_p[(s["id"], ckey(gid, kd, ln))], 4) for kd, ln in views["lines"]]
+                continue
             if s["engine"] == "kalshi":  # no model: Kalshi's mid is its view wherever Kalshi has a price, DraftKings elsewhere
                 for k in keys:
                     r = kal.get(gid, {}).get((markets[k]["kind"], markets[k]["line"]))
@@ -1099,10 +1117,10 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 elif style == "lottery":
                     a = 1.6 * dog_ml + 0.6 * over + 0.4 * (kind == "spread" and not fav)
                 elif style == "hot":
-                    hs = eng_p.get(("form", k), mk["ref"]) - eng_p.get(("ridge", k), mk["ref"])
+                    hs = eng_p.get(("_short", k), mk["ref"]) - eng_p.get(("_long", k), mk["ref"])
                     a = 25.0 * (hs if yes else -hs)
                 elif style == "model":
-                    adj = eng_p.get(("blend", k), mk["ref"]) - mk["ref"]
+                    adj = (sum(eng_p.get((x, k), mk["ref"]) for x in ("_short", "_elo", "_long")) / 3.0) - mk["ref"]
                     a = 40.0 * (adj if yes else -adj)
                 elif style == "homer":
                     a = 1.0 * (kind != "total" and yes) + 0.8 * (mk["sport"] == fav_sport)
@@ -1138,7 +1156,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 pubstat["no_quote"] += 1
                 continue
             px = q[0]
-            pf = mk["ref"] + (0.2 * (eng_p.get(("blend", k), mk["ref"]) - mk["ref"]) if p["style"] == "model" else 0.0)
+            pf = mk["ref"] + (0.2 * ((sum(eng_p.get((x, k), mk["ref"]) for x in ("_short", "_elo", "_long")) / 3.0) - mk["ref"]) if p["style"] == "model" else 0.0)
             if (side == "buy" and px > pf + p["tol"]) or (side == "sell" and px < pf - p["tol"]):  # a recreational bettor will pay a few cents over fair, not a terrible price
                 pubstat["too_dear"] += 1
                 continue

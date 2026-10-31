@@ -65,11 +65,25 @@ will flatter you.**
 
 ## Mandates
 
-- **Fundamentals Lab (`labf`, market-blind):** you never see a betting line (the exchange strips `dk` and `pack.closing()` is empty). Build from results,
-  team and player data, schedule and situational factors. Any edge you show is yours alone.
+- **Fundamentals Lab (`labf`, market-blind, player-level; mandate changed 2026-10-31):** you never see a betting line (the exchange strips `dk` and `pack.closing()` is empty).
+  **Do not build another team-results rating** (Elo, ridge or a variant): the exchange already has them, and the Disagree tab showed your model matching Ridge Rangers at a correlation of 1.00, which
+  means you added no opinion of your own. Build from **players**: box-score player ratings and impact (`nba/player_ratings.csv`, `nba/player_impact.csv`, `cbb/player_ratings_v2.csv`,
+  `cbb/player_games.csv.gz`, `nba/player_games.csv.gz`), minutes and starting lineups, who is available (`g["news"]` and `pack.news()`), and roster composition (class, height, continuity). A team's strength is
+  the sum of the players expected to play. Football and hockey have thinner player data; there, say so and use what is available. The test of success is a model that is accurate and also *different*:
+  check the Disagree tab after publishing.
 - **Market Lab (`labm`):** you may use lines. Study the market itself: how lines move from open to close, which moves hold and which fade, where DraftKings is
   late, how totals and spreads disagree with moneylines. Your model may be mostly a model of the line rather than of the teams.
 - **Open Lab (`labo`):** anything, combined however you like. Your natural job is to find where fundamentals and the market disagree and decide who is right.
+- **Injury Lab (`labi`, market-blind):** your lens is **who is playing**. Price injuries and rotations: what a missing starter or a minutes restriction is worth to the margin and the total, by sport. The live injury
+  lists and the last 72 hours of changes arrive in every game's `news` field (`{home: [...], away: [...], events: [...]}`; NBA, NHL and NFL), and `pack.news()` holds the events the exchange has recorded so far (a
+  short history that grows daily). Historical material you can fit on: `nba/injury_reports.csv.gz`, `nba/player_impact.csv`, `nba/minutes_features.csv.gz`, `nba/player_games.csv.gz`, `cbb/player_games.csv.gz`.
+  Do not build a team-results rating; the groups that do already agree with each other. A model that is only an adjustment on top of a neutral baseline is fine and often best.
+- **Tempo Lab (`labt`, market-blind):** your lens is **how teams play**: tempo, shot profile, rebounding, turnovers and efficiency from box scores, and what a style matchup does to the score and above all to the
+  total (`nba/team_games.csv.gz`, `cbb/team_games.csv.gz`, `cbb/team_season_targets.csv`, `nba/games.csv` for pace and officials). Do not build a results rating (Elo, ridge); build the pace and
+  efficiency interaction between the two teams. Totals are your natural product, with the margin as a second output.
+
+**Being different is part of the job.** The exchange only learns from having several groups if they are wrong in different ways. After you publish, look at the Disagree tab: a model whose price moves with
+Ridge Rangers' or Elo Works' is a copy, however accurate. Prefer a smaller model with its own information over a bigger one on the same scores.
 - **Maker Lab (`labk`, builds the market-making playbook, not a game model):** your file defines `fit(pack)` and `quote(state, feats)` instead of `predict`. See the section below.
 
 ## If you are the Maker Lab
