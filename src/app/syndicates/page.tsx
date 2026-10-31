@@ -119,7 +119,7 @@ export default async function SyndicatesPage({ searchParams }: { searchParams: P
           ]} />
           <div className="rounded-lg border border-border bg-surface p-3 sm:col-span-2">
             <p className="text-xs font-semibold text-foreground">Sharpest by sport</p>
-            <p className="mb-2 text-[10px] text-muted">How much the rest of the exchange should follow a trader&rsquo;s hits, 0 to 100, from its record against the close</p>
+            <p className="mb-2 text-[10px] text-muted">How much the rest of the exchange should follow a trader&rsquo;s hits in that sport, 0 to 100. It is the trader&rsquo;s average closing-line value as a taker, scaled so +2&cent; is 100, and held back until it has about ten trades&rsquo; worth of record (or the firm&rsquo;s own model has proven itself).</p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-5">
               {SPORTS5.map(([sp, name]) => (
                 <div key={sp}>
@@ -133,6 +133,9 @@ export default async function SyndicatesPage({ searchParams }: { searchParams: P
                 </div>
               ))}
             </div>
+            <p className="mt-3 border-t border-border pt-2 text-[10px] text-muted">
+              Reading it: <span className="text-foreground">50 and up is sharp</span>, about +1&cent; a trade over the closing line once there is a real record (a score of 50 on a short record needs a bigger edge, since it is discounted until about ten trades). 20 to 50 is leaning sharp, under 20 is a slight or unproven lean, and 100 is +2&cent; or better over a long record.
+            </p>
           </div>
         </div>
         <div className="mb-3 flex flex-wrap items-center gap-1 text-[11px]">
