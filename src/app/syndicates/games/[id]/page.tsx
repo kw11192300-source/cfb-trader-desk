@@ -7,7 +7,7 @@ import { GamePositions } from "@/components/GamePositions";
 import { SharpMoney } from "@/components/SharpMoney";
 import { SyndicateHeader, TradeList } from "@/components/SyndicateParts";
 import { scenarioPnl, scenarios, takerOf, yesNo } from "@/lib/syndicateGame";
-import { fairOf, getExchange, getExchangeGame, getGameMarks, getGameTrades, getResult, label, openLots, payoff, ramp, tierMult, SYN_GAME_LIMIT, type ExGame, type ExTrade, type Lot } from "@/lib/syndicates";
+import { balancedLine, fairOf, getDiscoveries, getExchange, getExchangeGame, getGameMarks, getGameTrades, getResult, label, openLots, payoff, ramp, tierMult, SYN_GAME_LIMIT, type ExGame, type ExTrade, type Lot } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
@@ -19,10 +19,10 @@ const tone = (n: number) => (n > 0.5 ? "text-up" : n < -0.5 ? "text-down" : "tex
 const cents = (p: number | null | undefined) => (p == null ? "–" : `${Math.round(p * 100)}¢`);
 const GROUPS = [["ml", "Winner"], ["spread", "Spread"], ["total", "Total points"]] as const;
 
-export default async function ExchangeGamePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ c?: string; syn?: string; pv?: string; col?: string; all?: string; tl?: string }> }) {
+export default async function ExchangeGamePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ c?: string; syn?: string; pv?: string; col?: string; all?: string; tl?: string; w?: string; m?: string }> }) {
   const id = decodeURIComponent((await params).id);
   const sp = await searchParams;
-  const [game, { syndicates, members, meta }] = await Promise.all([getExchangeGame(id), getExchange()]);
+  const [game, { syndicates, members, meta }, discoveries] = await Promise.all([getExchangeGame(id), getExchange(), getDiscoveries()]);
   if (!game) notFound();
   const [trades, marks, result] = await Promise.all([getGameTrades(id), getGameMarks(id), game.completed ? getResult(id) : Promise.resolve(null)]);
   const synOf = Object.fromEntries(members.map((m) => [m.id, m.syndicate_id]));
@@ -54,21 +54,59 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
   const selRow = sel ? book.find((b) => b[0] === sel.kind && b[1] === sel.line) : undefined;
   const selTrades = sel ? trades.filter((t) => t.kind === sel.kind && t.line === sel.line) : [];
   const mainSel = !!sel && sel.line === (sel.kind === "ml" ? 0 : main(sel.kind));
-  const dkLine: [number, number][] = [];
-  const exLine: [number, number][] = [];
-  if (mainSel && sel) {
+  // DraftKings' price is only drawn from the moment DraftKings posted the game: before that the baseline was the line the syndicates made themselves
+  const disc = discoveries.find((d) => d.id === game.id);
+  const dkFrom = disc ? new Date(disc.found).getTime() : game.ref?.src && game.ref.src !== "dk" ? Infinity : -Infinity;
+  const dkLive = dkFrom !== Infinity;
+  const WINS: [string, number][] = [["1h", 1], ["3h", 3], ["6h", 6], ["12h", 12], ["24h", 24], ["3d", 72], ["1w", 168]];
+  const winOpts = WINS.filter(([k]) => k !== "1w" || game.sport === "nfl" || game.sport === "cfb");
+  const winKey = winOpts.some(([k]) => k === sp.w) ? sp.w! : "3h";
+  const winH = winOpts.find(([k]) => k === winKey)![1];
+  const lastMarkMs = marks.length ? new Date(marks.at(-1)!.ts).getTime() : Date.now();
+  const endMs = game.completed ? Math.max(lastMarkMs, new Date(game.start_utc).getTime()) : Date.now();
+  const startMs = endMs - winH * 3600000;
+  /** The series inside the window: carry the last earlier value in so the line starts at the left edge, and run the last value on to the right edge. */
+  const inWindow = (pts: [number, number][]): [number, number][] => {
+    if (!pts.length) return [];
+    const before = pts.filter((p) => p[0] < startMs).at(-1);
+    const inside = pts.filter((p) => p[0] >= startMs && p[0] <= endMs);
+    const out: [number, number][] = [...(before ? [[startMs, before[1]] as [number, number]] : []), ...inside];
+    if (out.length && out[out.length - 1][0] < endMs) out.push([endMs, out[out.length - 1][1]]);
+    return out;
+  };
+  const lineKind = sel && (sel.kind === "total" || (sel.kind === "spread" && game.sport !== "nhl")) ? (sel.kind as "spread" | "total") : null;
+  const lineMode = sp.m === "line" && !!lineKind;
+  const dkLine: [number, number][] = [], baseLine: [number, number][] = [], exLine: [number, number][] = [];
+  const dkNum: [number, number][] = [], baseNum: [number, number][] = [], exNum: [number, number][] = [];
+  if ((mainSel || lineMode) && sel) {
     for (const mk of marks) {
       const i = mk.lines.findIndex((x) => x[0] === sel.kind);
       if (i < 0) continue;
-      dkLine.push([new Date(mk.ts).getTime(), mk.r[i] * 100]);
-      if (mk.e && mk.e[i] != null) exLine.push([new Date(mk.ts).getTime(), (mk.e as number[])[i] * 100]);
+      const t = new Date(mk.ts).getTime();
+      const ex = mk.e && mk.e[i] != null ? (mk.e as number[])[i] : null;
+      (t >= dkFrom ? dkLine : baseLine).push([t, mk.r[i] * 100]);
+      if (ex != null) exLine.push([t, ex * 100]);
+      if (lineKind) {
+        const L = mk.lines[i][1];
+        (t >= dkFrom ? dkNum : baseNum).push([t, L]);
+        if (ex != null) exNum.push([t, balancedLine(lineKind, game.sport, L, ex)]);
+      }
     }
   }
   const series: Series[] = [];
-  if (dkLine.length > 1) series.push({ id: "dk", name: "DraftKings", color: "#a78bfa", pts: dkLine, step: true });
-  if (exLine.length > 1) series.push({ id: "ex", name: "Exchange", color: "#34d399", pts: exLine, step: true });
-  const dots: Dot[] = selTrades.map((t) => ({ x: new Date(t.ts).getTime(), y: t.price * 100, color: "#38bdf8", r: Math.min(5, 1.5 + t.qty / 40), tip: `${(t.price * 100).toFixed(0)}¢ × ${t.qty.toFixed(0)} · ${names[takerOf(t)] ?? ""} took` }));
-  if (series.length === 0 && selRow) series.push({ id: "now", name: "DraftKings now", color: "#a78bfa", pts: [[Date.now() - 3600000, selRow[2] * 100], [Date.now(), selRow[2] * 100]] });
+  if (lineMode) {
+    if (baseNum.length) series.push({ id: "base", name: "Line the syndicates made", color: "#fbbf24", pts: inWindow(baseNum), step: true });
+    if (dkNum.length) series.push({ id: "dk", name: "DraftKings line", color: "#a78bfa", pts: inWindow(dkNum), step: true });
+    if (exNum.length) series.push({ id: "ex", name: "Exchange balanced line", color: "#34d399", pts: inWindow(exNum), step: true });
+  } else {
+    if (baseLine.length) series.push({ id: "base", name: "Baseline the syndicates made", color: "#fbbf24", pts: inWindow(baseLine), step: true });
+    if (dkLine.length) series.push({ id: "dk", name: "DraftKings", color: "#a78bfa", pts: inWindow(dkLine), step: true });
+    if (exLine.length) series.push({ id: "ex", name: "Exchange", color: "#34d399", pts: inWindow(exLine), step: true });
+  }
+  const dots: Dot[] = lineMode ? [] : selTrades.filter((t) => new Date(t.ts).getTime() >= startMs).map((t) => ({ x: new Date(t.ts).getTime(), y: t.price * 100, color: "#38bdf8", r: Math.min(5, 1.5 + t.qty / 40), tip: `${(t.price * 100).toFixed(0)}¢ × ${t.qty.toFixed(0)} · ${names[takerOf(t)] ?? ""} took` }));
+  const yAll = [...series.flatMap((x) => x.pts.map((q) => q[1])), ...dots.map((d) => d.y)];
+  const priceDec = yAll.length && Math.max(...yAll) - Math.min(...yAll) < 6 ? 1 : 0; // a narrow window needs the decimals or the axis repeats itself
+  if (series.length === 0 && selRow && !lineMode) series.push({ id: "now", name: dkLive ? "DraftKings now" : "Baseline now", color: dkLive ? "#a78bfa" : "#fbbf24", pts: [[startMs, selRow[2] * 100], [endMs, selRow[2] * 100]] });
 
   // positions: one row per trader and contract
   const synFilter = sp.syn && synName[sp.syn] ? sp.syn : null;
@@ -106,6 +144,16 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
     if (sp.pv) q.set("pv", sp.pv);
     if (sp.col) q.set("col", sp.col);
     if (sp.all) q.set("all", sp.all);
+    if (sp.w) q.set("w", sp.w);
+    if (sp.m) q.set("m", sp.m);
+    const s = q.toString();
+    return `/syndicates/games/${encodeURIComponent(game.id)}${s ? `?${s}` : ""}`;
+  };
+  /** The same page with the chart's window or mode changed and everything else kept. */
+  const hrefWith = (over: { w?: string; m?: string; c?: string }) => {
+    const q = new URLSearchParams();
+    const all: Record<string, string | undefined> = { c: sp.c, syn: sp.syn, pv: sp.pv, col: sp.col, all: sp.all, w: sp.w, m: sp.m, ...over };
+    for (const [k, v] of Object.entries(all)) if (v) q.set(k, v);
     const s = q.toString();
     return `/syndicates/games/${encodeURIComponent(game.id)}${s ? `?${s}` : ""}`;
   };
@@ -186,15 +234,26 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
               </div>
               <div className="flex items-baseline gap-4">
                 <span className="text-4xl font-semibold text-foreground">{Math.round((selRow[9] ?? selRow[2]) * 100)}%</span>
-                <span className="text-xs text-muted">DraftKings {Math.round(selRow[2] * 100)}%{kal(selRow[0], selRow[1]) != null ? ` · Kalshi ${Math.round(kal(selRow[0], selRow[1])! * 100)}%` : ""} · last trade {cents(selRow[5] ?? vol[`${sel.kind}|${sel.line}`]?.last)}</span>
+                <span className="text-xs text-muted">{dkLive ? "DraftKings" : "Baseline"} {Math.round(selRow[2] * 100)}%{kal(selRow[0], selRow[1]) != null ? ` · Kalshi ${Math.round(kal(selRow[0], selRow[1])! * 100)}%` : ""} · last trade {cents(selRow[5] ?? vol[`${sel.kind}|${sel.line}`]?.last)}</span>
               </div>
             </div>
-            <LineChart series={series} dots={dots} height={340} legend={false} xTime={TIME_OPTS} yFmt={(v) => `${v.toFixed(0)}¢`} />
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+              <div className="flex gap-1">
+                <Link href={hrefWith({ m: undefined })} scroll={false} className={`rounded px-2.5 py-1 ${!lineMode ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>Price</Link>
+                {lineKind && <Link href={hrefWith({ m: "line" })} scroll={false} className={`rounded px-2.5 py-1 ${lineMode ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>{lineKind === "spread" ? "Spread" : "Total"} line movement</Link>}
+              </div>
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="text-muted">Last</span>
+                {winOpts.map(([k]) => <Link key={k} href={hrefWith({ w: k === "3h" ? undefined : k })} scroll={false} className={`rounded px-2 py-1 ${winKey === k ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>{k}</Link>)}
+              </div>
+            </div>
+            <LineChart series={series} dots={dots} height={340} legend={false} xTime={winH <= 12 ? { hour: "numeric", minute: "2-digit" } : TIME_OPTS} yFmt={lineMode ? (v) => (lineKind === "spread" && v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1)) : (v) => `${v.toFixed(priceDec)}¢`} />
             <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] text-muted">
-              <span><span className="mr-1 inline-block h-0.5 w-4 align-middle" style={{ background: "#a78bfa" }} />DraftKings</span>
-              <span><span className="mr-1 inline-block h-0.5 w-4 align-middle" style={{ background: "#34d399" }} />Exchange price</span>
-              <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ background: "#38bdf8" }} />Trades (bigger dot, bigger trade)</span>
-              {!mainSel && <span>Only the main lines keep a price history, so this line shows its trades.</span>}
+              {series.map((s) => <span key={s.id}><span className="mr-1 inline-block h-0.5 w-4 align-middle" style={{ background: s.color }} />{s.name}</span>)}
+              {!lineMode && <span><span className="mr-1 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ background: "#38bdf8" }} />Trades (bigger dot, bigger trade)</span>}
+              {!lineMode && !mainSel && <span>Only the main lines keep a price history, so this line shows its trades.</span>}
+              {lineMode && <span>{lineKind === "spread" ? `${game.home.abbr} spread` : "Total"}: the exchange line is the number at which the exchange&rsquo;s price would be 50-50. It moves in fractions of a point, DraftKings&rsquo; posted line in half points.</span>}
+              {!dkLive && <span>DraftKings has not posted this game yet: the amber line is the one the syndicates made.</span>}
             </div>
           </section>
         )}
@@ -206,7 +265,10 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
               if (!rows.length) return null;
               return (
                 <div key={kind} className="mb-4 overflow-hidden rounded-lg border border-border bg-surface">
-                  <div className="border-b border-border px-3 py-2 text-xs font-semibold text-foreground">{title}</div>
+                  <div className="flex items-center justify-between border-b border-border px-3 py-2 text-xs font-semibold text-foreground">
+                    <span>{title}</span>
+                    {(kind === "total" || (kind === "spread" && game.sport !== "nhl")) && <Link href={hrefWith({ c: `${kind}|${main(kind)}`, m: "line" })} scroll={false} className="text-[11px] font-normal text-accent hover:underline">Line movement →</Link>}
+                  </div>
                   <table className="w-full text-xs">
                     <thead className="text-left text-[10px] uppercase tracking-wide text-muted">
                       <tr>

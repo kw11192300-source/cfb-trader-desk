@@ -653,3 +653,31 @@ export async function getGamesWindow(fromIso: string, toIso: string): Promise<Ga
   }
   return live.map((r) => ({ ...r, contracts: res[r.id]?.contracts ?? vol[r.id]?.[0] ?? 0, trades: res[r.id]?.n_trades ?? vol[r.id]?.[1] ?? 0 }));
 }
+
+/** Inverse of the standard normal distribution function (Acklam's approximation). */
+export function invNorm(p: number): number {
+  const q = Math.min(1 - 1e-6, Math.max(1e-6, p));
+  const a = [-39.69683028665376, 220.9460984245205, -275.9285104469687, 138.357751867269, -30.66479806614716, 2.506628277459239];
+  const b = [-54.47609879822406, 161.5858368580409, -155.6989798598866, 66.80131188771972, -13.28068155288572];
+  const c = [-0.007784894002430293, -0.3223964580411365, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
+  const d = [0.007784695709041462, 0.3224671290700398, 2.445134137142996, 3.754408661907416];
+  if (q < 0.02425) {
+    const r = Math.sqrt(-2 * Math.log(q));
+    return (((((c[0] * r + c[1]) * r + c[2]) * r + c[3]) * r + c[4]) * r + c[5]) / ((((d[0] * r + d[1]) * r + d[2]) * r + d[3]) * r + 1);
+  }
+  if (q > 1 - 0.02425) {
+    const r = Math.sqrt(-2 * Math.log(1 - q));
+    return -(((((c[0] * r + c[1]) * r + c[2]) * r + c[3]) * r + c[4]) * r + c[5]) / ((((d[0] * r + d[1]) * r + d[2]) * r + d[3]) * r + 1);
+  }
+  const r = (q - 0.5) * (q - 0.5);
+  const x = (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * (q - 0.5);
+  return x / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
+}
+
+const SD_BAL: Record<string, { m: number; t: number }> = { nfl: { m: 13.2, t: 13.5 }, cfb: { m: 14, t: 17 }, nba: { m: 12.9, t: 18 }, cbb: { m: 11.3, t: 16.8 }, nhl: { m: 2.3, t: 2.4 } };
+
+/** The line at which a contract priced `p` at `line` would be a coin flip: the home spread (kind spread, a contract on the home side covering) or the total (kind total, over). */
+export function balancedLine(kind: "spread" | "total", sport: string, line: number, p: number): number {
+  const sd = SD_BAL[sport] ?? SD_BAL.nba;
+  return kind === "spread" ? line - sd.m * invNorm(p) : line + sd.t * invNorm(p);
+}
