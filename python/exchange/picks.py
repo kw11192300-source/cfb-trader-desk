@@ -12,13 +12,17 @@ State lives in ex_meta key "picks": {"open": {id: pick}, "done": {id: pick}}. A 
 """
 from __future__ import annotations
 
+import math
 from datetime import datetime, timedelta, timezone
 
 PRICE = -110.0
 WIN_UNITS = 100.0 / 110.0  # profit on a winning 1-unit bet at -110
-# tiers from the walk-forward test of the movement model (python -m cbb_model.movement): the size of the predicted remaining move, in points
-SPREAD_TIERS = ((1.0, "A"), (0.5, "B"))  # >=1.0 is the top ~7% of games (CLV about +1.5 to +2.0), >=0.5 the top ~20% (+0.9 to +1.1)
-TOTAL_TIERS = ((1.3, "A"), (1.0, "B"))  # >=1.3 is the top ~10% of totals, >=1.0 the top ~20% (CLV about +1.1 to +1.6)
+# tiers from the walk-forward test of the movement model (python -m cbb_model.movement): the size of the predicted remaining move, in points, AND the
+# game's rank on the board. The test tiers were shares of a season's games (A the top ~7% and B the top ~20% of spreads: CLV about +1.5 to +2.0 and +0.9 to +1.1),
+# so a pick must also sit inside that share of the games priced right now. Early in the season many opens are stale and half the board looks "playable", which this keeps in check.
+SPREAD_TIERS = ((1.0, "A"), (0.5, "B"))  # minimum predicted move for each tier
+TOTAL_TIERS = ((1.3, "A"), (1.0, "B"))
+SHARE_A, SHARE_B = 0.07, 0.20  # share of the priced games that can be tier A, and tier A or B together
 MIN_LEAD = timedelta(minutes=15)  # no picks inside the last quarter hour before the start: the number is about to be the close
 KEEP_DAYS = 90
 BOARD_MAX_AGE = timedelta(hours=3)  # the board is rewritten every 30 to 60 minutes while its job runs: a board older than this is stale and makes no picks
@@ -46,6 +50,12 @@ def generate_cbb(client, now: datetime, have: set) -> list[dict]:
     """New CBB movement picks from the published board: one per game and market, the first time the predicted remaining move clears a tier."""
     rows = client.table("cbb_game_board").select("game_id,start_date,home_team,away_team,payload,updated_at").gte("start_date", (now + MIN_LEAD).isoformat()).gte("updated_at", (now - BOARD_MAX_AGE).isoformat()).execute().data or []
     out = []
+    # rank every priced game by the size of its predicted move, per market: a tier needs both the size and a place inside its share of the board
+    ranks: dict[str, dict] = {"spread": {}, "total": {}}
+    for kind in ("spread", "total"):
+        key = "remaining_spread" if kind == "spread" else "remaining_total"
+        priced = sorted(((abs((r["payload"].get("move") or {}).get(key) or 0.0), r["game_id"]) for r in rows if (r["payload"].get("move") or {}).get(key) is not None), reverse=True)
+        ranks[kind] = {gid: (i, len(priced)) for i, (_, gid) in enumerate(priced)}
     for r in rows:
         p = r["payload"] or {}
         mk, mv, bets = p.get("market") or {}, p.get("move") or {}, p.get("bets") or {}
@@ -57,6 +67,11 @@ def generate_cbb(client, now: datetime, have: set) -> list[dict]:
             if pid in have or not side or rem is None or line is None:
                 continue
             tier = _tier(abs(rem), SPREAD_TIERS if kind == "spread" else TOTAL_TIERS)
+            i, n = ranks[kind].get(r["game_id"], (0, 1))
+            if tier == "A" and i >= math.ceil(SHARE_A * n):
+                tier = "B"  # big enough for A but not among the biggest few on today's board
+            if tier == "B" and i >= math.ceil(SHARE_B * n):
+                tier = None
             if not tier:
                 continue
             out.append({

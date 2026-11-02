@@ -108,7 +108,7 @@ export default async function PicksView() {
                     <td className="px-3 py-1.5 font-sans text-muted"><LocalDateTime iso={p.start} options={{ weekday: "short", hour: "numeric", minute: "2-digit" }} /></td>
                     <td className="px-3 py-1.5 font-sans text-foreground">{sideText(p)}<span className="block text-[10px] text-muted">{p.kind === "spread" ? "spread" : "total"}{p.open != null ? `, opened ${p.open}` : ""}</span></td>
                     <td className="px-3 py-1.5 font-sans text-muted">{p.tier}</td>
-                    <td className="px-3 py-1.5 text-right text-muted">{sg(p.rem, 1)} pts</td>
+                    <td className="px-3 py-1.5 text-right text-muted">{Math.abs(p.rem).toFixed(1)} pts</td>
                     <td className="px-3 py-1.5 text-right text-muted">{p.units_scaled.toFixed(2)}</td>
                     <td className="px-3 py-1.5 font-sans text-muted"><LocalDateTime iso={p.ts} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} /></td>
                   </tr>
