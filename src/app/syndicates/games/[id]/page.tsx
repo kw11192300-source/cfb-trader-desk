@@ -1,3 +1,4 @@
+import GameReview from "@/components/GameReview";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -208,6 +209,8 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
             {trades.length} trades · {Math.round(trades.reduce((a, t) => a + t.qty, 0)).toLocaleString()} contracts traded · syndicate limit {Math.round(SYN_GAME_LIMIT * ramp(Math.max(0, hrs), game.sport) * tierMult(game.views?.tier, hrs))}-{Math.round(2 * SYN_GAME_LIMIT * ramp(Math.max(0, hrs), game.sport) * tierMult(game.views?.tier, hrs))} units now
           </p>
         </div>
+
+        {result && <GameReview game={game as ExGame} result={result as unknown as Parameters<typeof GameReview>[0]["result"]} trades={trades} marks={marks} members={members} syndicates={syndicates} />}
 
         {result && (
           <section className="mb-6 rounded-lg border border-border bg-surface p-4">
