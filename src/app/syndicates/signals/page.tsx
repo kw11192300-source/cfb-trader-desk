@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Fragment } from "react";
 
 import LocalDateTime from "@/components/LocalDateTime";
 import { SyndicateHeader } from "@/components/SyndicateParts";
@@ -18,6 +19,9 @@ const pct = (n: number, d = 0) => `${(n * 100).toFixed(d)}%`;
 const spct = (n: number, d = 1) => `${n >= 0 ? "+" : ""}${(n * 100).toFixed(d)}%`;
 const tone = (n: number, eps = 0.001) => (n > eps ? "text-up" : n < -eps ? "text-down" : "text-muted");
 const sgn = (n: number) => (n > 0 ? `+${n}` : `${n}`);
+/** The chance a price implies, vig included: -110 is 52.4%. */
+const implied = (am: number) => (am < 0 ? -am / (-am + 100) : 100 / (am + 100));
+const amStr = (am: number) => (am > 0 ? `+${Math.round(am)}` : `${Math.round(am)}`);
 const amer = (p: number) => (p >= 0.5 ? `-${Math.round((100 * p) / (1 - p))}` : `+${Math.round((100 * (1 - p)) / p)}`);
 
 /** What a signal's side costs per contract (the chance it wins is what the contract pays, so the cost is that chance at the price taken). */
@@ -101,6 +105,18 @@ function betLabel(s: Signal): string {
   return `${s.side > 0 ? "Over" : "Under"} ${s.line}`;
 }
 
+/** The worst DraftKings price still worth taking. `even` is the stricter of two cutoffs: the price the exchange put on this side when the signal was logged (`then`) and its price now (`now`).
+ * The stricter one rules so the cutoff cannot be talked past: once DraftKings has moved beyond what the exchange said at the start, the edge that was logged is gone, even if the exchange has since moved on too.
+ * `good` is whether DraftKings' price now is still better than `even`. */
+type Limit = { even: number; now: number; then: number | null; good: boolean };
+const toAmerican = (p: number) => (p >= 0.5 ? -(100 * p) / (1 - p) : (100 * (1 - p)) / p);
+function goodTo(pNow: number, pThen: number | null, dkNow: number | null): Limit {
+  const p = pThen == null ? pNow : Math.min(pNow, pThen);
+  return { even: toAmerican(p), now: toAmerican(pNow), then: pThen == null ? null : toAmerican(pThen), good: dkNow != null && implied(dkNow) < p };
+}
+
+type OpenInfo = { g?: SignalGame; dkP: number | null; exP: number | null; moved: number | null; now: number | null; live: boolean; limit: Limit | null; bettable: boolean; why: string };
+
 /** DraftKings' real price on this side right now, when its main line is still the number the signal was logged on. */
 function dkNowAmerican(s: Signal, g?: SignalGame): number | null {
   const r = g?.ref;
@@ -110,13 +126,75 @@ function dkNowAmerican(s: Signal, g?: SignalGame): number | null {
   return r.total === s.line ? ((s.side > 0 ? r.over : r.under) ?? null) : null;
 }
 
+/** The first `games` games of a newest-first list, with all of each game's signals kept together. */
+function scoredShown(rows: Signal[], games: number): Signal[] {
+  const order: string[] = [];
+  for (const x of rows) if (!order.includes(x.game)) order.push(x.game);
+  const keepIds = new Set(order.slice(0, games));
+  const by = new Map<string, Signal[]>();
+  for (const x of rows) if (keepIds.has(x.game)) by.set(x.game, [...(by.get(x.game) ?? []), x]);
+  return order.slice(0, games).flatMap((g) => by.get(g) ?? []);
+}
+
+function KindTag({ s, agrees }: { s: Signal; agrees: boolean }) {
+  return agrees ? <span className="text-accent" title="A gap and sharp flow have both flagged this side of this market">gap + sharp</span> : <span className="text-muted">{s.type === "gap" ? "gap" : "sharp"}</span>;
+}
+
+function GroupHead({ s, g, mates, infos, agree, cols }: { s: Signal; g?: SignalGame; mates: Signal[]; infos: Map<string, OpenInfo>; agree: (x: Signal) => boolean; cols: number }) {
+  const gaps = mates.filter((x) => x.type === "gap").length, sharps = mates.length - gaps;
+  const bettable = mates.filter((x) => infos.get(x.id)?.bettable).length;
+  const live = g && (g.state !== "pre" || new Date(g.start_utc).getTime() <= Date.now());
+  return (
+    <tr className="border-t border-border bg-surface/50">
+      <td colSpan={cols} className="px-3 py-1.5 font-sans">
+        <Link href={`/syndicates/games/${encodeURIComponent(s.game)}`} className="font-semibold text-foreground hover:text-accent">{s.teams}</Link>
+        <span className="ml-1.5 text-[10px] uppercase text-muted">{SPORT[s.sport]}</span>
+        <span className="ml-3 text-[11px] text-muted">
+          {g ? (live ? <span className="text-accent">{g.completed ? "final" : "live"}</span> : <LocalDateTime iso={g.start_utc} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />) : ""}
+          {" · "}{mates.length} {mates.length === 1 ? "signal" : "signals"} ({gaps} gap, {sharps} sharp)
+          {mates.some(agree) ? <span className="text-accent"> · gap + sharp agree</span> : ""}
+          {" · "}{bettable ? <span className="text-up">{bettable} bettable now</span> : "none bettable"}
+        </span>
+      </td>
+    </tr>
+  );
+}
+
+function OpenRow({ s, info, agrees, grouped, head }: { s: Signal; info: OpenInfo; agrees: boolean; grouped: boolean; head: React.ReactNode }) {
+  const { g, moved, exP, now, live, bettable, why, limit } = info;
+  const side = (p: number) => (s.side > 0 ? p : 1 - p);
+  return (
+    <Fragment>
+      {head}
+      <tr className={`${grouped ? "" : "border-t border-border"} ${live ? "opacity-70" : ""}`}>
+        <td className="px-3 py-1.5 font-sans text-foreground">
+          {grouped ? <span className="text-muted">↳</span> : <><Link href={`/syndicates/games/${encodeURIComponent(s.game)}`} className="hover:text-accent">{s.teams}</Link><span className="ml-1.5 text-[10px] uppercase text-muted">{SPORT[s.sport]}</span></>}
+        </td>
+        <td className="px-3 py-1.5 text-muted"><LocalDateTime iso={s.ts} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} /></td>
+        <td className="px-3 py-1.5 font-sans font-semibold text-foreground">{betLabel(s)}</td>
+        <td className="px-3 py-1.5 font-sans"><KindTag s={s} agrees={agrees} /></td>
+        <td className="px-3 py-1.5 text-muted">{grouped ? "" : g ? (live ? <span className="text-accent">{g.completed ? "final" : "live"}</span> : <LocalDateTime iso={g.start_utc} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />) : "–"}</td>
+        <td className="px-3 py-1.5 text-right">{c1(s.size)}</td>
+        <td className="px-3 py-1.5 text-right">{(side(s.ref) * 100).toFixed(1)}¢<span className="ml-1 text-[10px] text-muted">{amer(side(s.ref))}</span></td>
+        <td className="px-3 py-1.5 text-right">{limit == null ? <span className="text-muted">–</span> : <>{amStr(limit.even)}<span className="block text-[10px] text-muted">{limit.then != null ? `then ${amStr(limit.then)} · ` : ""}now {amStr(limit.now)}</span></>}</td>
+        <td className="px-3 py-1.5 text-right text-muted">{s.x == null ? "–" : `${(side(s.x) * 100).toFixed(1)}¢`}</td>
+        <td className={`px-3 py-1.5 text-right ${limit && now != null ? (limit.good ? "text-up" : "text-down") : ""}`} title={limit && now != null ? (limit.good ? "Better than the cutoff: still worth taking" : "Past the cutoff: no edge left at this price") : undefined}>{now == null ? <span className="text-[10px] text-muted">{s.kind !== "ml" && g?.ref ? "line moved" : "–"}</span> : now > 0 ? `+${Math.round(now)}` : Math.round(now)}</td>
+        <td className={`px-3 py-1.5 text-right ${moved == null ? "text-muted" : tone(moved)}`}>{moved == null ? "–" : c1(moved)}</td>
+        <td className="px-3 py-1.5 text-right text-muted">{exP == null ? "–" : `${(side(exP) * 100).toFixed(1)}¢`}</td>
+        <td className="px-3 py-1.5 text-center font-sans" title={why}>{bettable ? <span className="text-up">yes</span> : <span className="text-muted">no</span>}</td>
+      </tr>
+    </Fragment>
+  );
+}
+
 export default async function SignalsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const sp = await searchParams;
   const showAll = sp.all === "1";
   const dupes = sp.dupes === "all";
+  const grouped = sp.view === "game";
   const pick = (k: string, ok: string[]) => (sp[k] && ok.includes(sp[k]!) ? sp[k]! : "");
   const f = {
-    type: pick("type", ["gap", "sharp"]), sport: pick("sport", Object.keys(SPORT)), mkt: pick("mkt", Object.keys(MKT)), side: pick("side", ["home", "away"]),
+    type: pick("type", ["gap", "sharp", "both"]), status: pick("status", ["open", "done"]), bet: pick("bet", ["yes", "no"]), sport: pick("sport", Object.keys(SPORT)), mkt: pick("mkt", Object.keys(MKT)), side: pick("side", ["home", "away"]),
     hrs: pick("hrs", HRS_ORDER.map((_, i) => String(i))), size: pick("size", SIZE_ORDER.map((_, i) => String(i))), price: pick("price", PRICE_ORDER.map((_, i) => String(i))),
     days: pick("days", ["7", "14", "30"]),
   };
@@ -124,33 +202,64 @@ export default async function SignalsPage({ searchParams }: { searchParams: Prom
 
   const [{ open, done }, { meta }] = await Promise.all([getSignals(), getExchange()]);
   const cutoff = f.days ? Date.now() - Number(f.days) * 86400000 : 0;
-  const keep = (s: Signal) =>
-    (!f.type || s.type === f.type) && (!f.sport || s.sport === f.sport) && (!f.mkt || s.kind === f.mkt) &&
-    (!f.side || (f.side === "home" ? s.side > 0 : s.side < 0)) &&
-    (!f.hrs || DIMS.hrs.key(s) === HRS_ORDER[Number(f.hrs)]) && (!f.size || DIMS.size.key(s) === SIZE_ORDER[Number(f.size)]) &&
-    (!f.price || DIMS.price.key(s) === PRICE_ORDER[Number(f.price)]) && (!cutoff || new Date(s.ts).getTime() >= cutoff);
+  /** Which kinds have flagged the same game, market and side: a gap and sharp flow pointing the same way agree with each other. */
+  const kindsAt = new Map<string, Set<string>>();
+  for (const x of [...open, ...done]) {
+    const k = `${x.game}|${x.kind}|${x.side}`;
+    kindsAt.set(k, (kindsAt.get(k) ?? new Set()).add(x.type));
+  }
+  const agree = (x: Signal) => (kindsAt.get(`${x.game}|${x.kind}|${x.side}`)?.size ?? 0) > 1;
+  const keep = (x: Signal) =>
+    (!f.type || (f.type === "both" ? agree(x) : x.type === f.type)) && (!f.sport || x.sport === f.sport) && (!f.mkt || x.kind === f.mkt) &&
+    (!f.side || (f.side === "home" ? x.side > 0 : x.side < 0)) &&
+    (!f.hrs || DIMS.hrs.key(x) === HRS_ORDER[Number(f.hrs)]) && (!f.size || DIMS.size.key(x) === SIZE_ORDER[Number(f.size)]) &&
+    (!f.price || DIMS.price.key(x) === PRICE_ORDER[Number(f.price)]) && (!cutoff || new Date(x.ts).getTime() >= cutoff);
   /** One entry per game and market: the same disagreement is often logged again on the next number over (a spread at 16.5 and then 17.5) or as both a gap and sharp flow, and counting each would make one view look like several. The first one logged is kept. */
   const once = (rows: Signal[]) => {
     if (dupes) return rows;
     const seen = new Set<string>();
-    return [...rows].sort((a, b) => a.ts.localeCompare(b.ts)).filter((s) => {
-      const k = `${s.game}|${s.kind}`;
+    return [...rows].sort((a, b) => a.ts.localeCompare(b.ts)).filter((x) => {
+      const k = `${x.game}|${x.kind}`;
       if (seen.has(k)) return false;
       seen.add(k);
       return true;
     });
   };
-  const d = once(done.filter((s) => s.pnl_dk != null && s.moved != null && s.y != null && keep(s))).sort((a, b) => b.ts.localeCompare(a.ts));
-  const o = once(open.filter(keep));
-  const games = await getSignalGames([...new Set(o.map((s) => s.game))]);
-  const OPEN_SHOWN = 60;
-  const openSorted = [...o].sort((a, b) => (games[a.game]?.start_utc ?? "").localeCompare(games[b.game]?.start_utc ?? "") || b.size - a.size);
-  const openRows = showAll ? openSorted : openSorted.slice(0, OPEN_SHOWN);
+  const wantScored = f.status !== "open" && !f.bet; // a bettable filter is about games still to play
+  const wantOpen = f.status !== "done";
+  const d = wantScored ? once(done.filter((x) => x.pnl_dk != null && x.moved != null && x.y != null && keep(x))).sort((a, b) => b.ts.localeCompare(a.ts)) : [];
+  const o0 = wantOpen ? open.filter(keep) : [];
+  const games = await getSignalGames([...new Set(o0.map((x) => x.game))]);
+  const nowMs = Date.now();
+  const infoOf = (x: Signal): OpenInfo => {
+    const g = games[x.game];
+    const row = g?.book?.find((r) => r[0] === x.kind && r[1] === x.line);
+    const dkP = row ? row[2] : null, exP = row?.[9] ?? null;
+    const now = dkNowAmerican(x, g);
+    const live = !!g && (g.state !== "pre" || new Date(g.start_utc).getTime() <= nowMs);
+    const limit = exP != null && !live ? goodTo(x.side > 0 ? exP : 1 - exP, x.x == null ? null : x.side > 0 ? x.x : 1 - x.x, now) : null;
+    const bettable = !!g && !live && now != null && !!limit?.good;
+    const why = !g ? "game not found" : live ? "game has started" : now == null ? (x.kind === "ml" ? "no DraftKings price" : "DraftKings' line is a different number now") : !limit ? "no exchange price to compare with" : !limit.good ? "DraftKings' price is past the good-to price (the stricter of the exchange's price when logged and now): no edge left" : "DraftKings still offers this number at a price within the good-to price";
+    return { g, dkP, exP, moved: dkP != null ? x.side * (dkP - x.ref) : null, now, live, limit, bettable, why };
+  };
+  const infos = new Map(o0.map((x) => [x.id, infoOf(x)] as const));
+  const o = once(o0.filter((x) => !f.bet || (f.bet === "yes") === infos.get(x.id)!.bettable));
+  const nBettable = o.filter((x) => infos.get(x.id)!.bettable).length;
+  const OPEN_SHOWN = grouped ? 40 : 60;
+  const startOf = (x: Signal) => games[x.game]?.start_utc ?? "";
+  const openSorted = [...o].sort((a, b) => startOf(a).localeCompare(startOf(b)) || a.game.localeCompare(b.game) || b.size - a.size);
+  const openShown = (() => {
+    if (showAll) return openSorted;
+    if (!grouped) return openSorted.slice(0, OPEN_SHOWN);
+    const ids = new Set<string>();
+    return openSorted.filter((x) => (ids.add(x.game), ids.size <= OPEN_SHOWN));
+  })();
   const moreHref = (() => {
     const p = new URLSearchParams(Object.entries(sp).filter(([, v]) => v) as [string, string][]);
     showAll ? p.delete("all") : p.set("all", "1");
     return `/syndicates/signals${p.toString() ? `?${p}` : ""}`;
   })();
+  const nGamesOpen = new Set(o.map((x) => x.game)).size;
   const total = d.length ? stat(d) : null;
 
   const dim = DIMS[by];
@@ -172,7 +281,6 @@ export default async function SignalsPage({ searchParams }: { searchParams: Prom
     </label>
   );
   const anyFilter = Object.values(f).some(Boolean);
-  const nOpen = open.length;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -186,7 +294,9 @@ export default async function SignalsPage({ searchParams }: { searchParams: Prom
         </p>
 
         <form method="get" className="mb-5 flex flex-wrap items-end gap-3 rounded-lg border border-border bg-surface p-3">
-          {field("Kind", "type", f.type, [["", "Both"], ["gap", "Gap"], ["sharp", "Sharp flow"]])}
+          {field("Show", "status", f.status, [["", "Open and settled"], ["open", "Open only"], ["done", "Settled only"]])}
+          {field("Bettable now", "bet", f.bet, [["", "Any"], ["yes", "Yes"], ["no", "No"]])}
+          {field("Kind", "type", f.type, [["", "Gap or sharp"], ["gap", "Gap only"], ["sharp", "Sharp flow only"], ["both", "Gap and sharp agree"]])}
           {field("Sport", "sport", f.sport, [["", "All"], ...Object.entries(SPORT)])}
           {field("Market", "mkt", f.mkt, [["", "All"], ...Object.entries(MKT)])}
           {field("Side", "side", f.side, [["", "Both"], ["home", "Home / over"], ["away", "Away / under"]])}
@@ -194,14 +304,15 @@ export default async function SignalsPage({ searchParams }: { searchParams: Prom
           {field("Size", "size", f.size, [["", "Any"], ...SIZE_ORDER.map((l, i): [string, string] => [String(i), l])])}
           {field("Price paid", "price", f.price, [["", "Any"], ...PRICE_ORDER.map((l, i): [string, string] => [String(i), l])])}
           {field("Logged in", "days", f.days, [["", "All time"], ["7", "Last 7 days"], ["14", "Last 14 days"], ["30", "Last 30 days"]])}
+          {field("Layout", "view", grouped ? "game" : "", [["", "One row per signal"], ["game", "Grouped by game"]])}
           {field("Repeats", "dupes", dupes ? "all" : "", [["", "One per game and market"], ["all", "Every entry"]])}
           {field("Break down by", "by", by, Object.entries(DIMS).map(([k, v]): [string, string] => [k, v.label]))}
           <button type="submit" className="rounded bg-accent px-3 py-1.5 text-xs font-semibold text-background">Apply</button>
-          {anyFilter || dupes || by !== "sportkind" ? <Link href="/syndicates/signals" className="py-1.5 text-xs text-muted hover:text-foreground">Reset</Link> : null}
-          <span className="ml-auto self-center text-[11px] text-muted">{d.length} scored · {o.length} open{anyFilter || !dupes ? ` (of ${done.length} and ${nOpen} logged)` : ""}</span>
+          {anyFilter || dupes || grouped || by !== "sportkind" ? <Link href="/syndicates/signals" className="py-1.5 text-xs text-muted hover:text-foreground">Reset</Link> : null}
+          <span className="ml-auto self-center text-[11px] text-muted">{d.length} scored · {o.length} open ({nBettable} bettable now){anyFilter || !dupes ? ` · of ${done.length} and ${open.length} logged` : ""}</span>
         </form>
 
-        {!total ? (
+        {!wantScored ? null : !total ? (
           <p className="mb-8 rounded-lg border border-border bg-surface px-4 py-8 text-center text-sm text-muted">{anyFilter ? "No scored signals match these filters." : "Nothing scored yet: entries are scored as their games finish."}</p>
         ) : (
           <>
@@ -266,90 +377,105 @@ export default async function SignalsPage({ searchParams }: { searchParams: Prom
           </>
         )}
 
-        <h3 className="mb-1 text-sm font-semibold text-foreground">Open signals: what you would bet now</h3>
-        <p className="mb-2 max-w-3xl text-[11px] leading-relaxed text-muted">
-          Signals whose games have not finished. <strong>Bet</strong> is the side the signal points to. <strong>Play price</strong> is DraftKings&rsquo; no-vig price when it was logged, with the American odds it equals before juice.
-          <strong> DK now</strong> is DraftKings&rsquo; real price on that side if its main line is still the same number, and <strong>Moved</strong> is how far DraftKings&rsquo; price has already gone toward the signal (the live version of the close test).
-        </p>
-        <div className="mb-8 overflow-x-auto rounded-lg border border-border">
-          <table className="w-full min-w-[980px] text-xs">
-            <thead className="bg-surface text-left text-muted">
-              <tr>
-                <th className="px-3 py-2">Game</th><th className="px-3 py-2">Bet</th><th className="px-3 py-2">Kind</th><th className="px-3 py-2">Starts</th>
-                <th className="px-3 py-2 text-right" title="Gap between the exchange and DraftKings, or the sharp push, when it was logged">Size</th>
-                <th className="px-3 py-2 text-right" title="DraftKings' no-vig price for this side when the signal was logged, and the American odds it equals">Play price</th>
-                <th className="px-3 py-2 text-right" title="The exchange's two-sided price for this side when logged">Exchange then</th>
-                <th className="px-3 py-2 text-right" title="DraftKings' real American price on this side now, if the number is unchanged">DK now</th>
-                <th className="px-3 py-2 text-right" title="Change in DraftKings' no-vig price since the signal, in the signal's direction">Moved</th>
-                <th className="px-3 py-2 text-right">Exchange now</th>
-              </tr>
-            </thead>
-            <tbody className="font-mono">
-              {o.length === 0 ? (
-                <tr><td colSpan={10} className="px-3 py-6 text-center font-sans text-muted">{anyFilter ? "No open signals match these filters." : "No open signals right now."}</td></tr>
-              ) : (
-                openRows.map((s) => {
-                  const g = games[s.game];
-                  const row = g?.book?.find((r) => r[0] === s.kind && r[1] === s.line);
-                  const dkP = row ? row[2] : null, exP = row?.[9] ?? null;
-                  const moved = dkP != null ? s.side * (dkP - s.ref) : null;
-                  const live = g && g.state !== "pre";
-                  const side = (p: number) => (s.side > 0 ? p : 1 - p);
-                  const now = dkNowAmerican(s, g);
-                  return (
-                    <tr key={s.id} className="border-t border-border">
-                      <td className="px-3 py-1.5 font-sans text-foreground"><Link href={`/syndicates/games/${encodeURIComponent(s.game)}`} className="hover:text-accent">{s.teams}</Link><span className="ml-1.5 text-[10px] uppercase text-muted">{SPORT[s.sport]}</span></td>
-                      <td className="px-3 py-1.5 font-sans font-semibold text-foreground">{betLabel(s)}</td>
-                      <td className="px-3 py-1.5 font-sans text-muted">{s.type === "gap" ? "gap" : "sharp"}</td>
-                      <td className="px-3 py-1.5 text-muted">{g ? (live ? <span className="text-accent">{g.completed ? "final" : "live"}</span> : <LocalDateTime iso={g.start_utc} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />) : "–"}</td>
-                      <td className="px-3 py-1.5 text-right">{c1(s.size)}</td>
-                      <td className="px-3 py-1.5 text-right">{(side(s.ref) * 100).toFixed(1)}¢<span className="ml-1 text-[10px] text-muted">{amer(side(s.ref))}</span></td>
-                      <td className="px-3 py-1.5 text-right text-muted">{s.x == null ? "–" : `${(side(s.x) * 100).toFixed(1)}¢`}</td>
-                      <td className="px-3 py-1.5 text-right">{now == null ? <span className="text-[10px] text-muted">{s.kind !== "ml" && g?.ref ? "line moved" : "–"}</span> : now > 0 ? `+${Math.round(now)}` : Math.round(now)}</td>
-                      <td className={`px-3 py-1.5 text-right ${moved == null ? "text-muted" : tone(moved)}`}>{moved == null ? "–" : c1(moved)}</td>
-                      <td className="px-3 py-1.5 text-right text-muted">{exP == null ? "–" : `${(side(exP) * 100).toFixed(1)}¢`}</td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {o.length > OPEN_SHOWN ? (
-          <p className="-mt-6 mb-8 text-[11px] text-muted">
-            Showing {showAll ? `all ${o.length}` : `the next ${OPEN_SHOWN} of ${o.length}`}, soonest games first. <Link href={moreHref} className="text-accent hover:underline">{showAll ? "Show fewer" : "Show all"}</Link>
-          </p>
+        {wantOpen ? (
+          <>
+            <h3 className="mb-1 text-sm font-semibold text-foreground">Open signals: what you would bet now</h3>
+            <p className="mb-2 max-w-3xl text-[11px] leading-relaxed text-muted">
+              Signals whose games have not finished. <strong>Logged</strong> is when the disagreement first showed up. <strong>Bet</strong> is the side the signal points to. <strong>Play price</strong> is DraftKings&rsquo; no-vig price when it was logged, with the American odds it equals before juice.
+              <strong> DK now</strong> is DraftKings&rsquo; real price on that side if its main line is still the same number, and <strong>Moved</strong> is how far DraftKings&rsquo; price has already gone toward the signal (the live version of the close test).
+              <strong> Good to</strong> is the worst DraftKings price still worth taking: the stricter of what the exchange said this side was worth when the signal was logged (<em>then</em>) and what it says now.
+              At that price the bet has no edge left, so anything better (a bigger plus number, a smaller minus number) is a good bet. Using the stricter one means that once DraftKings has moved past the logged price, it is not chased just because the exchange moved too.
+              <strong> DK now</strong> turns green when it is better than Good to and red when it is past it.
+              <strong> Bettable</strong> means the game has not started, DraftKings still offers that exact number, and its price is still within Good to (better than the cutoff). A <span className="text-accent">gap + sharp</span> tag means a gap and sharp flow have both flagged the same side of the same market.
+            </p>
+            <div className="mb-8 overflow-x-auto rounded-lg border border-border">
+              <table className="w-full min-w-[1240px] text-xs">
+                <thead className="bg-surface text-left text-muted">
+                  <tr>
+                    <th className="px-3 py-2">Game</th><th className="px-3 py-2">Logged</th><th className="px-3 py-2">Bet</th><th className="px-3 py-2">Kind</th><th className="px-3 py-2">Starts</th>
+                    <th className="px-3 py-2 text-right" title="Gap between the exchange and DraftKings, or the sharp push, when it was logged">Size</th>
+                    <th className="px-3 py-2 text-right" title="DraftKings' no-vig price for this side when the signal was logged, and the American odds it equals">Play price</th>
+                    <th className="px-3 py-2 text-right" title="The worst DraftKings price still worth taking: the stricter of what the exchange said this side was worth when the signal was logged and what it says now. Underneath are the two.">Good to</th>
+                    <th className="px-3 py-2 text-right" title="The exchange's two-sided price for this side when logged">Exchange then</th>
+                    <th className="px-3 py-2 text-right" title="DraftKings' real American price on this side now, if the number is unchanged">DK now</th>
+                    <th className="px-3 py-2 text-right" title="Change in DraftKings' no-vig price since the signal, in the signal's direction">Moved</th>
+                    <th className="px-3 py-2 text-right">Exchange now</th>
+                    <th className="px-3 py-2 text-center" title="The game has not started, DraftKings still offers the signal's number, and its price is still within the Good to price">Bettable</th>
+                  </tr>
+                </thead>
+                <tbody className="font-mono">
+                  {o.length === 0 ? (
+                    <tr><td colSpan={13} className="px-3 py-6 text-center font-sans text-muted">{anyFilter ? "No open signals match these filters." : "No open signals right now."}</td></tr>
+                  ) : (
+                    openShown.map((x, i) => {
+                      const info = infos.get(x.id)!;
+                      const first = !grouped || i === 0 || openShown[i - 1].game !== x.game;
+                      const mates = grouped && first ? openShown.filter((y) => y.game === x.game) : [];
+                      return (
+                        <OpenRow key={x.id} s={x} info={info} agrees={agree(x)} grouped={grouped}
+                          head={grouped && first ? <GroupHead s={x} g={info.g} mates={mates} infos={infos} agree={agree} cols={13} /> : null} />
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {o.length > 0 && (grouped ? nGamesOpen > OPEN_SHOWN : o.length > OPEN_SHOWN) ? (
+              <p className="-mt-6 mb-8 text-[11px] text-muted">
+                Showing {showAll ? `all ${grouped ? `${nGamesOpen} games` : o.length}` : `the next ${OPEN_SHOWN} ${grouped ? "games" : "signals"} of ${grouped ? nGamesOpen : o.length}`}, soonest first. <Link href={moreHref} className="text-accent hover:underline">{showAll ? "Show fewer" : "Show all"}</Link>
+              </p>
+            ) : null}
+          </>
         ) : null}
 
-        <h3 className="mb-2 text-sm font-semibold text-foreground">Latest scored{anyFilter ? " (filtered)" : ""}</h3>
-        <div className="mb-8 overflow-x-auto rounded-lg border border-border">
-          <table className="w-full min-w-[900px] text-xs">
-            <thead className="bg-surface text-left text-muted">
-              <tr>
-                <th className="px-3 py-2">When</th><th className="px-3 py-2">Game</th><th className="px-3 py-2">Bet</th><th className="px-3 py-2">Kind</th>
-                <th className="px-3 py-2 text-right">Hours out</th><th className="px-3 py-2 text-right">Play price</th><th className="px-3 py-2 text-right">Exchange then</th>
-                <th className="px-3 py-2 text-right">DK close</th><th className="px-3 py-2 text-right">Result</th><th className="px-3 py-2 text-right">Made</th>
-              </tr>
-            </thead>
-            <tbody className="font-mono">
-              {d.slice(0, 40).map((s) => (
-                <tr key={s.id} className="border-t border-border">
-                  <td className="px-3 py-1.5 text-muted"><LocalDateTime iso={s.ts} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} /></td>
-                  <td className="px-3 py-1.5 font-sans text-foreground"><Link href={`/syndicates/games/${encodeURIComponent(s.game)}`} className="hover:text-accent">{s.teams}</Link><span className="ml-1.5 text-[10px] uppercase text-muted">{SPORT[s.sport]}</span></td>
-                  <td className="px-3 py-1.5 font-sans text-foreground">{betLabel(s)}</td>
-                  <td className="px-3 py-1.5 font-sans text-muted">{s.type}</td>
-                  <td className="px-3 py-1.5 text-right text-muted">{s.hrs}</td>
-                  <td className="px-3 py-1.5 text-right">{(cost(s) * 100).toFixed(1)}¢</td>
-                  <td className="px-3 py-1.5 text-right text-muted">{s.x == null ? "–" : `${((s.side > 0 ? s.x : 1 - s.x) * 100).toFixed(1)}¢`}</td>
-                  <td className={`px-3 py-1.5 text-right ${tone(s.moved!)}`}>{((s.side > 0 ? s.dk_close! : 1 - s.dk_close!) * 100).toFixed(1)}¢</td>
-                  <td className={`px-3 py-1.5 text-right ${won(s) ? "text-up" : "text-down"}`}>{won(s) ? "won" : "lost"}</td>
-                  <td className={`px-3 py-1.5 text-right ${tone(s.pnl_dk!)}`}>{c1(s.pnl_dk!)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {wantScored ? (
+          <>
+            <h3 className="mb-2 text-sm font-semibold text-foreground">Latest scored{anyFilter ? " (filtered)" : ""}</h3>
+            <div className="mb-8 overflow-x-auto rounded-lg border border-border">
+              <table className="w-full min-w-[900px] text-xs">
+                <thead className="bg-surface text-left text-muted">
+                  <tr>
+                    <th className="px-3 py-2" title="When the disagreement was first logged">Logged</th><th className="px-3 py-2">Game</th><th className="px-3 py-2">Bet</th><th className="px-3 py-2">Kind</th>
+                    <th className="px-3 py-2 text-right">Hours out</th><th className="px-3 py-2 text-right">Play price</th><th className="px-3 py-2 text-right">Exchange then</th>
+                    <th className="px-3 py-2 text-right">DK close</th><th className="px-3 py-2 text-right">Result</th><th className="px-3 py-2 text-right">Made</th>
+                  </tr>
+                </thead>
+                <tbody className="font-mono">
+                  {(grouped ? scoredShown(d, 25) : d.slice(0, 40)).map((x, i, arr) => {
+                    const first = !grouped || i === 0 || arr[i - 1].game !== x.game;
+                    const mates = grouped && first ? arr.filter((y) => y.game === x.game) : [];
+                    const made = mates.reduce((a, y) => a + (y.pnl_dk ?? 0), 0);
+                    return (
+                      <Fragment key={x.id}>
+                        {grouped && first ? (
+                          <tr className="border-t border-border bg-surface/50">
+                            <td colSpan={10} className="px-3 py-1.5 font-sans">
+                              <Link href={`/syndicates/games/${encodeURIComponent(x.game)}`} className="font-semibold text-foreground hover:text-accent">{x.teams}</Link>
+                              <span className="ml-1.5 text-[10px] uppercase text-muted">{SPORT[x.sport]}</span>
+                              <span className="ml-3 text-[11px] text-muted">{mates.length} {mates.length === 1 ? "signal" : "signals"} · <span className={tone(made)}>{c1(made)} in all</span></span>
+                            </td>
+                          </tr>
+                        ) : null}
+                        <tr className={grouped ? "" : "border-t border-border"}>
+                          <td className="px-3 py-1.5 text-muted"><LocalDateTime iso={x.ts} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} /></td>
+                          <td className="px-3 py-1.5 font-sans text-foreground">{grouped ? <span className="text-muted">↳</span> : <><Link href={`/syndicates/games/${encodeURIComponent(x.game)}`} className="hover:text-accent">{x.teams}</Link><span className="ml-1.5 text-[10px] uppercase text-muted">{SPORT[x.sport]}</span></>}</td>
+                          <td className="px-3 py-1.5 font-sans text-foreground">{betLabel(x)}</td>
+                          <td className="px-3 py-1.5 font-sans"><KindTag s={x} agrees={agree(x)} /></td>
+                          <td className="px-3 py-1.5 text-right text-muted">{x.hrs}</td>
+                          <td className="px-3 py-1.5 text-right">{(cost(x) * 100).toFixed(1)}¢</td>
+                          <td className="px-3 py-1.5 text-right text-muted">{x.x == null ? "–" : `${((x.side > 0 ? x.x : 1 - x.x) * 100).toFixed(1)}¢`}</td>
+                          <td className={`px-3 py-1.5 text-right ${tone(x.moved!)}`}>{((x.side > 0 ? x.dk_close! : 1 - x.dk_close!) * 100).toFixed(1)}¢</td>
+                          <td className={`px-3 py-1.5 text-right ${won(x) ? "text-up" : "text-down"}`}>{won(x) ? "won" : "lost"}</td>
+                          <td className={`px-3 py-1.5 text-right ${tone(x.pnl_dk!)}`}>{c1(x.pnl_dk!)}</td>
+                        </tr>
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : null}
       </main>
     </div>
   );
