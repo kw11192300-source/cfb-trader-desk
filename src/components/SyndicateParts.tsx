@@ -48,7 +48,7 @@ export function SyndicateHeader({ active, round }: { active: "board" | "markets"
           {tab("/syndicates/games", "Games", "games")}
           {menu("Trading", [["/syndicates/markets", "Markets", "markets"], ["/syndicates/positions", "Positions", "positions"], ["/syndicates/trades", "Trades", "trades"], ["/syndicates/volume", "Volume", "volume"], ["/syndicates/crowding", "Crowding", "crowding"]])}
           {menu("Performance", [["/syndicates/history", "Results", "history"], ["/syndicates/digest", "Daily digest", "digest"], ["/syndicates/closing", "Exchange vs DK", "closing"], ["/syndicates/models", "Model scorecard", "models"], ["/syndicates/reliability", "Reliability", "reliability"]])}
-          {menu("Research", [["/syndicates/sharp", "Sharp money", "sharp"], ["/syndicates/disagreement", "Disagreement", "disagreement"], ["/syndicates/picks", "Picks", "picks"], ["/syndicates/news", "News", "news"], ["/syndicates/signals", "Signals", "signals"], ["/syndicates/discovery", "Line discovery", "discovery"]])}
+          {menu("Research", [["/syndicates/sharp", "Sharp money", "sharp"], ["/syndicates/disagreement", "Disagreement", "disagreement"], ["/picks", "Picks (Desk)", "picks"], ["/syndicates/news", "News", "news"], ["/syndicates/signals", "Signals", "signals"], ["/syndicates/discovery", "Line discovery", "discovery"]])}
           <Link href="/today" className="ml-3 whitespace-nowrap text-muted hover:text-foreground">
             ← Trader Desk
           </Link>
