@@ -2,6 +2,13 @@
 
 Newest first. This file is your only memory between sessions.
 
+## 2026-11-01 - style-matchup totals: no gain, not published (v1 stays live)
+- Live scoring: 6 CBB prices vs DK close, -21/1000 (z -0.4) = noise. Weight 0.25. Engine now needs 40 finished games before model weight lifts sharpness (commit 9e10632); brief unchanged.
+- Hypothesis: total residuals of v1 explained by style interactions: off x opp-allowed products for 3PA rate, OREB share, TOV share, FT rate, plus |tempo gap|. Team rates weighted (HL150), shrunk with 5 games of league prior; 5 standardized features, ridge LAM_S 200, fitted on in-sample v1 residuals; added to total only.
+- Backtest CBB (fresh pack, same blocks): STYLE on margin 8.45 / total 13.33; STYLE off 8.45 / 13.30; elo 8.68/13.57, ridge 8.59/13.35. Style made totals 0.03 worse = noise, no signal. Likely: light LAM_E effects already absorb style (in-sample residuals shrunk), and these interactions are small in CBB.
+- Code kept in model.py behind STYLE = False (also reads opp_pts and box columns now; rows missing fga dropped - same numbers).
+- Next: (1) early-season shrink is untested and the season starts ~Nov 3: tune NEW_SEASON_RHO by refitting at Nov cutoffs of 2025 (needs a backtest at Nov dates, not March) and REPUBLISH once 2026-27 box scores land (PORTABLE=False, frozen); (2) if retrying style, fit interactions out-of-sample (residuals from fits before each month) instead of in-sample; (3) NBA tempo once current-season box data exist.
+
 ## 2026-10-30 - v1 published (CBB possessions x efficiency)
 - Hypothesis: a KenPom-style split (tempo ridge on game possessions + off/def ridge on points per 100 poss, total = poss x (eff_h + eff_a)) prices CBB at least as well as score ratings, and the margin scales with pace.
 - Data: cbb/team_games.csv.gz filtered to start < pack.asof, last 2 seasons, decay HL 150d. Box coverage of pack CBB games = 100%. NBA box scores stop June 2026 (no 2026-27 games, 63% coverage of the last 360 pack games) -> NBA abstains for now. PORTABLE=False (reads pack.path), so the model is frozen at publish: REPUBLISH to refresh once new-season box scores land in team_games.csv.gz.

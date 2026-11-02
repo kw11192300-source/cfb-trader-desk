@@ -10,10 +10,17 @@ v2 (2026-10-30). Walk-forward ratings joined to historical DK closes (blend_stud
   (Poisson -LL 2.2525 vs 2.2554 for line-as-mean); + 0.4 ratings 2.2490, both date halves agree. Live `dk` has no over/under juice, which explains
   most of that ratings signal (with juice the best weight is ~0.15), so the ratings are partly standing in for it.
 - nfl/cfb: no historical lines to test against; weight 0 until the exchange's own closes say otherwise.
+
+v5 (2026-11-01). NHL total from Kalshi's ladder (kalshi_ladder.py): live `dk` has no over/under juice, but dk["kalshi"] holds P(total > L) at several
+lines. Poisson mean fitted to that ladder vs DK's line as a coin flip, Poisson -LL on watched games: gain +0.050 (se 0.027, n 19; both date halves
++0.063/+0.039); v4's ratings blend gained +0.003, and ratings add nothing once Kalshi is in. Kalshi's ladder median adds nothing in nba/cfb totals
+(MAE 17.39 vs 17.31 n 21, 10.39 vs 10.25 n 48), so NHL only. Shipped shrunk: t = dk + 0.75 (kalshi - dk). Without a ladder the ratings total weight
+drops 0.4 -> 0.15 (the weight the juice study found once the market had its own juice).
 """
 import math
 
 import numpy as np
+from scipy.optimize import minimize_scalar
 from scipy.stats import poisson, skellam
 
 PORTABLE = True
@@ -22,10 +29,11 @@ LAM = {"nba": 6.0, "cbb": 5.0, "nfl": 8.0, "cfb": 5.0, "nhl": 25.0}
 W = {  # weight on (ratings - market) when a line exists: (margin, total)
     "nba": (0.0, 0.0),
     "cbb": (0.0, 0.1),
-    "nhl": (0.2, 0.4),
+    "nhl": (0.2, 0.15),
     "nfl": (0.0, 0.0),
     "cfb": (0.0, 0.0),
 }
+KAL_NHL_TOTAL = 0.75  # weight on (Kalshi ladder Poisson mean - DK mean) for the NHL total; ratings then get no say in the total
 
 
 def fit(pack):
@@ -105,6 +113,18 @@ def _market(sport, d):
     return m, t
 
 
+def _kal_total(d):
+    """Poisson mean fitted to Kalshi's NHL total ladder (P(total > L) mids, weighted by log volume); None with fewer than two usable rungs."""
+    lad = [(r[1], r[2], r[5] or 0) for r in (d.get("kalshi") or []) if len(r) >= 6 and r[0] == "total" and r[2] is not None and 0.02 < r[2] < 0.98]
+    if len(lad) < 2:
+        return None
+    w = [math.log1p(v) + 0.5 for _, _, v in lad]
+
+    def loss(x):
+        return sum(wi * (float(poisson.sf(math.floor(L), x)) - p) ** 2 for wi, (L, p, _) in zip(w, lad))
+    return float(minimize_scalar(loss, bounds=(2.0, 12.0), method="bounded").x)
+
+
 def predict(state, games):
     out = {}
     for g in games:
@@ -121,7 +141,10 @@ def predict(state, games):
             wm, wt = W.get(g["sport"], (0.0, 0.0))
             if mm is not None:
                 m = mm + wm * (m - mm)
-            if mt is not None:
+            kt = _kal_total(d) if g["sport"] == "nhl" and mt is not None else None
+            if kt is not None:
+                t = mt + KAL_NHL_TOTAL * (kt - mt)
+            elif mt is not None:
                 t = mt + wt * (t - mt)
         out[g["id"]] = [float(m), float(t)]
     return out

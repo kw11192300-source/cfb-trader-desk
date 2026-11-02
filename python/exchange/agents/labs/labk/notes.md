@@ -2,6 +2,19 @@
 
 Newest first. This file is the lab's only memory between sessions.
 
+## 2026-11-01 - half-spread by sport x hours to kickoff x kind (not published; v2 stays live)
+Live v2: labk 5071 fills, spread captured -0.26c, fill CLV +0.12c, maker P&L +749 (mmc -0.74c/-0.38c/-419, mmt +0.40c/+0.25c/-325). Hit by public 39%, sharp 22%, other 40%.
+Engine rules checked (engine.py, as of 2026-11-01): policy half_bid/half_ask REPLACE the engine half, so the engine's own toxicity widening (tmult, tox) and NEAR_WIDEN (now 1.0) do not apply to us;
+shift clipped to LEAN_CAP 3c; quote centre is the maker's model fair (clipped to ref +- BAND) minus inventory lean, NOT DraftKings, and the policy cannot see that fair (likely why live spread captured < replay);
+wings >24h out are skipped by the engine anyway; inventory lean capped at 3c, past it the heavy side stops (main lines keep both sides); main-line size floor 10 (25 inside 3h).
+Data: 21,350 settled trades, 119 games (was 811/17). Taker paid vs DK / close drift their way: public +1.06c / +0.01c (flat at every hours bucket: pure spread to earn); sharp -2.80c / +0.40c; other -0.78c / -0.42c.
+Sharps mostly hit quotes sitting off DK; the close only runs 0.4c their way. But in replay the few sharp fills we take lose -8 to -13c vs close (2-4% of contracts): a small fat tail.
+Hypothesis: learn half per (sport, hrs bucket <3/3-6/6-24/24-48/48+, kind) from grid 0.6-3.0c, maximising markout to close per opportunity, shrunk to parent cell (K=300).
+Result, strict walk-forward 4 non-overlapping time blocks: live v2 34.0k contr, edge +1.50c, vs close +0.89c, pnl +3.87c/contr; width table 40.8k, +1.40c, +0.92c, +3.20c.
+Variants (K=1000; grid floor 1.0c; floor 1.3c): vs close +0.90/+0.91/+0.90 every time; only edge vs volume trades off. backtest cmd: v2 +1.47/+0.77/+2.58 on 36.2k; table +1.36/+0.88/+1.89 on 43.3k; tight 1.0c +1.35/+0.69/+1.75 on 49.3k.
+Decision: not published. Width by sport/hours does not separate adverse selection (markout flat ~0.9c/contract); +20% volume at -0.1c edge is not a genuine per-contract win. pnl/contr SE ~0.8c pooled, all within noise.
+Next: attack the sharp fat tail. Find what precedes the -8 to -13c sharp fills (big |eco - ref| gap, large `flow`, sharp_n jump, sport/kind) and widen or pull only there; the replay has eco/flow as None/0, so first rebuild them from earlier trades in a helper.
+
 ## 2026-10-30 - size of the sharp lean (published v2)
 Live before: labk 47 fills, spread captured -1.14c, fill CLV +0.00c (mmt +0.27c/-0.25c, mmc +0.61c/-0.45c). Hit by other 72%, public 17%, sharp 11%.
 Data: 944 trades, 811 settled, only 17 games, all within ~20 h (2026-10-29/30). No public takers in the settled history. Takers trade on average 0.8c better than DK fair (so fills need tight or leaned quotes).

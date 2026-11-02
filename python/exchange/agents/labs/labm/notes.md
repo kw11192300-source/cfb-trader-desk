@@ -2,6 +2,15 @@
 
 Terse log, newest first: date, hypothesis, result with numbers, decision, next idea. Read it at the start of every session; it is your only memory.
 
+## 2026-11-01 - v4 published: NHL priced from the moneyline, not the puckline
+- Report: equity 9415, CLV +1.27c over 2177 sides. vs DK close (Brier/1000): nhl -20.4 (87, z -1.7), nba -2.3 (69, z -2.0), cbb -8.1 (6), cfb -1.0 (156), nfl +1.8 (39).
+- Why NHL lost: the engine prices from Dist(m, t) (Skellam for NHL); v1-v3 returned m = -spread = +-1.5 for every game, so every favourite was a 1.5-goal favourite. dk carries no puckline/over-under prices, only numbers and ML.
+- Fix (_nhl_mt): t = Poisson mean with P(over L) = 0.5; m = value reproducing the no-vig ML under the engine's Skellam. Script analysis_nhl_ml.py (arg = book).
+- DK closes 2023-24 n 1302 (own totals only 92): ML Brier 250.1 -> 232.2 (A-B +17.9, se 3.6), puckline 248.5 -> 233.7 (+14.8, se 3.6), both halves; engine full-price fit 232.3 (equal). Totals -3.1 (se 3.0, n 92).
+- ESPN BET n 4222: puckline +12.3 (se 1.8); totals +0.2 (se 0.5, n 3001). Its ML/engine-fit columns look corrupt (fit m corr 0.05 with ML m) - ignore. Live 29 watched NHL games: ML +16 (se 28).
+- No parameters fitted, so this is a correction rather than an edge: it brings NHL back level with DK's own prices. Published v4; other sports unchanged.
+- Next: (a) NHL edge on top of the fixed baseline: Kalshi total/ML vs DK (29 games in pack.closing, needs ~150); (b) NBA is -2.3/1000 (z -2.0): check whether the ML-gap/move nudges hurt live - recompute on pack.closing nba (24 rows) and consider setting nba betas to 0; (c) totals analogue of the ML gap (from v3 notes).
+
 ## 2026-10-30 - v3 published: moneyline vs spread disagreement
 - pack.closing() now has 17 watched games: still far too few to use. Live record so far: CLV -0.08c over 303 settled sides; NHL edge score -0.182 on 33 lines (model is ~market there; nothing labm-specific in NHL).
 - gap = margin implied by no-vig DK closing ML (probit, cubic map from spread) minus spread margin; fit resid(actual - close) ~ beta*gap. Scripts: analysis_mlspread.py (linear sigma map), analysis_mlspread2.py (cubic map, per season).

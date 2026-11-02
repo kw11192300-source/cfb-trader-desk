@@ -9,6 +9,8 @@
   Probable .05. Only players in the team's stored rotation count (long absences are already in the ratings). No list: league-typical M.
 - The list moves the MARGIN only. Totals use league-typical M for both teams: a list-based total adjustment hurt in the Apr-Jun 2026 block.
 - Other sports: abstain.
+- v2: PORTABLE. fit(pack, prev) keeps the player parts (rotation values, each past game's M) when the box-score files are missing, so the hosted
+  job refreshes the team ratings every few hours (v1 was frozen at its publish-time ratings and last season's rotations).
 """
 import re
 import unicodedata
@@ -16,7 +18,7 @@ import unicodedata
 import numpy as np
 import pandas as pd
 
-PORTABLE = False
+PORTABLE = True     # fit(pack, prev): without the box-score files the hosted refit keeps the player parts and refreshes the ratings
 HL = 120.0          # days, rating memory
 LAM = 6.0           # ridge on team ratings
 LAM_B = 2.0         # ridge on the injury coefficients
@@ -114,18 +116,28 @@ def _ridge_fit(X, y, w, lam):
     return np.linalg.solve(A, X.T @ (w * y))
 
 
-def fit(pack):
+def fit(pack, prev=None):
     g = pack.games("nba")
     if len(g) < 200:
         return {}
     asof = g.start.max() + pd.Timedelta(seconds=1)
-    pg = _players(pack, asof)
-    val = _values(pg, asof)
-    M, rot = _absences(pg, val)
     g = g.copy()
-    eid = g.id.str.split(":").str[1].astype(int)
-    g["mh"] = [M.get((e, int(h)), np.nan) for e, h in zip(eid, g.home_id)]
-    g["ma"] = [M.get((e, int(a)), np.nan) for e, a in zip(eid, g.away_id)]
+    p = (prev or {}).get("nba") or {}
+    if pack.path("nba", "player_games.csv.gz").exists() or not p.get("M"):
+        pg = _players(pack, asof)
+        val = _values(pg, asof)
+        M, rot = _absences(pg, val)
+        eid = g.id.str.split(":").str[1].astype(int)
+        g["mh"] = [M.get((e, int(h)), np.nan) for e, h in zip(eid, g.home_id)]
+        g["ma"] = [M.get((e, int(a)), np.nan) for e, a in zip(eid, g.away_id)]
+        rv = {str(t): {k: round(val.get(k, 0.0) * m, 3) for k, m in r.items()} for t, r in rot.items()}
+        rep, last_box = _reports(pack, asof, None), str(pg.start.max())
+    else:
+        # hosted refit (ESPN results only): keep the player parts and each past game's M from the last full fit; newer games enter with no
+        # absence information (dM 0), so the ratings stay current between full refits
+        g["mh"] = [p["M"].get(i, [np.nan, np.nan])[0] for i in g.id]
+        g["ma"] = [p["M"].get(i, [np.nan, np.nan])[1] for i in g.id]
+        rv, rep, last_box = p["rot"], p.get("rep", {}), p.get("last_box")
     known = g.mh.notna() & g.ma.notna()
     typ = float(np.nanmean(np.r_[g.mh[known], g.ma[known]])) if known.any() else 0.0
     teams = {t: i for i, t in enumerate(sorted(set(g.home_id) | set(g.away_id)))}
@@ -152,11 +164,10 @@ def fit(pack):
     Xt[np.arange(n), 2 + ai] += 1.0
     yt = (g.home_score + g.away_score).to_numpy(float)
     bt = _ridge_fit(Xt, yt, w, np.r_[1e-6, LAM_B, np.full(T, LAM)])
-    # rotation values per team: key -> value * expected minutes
-    rv = {str(t): {k: round(val.get(k, 0.0) * m, 3) for k, m in r.items()} for t, r in rot.items()}
+    Ms = {i: [round(float(a), 3), round(float(b), 3)] for i, a, b, k in zip(g.id, g.mh, g.ma, known) if k}
     return {"nba": {"hca": float(bm[0]) + HCA0, "B": float(bm[1]), "mu": float(bt[0]), "G": float(bt[1]), "typ": typ,
                     "r": {str(t): float(bm[2 + i]) for t, i in teams.items()}, "t": {str(t): float(bt[2 + i]) for t, i in teams.items()},
-                    "rot": rv, "rep": _reports(pack, asof, None), "last_box": str(pg.start.max())}}
+                    "rot": rv, "rep": rep, "last_box": last_box, "M": Ms}}
 
 
 def _m_from_list(lst, rot):

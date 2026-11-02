@@ -20,6 +20,14 @@ HCA0 = 1.6                  # prior home edge, points per 100 possessions per si
 NEW_SEASON_RHO_T = 0.8      # share of last season's tempo effect kept when a new season starts (pace is a coach trait)
 NEW_SEASON_RHO_E = 0.6      # share of last season's efficiency effect kept
 SEASONS_BACK = 2            # seasons of box scores used
+STYLE = False                # v2: style-matchup residual terms on the total
+PRIOR_N = 5.0               # games of league-average style blended into each team's rates
+LAM_S = 200.0               # ridge on the (standardised) style coefficients, in units of average game weight
+# style rates: (numerator columns, denominator columns), offence view; the defence view swaps team and opp_ columns
+RATES = {"tp": (["tpa"], ["fga"]),                          # three-point attempt rate
+         "or": (["oreb"], ["oreb", "opp_dreb"]),            # offensive rebound share
+         "to": (["tov"], ["fga", "fta", "tov"]),            # turnover share of plays (FTA unweighted, it is only a style index)
+         "ft": (["fta"], ["fga"])}                          # free-throw rate (fouls drawn)
 
 
 def _season(ts):
@@ -39,9 +47,11 @@ def fit(pack):
         return {}
     asof = pack.asof if pack.asof is not None else g.start.max() + pd.Timedelta(seconds=1)
     tg = pd.read_csv(pack.path("cbb", "team_games.csv.gz"),
-                     usecols=["event_id", "season", "start_utc", "team_id", "opp_id", "is_home", "neutral", "pts", "poss"])
+                     usecols=["event_id", "season", "start_utc", "team_id", "opp_id", "is_home", "neutral", "pts", "opp_pts", "poss"]
+                     + [c for b in ("", "opp_") for c in (b + "fga", b + "tpa", b + "fta", b + "oreb", b + "dreb", b + "tov")])
     tg["start"] = pd.to_datetime(tg.start_utc, utc=True)
-    tg = tg[(tg.start < asof) & (tg.poss > 40) & tg.pts.notna()]
+    tg = tg[(tg.start < asof) & (tg.poss > 40) & tg.pts.notna() & tg.opp_pts.notna() & tg.fga.notna() & tg.opp_fga.notna()]
+    tg = tg.fillna(0.0)
     last = int(tg.season.max())
     tg = tg[tg.season > last - SEASONS_BACK].copy()
     tg["team_id"] = tg.team_id.astype(str)
@@ -84,9 +94,65 @@ def fit(pack):
     # teams with very little recent box-score evidence are not priced
     cnt = pd.concat([tg.team_id]).value_counts()
     seen = [t for t in teams if cnt.get(t, 0) >= 8]
-    return {"cbb": {"season": last, "mu_e": float(be[0]), "hca": float(be[1]) + HCA0, "mu_t": float(bt[0]),
-                    "o": {t: float(be[2 + ix[t]]) for t in seen}, "d": {t: float(be[2 + T + ix[t]]) for t in seen},
-                    "t": {t: float(bt[1 + ix[t]]) for t in seen}}}
+    st = {"season": last, "mu_e": float(be[0]), "hca": float(be[1]) + HCA0, "mu_t": float(bt[0]),
+          "o": {t: float(be[2 + ix[t]]) for t in seen}, "d": {t: float(be[2 + T + ix[t]]) for t in seen},
+          "t": {t: float(bt[1 + ix[t]]) for t in seen}}
+    if STYLE:
+        st.update(_style(tg, st, seen))
+    return {"cbb": st}
+
+
+def _prof(tg, seen):
+    """Weighted per-team style rates, offence and what the defence allows, as deviations from the league."""
+    def flip(c):
+        return c[4:] if c.startswith("opp_") else "opp_" + c
+
+    x = tg[["team_id", "w"]].copy()
+    for k, (num, den) in RATES.items():
+        for p, nn, dd in ((k, num, den), ("a" + k, [flip(c) for c in num], [flip(c) for c in den])):
+            x[p + "_n"] = tg[nn].to_numpy().sum(1) * x.w
+            x[p + "_d"] = tg[dd].to_numpy().sum(1) * x.w
+    s = x.groupby("team_id").sum()
+    out = {}
+    for k in RATES:
+        for p in (k, "a" + k):
+            lg = s[p + "_n"].sum() / s[p + "_d"].sum()
+            dbar = s[p + "_d"] / s.w.clip(lower=1e-9)          # typical denominator per game, so PRIOR_N is in games
+            r = (s[p + "_n"] + PRIOR_N * lg * dbar) / (s[p + "_d"] + PRIOR_N * dbar)
+            out[p] = {t: float(r.get(t, lg) - lg) for t in seen}
+    return out
+
+
+def _feats(st, h, a):
+    """Style-matchup features for one game: each side's offence rate times the other defence's allowed rate, summed both ways,
+    plus the pace mismatch (|tempo gap|)."""
+    p = st["prof"]
+    f = [p[k][h] * p["a" + k][a] + p[k][a] * p["a" + k][h] for k in RATES]
+    f.append(abs(st["t"][h] - st["t"][a]))
+    return f
+
+
+def _style(tg, st, seen):
+    """Fit total-score residuals of the base model on style-matchup features with a heavy ridge."""
+    prof = _prof(tg, seen)
+    tmp = {**st, "prof": prof}
+    gm = tg[tg.team_id.isin(seen) & tg.opp_id.isin(seen)]
+    gm = gm.sort_values(["event_id", "is_home"], ascending=[True, False]).drop_duplicates("event_id")
+    F, y, w = [], [], []
+    for r in gm.itertuples(index=False):
+        h, a = r.team_id, r.opp_id
+        poss = st["mu_t"] + st["t"][h] + st["t"][a]
+        tot = poss * (2 * st["mu_e"] + st["o"][h] + st["d"][a] + st["o"][a] + st["d"][h]) / 100.0
+        F.append(_feats(tmp, h, a))
+        y.append(r.pts + r.opp_pts - tot)
+        w.append(r.w)
+    F, y, w = np.array(F), np.array(y), np.array(w)
+    sd = F.std(0) + 1e-9
+    mu = F.mean(0)
+    Z = (F - mu) / sd
+    A = Z.T @ (Z * w[:, None]) + LAM_S * w.sum() / len(w) * np.eye(Z.shape[1])
+    beta = np.linalg.solve(A, Z.T @ (w * (y - np.average(y, weights=w))))
+    return {"prof": prof, "s_mu": mu.tolist(), "s_sd": sd.tolist(), "s_beta": beta.tolist()}
 
 
 def predict(state, games):
@@ -103,5 +169,9 @@ def predict(state, games):
         eh = s["mu_e"] + ha + re * (s["o"][h] + s["d"][a])
         ea = s["mu_e"] - ha + re * (s["o"][a] + s["d"][h])
         ph, pa = poss * eh / 100.0, poss * ea / 100.0
-        out[g["id"]] = [ph - pa, ph + pa]
+        tot = ph + pa
+        if "s_beta" in s and not new:
+            z = (np.array(_feats(s, h, a)) - np.array(s["s_mu"])) / np.array(s["s_sd"])
+            tot += float(z @ np.array(s["s_beta"]))
+        out[g["id"]] = [ph - pa, tot]
     return out

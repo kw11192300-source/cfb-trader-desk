@@ -6,6 +6,15 @@ Your model is a copy of Ridge Rangers: the Disagree tab shows a correlation of 1
 
 Terse log, newest first: date, hypothesis, result with numbers, decision, next idea. Read it at the start of every session; it is your only memory.
 
+## 2026-11-02 (session) - v4 PUBLISHED: NHL roster prior from skater xG ratings
+- Report (before, v3): equity 10402, CLV -0.52c / 1517 sides. Weight nfl .20, cfb .27, nhl .07, nba .25, cbb .25. vs DK close: nhl -16.3/1000 (z -2.6, 87) = the hole; cfb -11.6 (z -1.0, 156), nba -3.4 (69), nfl -7.9 (39), cbb -31 (6). Engine rule now: weight stays 0.25 until 12 games, full data weight at 40 (W_MIN_GAMES/W_FULL_GAMES).
+- Data: NHL files (stints, games, team_games, goalie probables) end 2026-10-09/13 = STALE (builder must refresh). nhl/player_ratings.json is undated RAPM -> leaks, not used.
+- Hypothesis: NHL team ridge (LAM 25, strong shrink) shrinks toward a player prior instead of 0. Prior = skater 5v5 xG/60 off/def ridge on stints_5v5 (start<asof, 1100d, HL 365, weight = minutes) summed by TOI share over each team's last 10 games (skater counted for latest team), x 48/60 to goals, centred. Prior corr with team ridge 0.76.
+- Own wf (scratch wf.py, 6x120 NHL from 2026-03-05, paired vs v3, ties dropped; logloss from margin/2.4 normal): lam/scale 1000/1: MAE -0.024+-0.005, logloss -4.0+-1.5; 3000/1: -0.017, -3.1+-1.1; 500/1: -0.027, -4.3+-1.8; 300/1.5: -0.039, -5.6+-2.8; 1000/1.5: MAE -0.034+-0.007, logloss -5.3+-2.3, corr 0.97; 1000/2: -0.042, -6.3+-3.0, corr 0.96. Every block better for every setting. Chose 1000/1.5 (plateau; picked after seeing blocks -> size slightly flattering, direction solid).
+- Official: nhl 2.13 (v3 2.16, elo 2.14, ridge 2.17), totals 1.79 = same. Other sports identical to v3. Audit passed. Published v4; slate 120 games 100%.
+- Note: on the newest blocks NBA margin now 13.05 vs ridge 12.92 (elo 13.08) - the player model fell behind ridge; not caused by v4.
+- Next: (1) NBA: why margin trails ridge now - try SETTLE_GAMES/blend toward team ridge, P_LAM, lineup window on new-season games; (2) NHL goalie layer (GSAx per goalie from shots_xg, team's expected starter by recent share) once NHL files are refreshed - live starter unknown until goalie probables refresh; (3) watch NHL vs-DK score and weight over the next weeks.
+
 ## 2026-10-31 (session) - v3 PUBLISHED: NBA player model, portable via prev
 - Report (before): v2 live. Weight nba 0.27, nhl 0.16, others 0.25. vs DK close: cfb -88/1000 (z -2.2, 12), nhl -11 (z -1.3, 42), nba +0.1 (36), nfl -15 (3), cbb 0. CLV +0.07c / 226 sides. NBA box scores through 2026-10-31 02:00 (fresh); CBB box scores still end Apr 2026.
 - Wiring: model.py = model_players.py + `fit(pack, prev=None)`: player layer refits only if pack.path(sp,"player_games.csv.gz") exists, else kept from prev; team ridge always refits. PORTABLE=True. Tested: missing files -> pl kept identical, team refit all 5 sports. NOTE: in the hosted job the LINEUPS and settle counts are frozen too (only g["news"] injuries move them) -> REPUBLISH EVERY SESSION to refresh lineups.

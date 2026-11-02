@@ -12,6 +12,11 @@ the ML -> margin map is a cubic fit of probit(p) on the spread over historical D
   nba n 2307:  per season +0.94 (0.60), +0.11 (0.54); test +0.08 (0.56) - same sign, noise.  gap sd ~0.8 pts, so a typical nudge is ~0.2 pts.
 Gap clipped to +-2; skipped when the ML is beyond 3 %/97 % or |spread| > 20 (cubic map unreliable there).
 Caveat: history has only open and close; live, `spread`/`total`/ML are current lines, which may still move before close.
+
+v4 (2026-11-01): NHL fix (analysis_nhl_ml.py). v1-v3 returned -puckline (always +-1.5 goals) as the NHL margin, so every favourite was priced as a
+1.5-goal favourite (live: -20 per 1000 Brier vs DK close on 87 NHL prices). Now: total = Poisson mean making the posted total a coin flip, margin =
+the one that reproduces the no-vig ML under the engine's Skellam pricing. DK closes 2023-24, n 1302: ML Brier/1000 250.1 -> 232.2 (se 3.6), puckline
+248.5 -> 233.7 (se 3.6), both season halves; level with the engine's full-price fit (232.3). ESPN BET n 4222: puckline +12.3 (se 1.8); totals equal (n 3001).
 """
 import math
 from statistics import NormalDist
@@ -63,6 +68,53 @@ def _ml_gap(sport, m, d):
     return _clip(g, GAP_CLIP) if math.isfinite(g) else 0.0
 
 
+def _pois(lam, n=30):
+    p = [math.exp(-lam)]
+    for k in range(1, n):
+        p.append(p[-1] * lam / k)
+    return p
+
+
+def _p_over(t, L):
+    """Engine's NHL total price: Poisson(t) over L, pushes refunded."""
+    p = _pois(t)
+    k, c = math.floor(L), math.ceil(L) - 1
+    lo = sum(p[: c + 1])
+    hi = 1.0 - sum(p[: k + 1])
+    return hi / (hi + lo) if hi + lo > 0 else 0.5
+
+
+def _p_ml_nhl(m, t):
+    """Engine's NHL moneyline: independent Poissons, a regulation tie split half each (OT/shootout)."""
+    ph, pa = _pois(max(0.2, (t + m) / 2)), _pois(max(0.2, (t - m) / 2))
+    win = tie = 0.0
+    for i, a in enumerate(ph):
+        tie += a * pa[i]
+        win += a * sum(pa[:i])
+    return win + 0.5 * tie
+
+
+def _bis(f, lo, hi, target, n=40):
+    for _ in range(n):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if f(mid) < target else (lo, mid)
+    return (lo + hi) / 2
+
+
+def _nhl_mt(d):
+    """v4: the puckline is +-1.5 for nearly every game, so -spread is not a margin. Take the total as the Poisson mean that makes the posted
+    total a coin flip, then the margin that reproduces the no-vig moneyline under the engine's own Skellam model. None when the ML is missing."""
+    t = _bis(lambda x: _p_over(x, d["total"]), 0.5, 20.0, 0.5)
+    try:
+        ph, pa = _prob(d["ml_home"]), _prob(d["ml_away"])
+    except (TypeError, ValueError, KeyError):
+        return None, t
+    if ph is None or pa is None:
+        return None, t
+    p = min(0.97, max(0.03, ph / (ph + pa)))
+    return _bis(lambda x: _p_ml_nhl(x, t), -4.0, 4.0, p), t
+
+
 def fit(pack):
     return {}
 
@@ -74,6 +126,11 @@ def predict(state, games):
         if not d or d.get("spread") is None or d.get("total") is None:
             continue
         sp = g.get("sport")
+        if sp == "nhl":
+            m, t = _nhl_mt(d)
+            if m is not None:
+                out[g["id"]] = [m, t]
+            continue
         bs, bt = BETA.get(sp, (0.0, 0.0))
         m0, t = -d["spread"], d["total"]
         m = m0
