@@ -472,6 +472,22 @@ export async function getDiscoveries(): Promise<Discovery[]> {
   return ((data?.value as { rows?: Discovery[] } | undefined)?.rows ?? []) as Discovery[];
 }
 
+export type Pick = {
+  id: string; source: string; sport: string; game_id: number; kind: "spread" | "total"; side: string; line: number; price: number; tier: string;
+  rem: number; exp_clv: number; units: number; units_scaled: number; ts: string; start: string; teams: string; home: string; away: string; open: number | null;
+  close?: number; clv?: number; result?: number; pnl?: number; pnl_scaled?: number; actual?: number; graded?: string;
+};
+
+/** Paper picks (python/exchange/picks.py): open ones still waiting for the game, and graded ones with closing-line value and the result. */
+export async function getPicks(): Promise<{ open: Pick[]; done: Pick[]; boardAt: string | null }> {
+  const [{ data }, { data: b }] = await Promise.all([
+    supabase.from("ex_meta").select("value").eq("key", "picks").maybeSingle(),
+    supabase.from("cbb_game_board").select("updated_at").order("updated_at", { ascending: false }).limit(1),
+  ]);
+  const v = (data?.value ?? {}) as { open?: Record<string, Pick>; done?: Record<string, Pick> };
+  return { open: Object.values(v.open ?? {}), done: Object.values(v.done ?? {}), boardAt: (b?.[0] as { updated_at?: string } | undefined)?.updated_at ?? null };
+}
+
 export const SORTS: { key: string; label: string; get: (r: Row) => number | null }[] = [
   { key: "bank", label: "Bankroll", get: (r) => r.bankroll },
   { key: "avail", label: "Available", get: (r) => r.available },

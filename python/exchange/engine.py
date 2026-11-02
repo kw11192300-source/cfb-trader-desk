@@ -1474,6 +1474,13 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         results.maybe_digest(store, meta, syns, members, now)
     except Exception as e:
         print(f"  (history skipped: {str(e)[:120]})", flush=True)
+    try:  # paper picks: log what the models would play and grade the finished ones; a failure here never touches the round
+        if hasattr(store, "c"):
+            from . import picks
+
+            picks.run(store, now)
+    except Exception as e:
+        print(f"  (picks skipped: {str(e)[:120]})", flush=True)
     if snaps:
         store.insert("ex_snapshots", snaps)
     if marks:
