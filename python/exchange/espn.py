@@ -56,6 +56,15 @@ def _odds(o: dict, which: str) -> dict | None:
     return out if any(out[k] is not None for k in ("spread", "total", "ml_home")) else None
 
 
+def fix_open_sign(o: dict | None) -> dict | None:
+    """ESPN's opening spread has the wrong sign on about one game in fifteen. Its opening moneyline is right, so the favourite named by the moneyline decides the
+    sign (home spread negative when home is the favourite). Left alone when the moneylines are missing or too close to call."""
+    if not o or not o.get("spread") or o.get("ml_home") is None or o.get("ml_away") is None or abs(o["ml_home"] - o["ml_away"]) < 20:
+        return o
+    s = abs(o["spread"])
+    return {**o, "spread": -s if o["ml_home"] < o["ml_away"] else s}
+
+
 def parse_event(sport: str, e: dict) -> dict | None:
     c = (e.get("competitions") or [{}])[0]
     comp = {x["homeAway"]: x for x in c.get("competitors", [])}
@@ -76,7 +85,7 @@ def parse_event(sport: str, e: dict) -> dict | None:
     return {
         "id": f"{sport}:{e['id']}", "sport": sport, "start": e.get("date"), "state": st.get("state"), "completed": bool(st.get("completed")),
         "detail": st.get("detail"), "neutral": bool(c.get("neutralSite")), "home": team(comp["home"]), "away": team(comp["away"]),
-        "now": _odds(o, "close") if o else None, "open": _odds(o, "open") if o else None,
+        "now": _odds(o, "close") if o else None, "open": fix_open_sign(_odds(o, "open")) if o else None,
     }
 
 
