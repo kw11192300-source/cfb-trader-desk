@@ -9,10 +9,10 @@ const c1 = (n: number) => `${n >= 0 ? "+" : ""}${(n * 100).toFixed(1)}¢`;
 export type Tier = "sharp" | "leaning" | "slight" | "none" | "public";
 export const TIERS: Record<Tier, { name: string; color: string }> = {
   sharp: { name: "Sharp", color: "#22c55e" },
-  leaning: { name: "Leaning sharp", color: "#6b9e7a" },
-  slight: { name: "Slight record", color: "#a8a29e" },
-  none: { name: "No record yet", color: "#57534e" },
-  public: { name: "Public money", color: "#ef4444" },
+  leaning: { name: "Leaning sharp", color: "#2f7d4f" },
+  slight: { name: "Slight record", color: "#8a8580" },
+  none: { name: "No record yet", color: "#47433f" },
+  public: { name: "Public money", color: "#a855f7" },
 };
 
 /** How much a trader's takes in a sport have earned a place on the sharp list: its closing-line record as a taker, 0 to 1. */
