@@ -230,9 +230,9 @@ export function GamePositions({ game, lots, syns, members, dim, colorBy, showAll
           </div>
           <div className="flex items-center gap-1">
             <span className="text-muted">Color by</span>
+            <Link href={hrefFor({ col: "sharp" })} scroll={false} className={chip(colorBy === "sharp")}>Sharpness</Link>
             <Link href={hrefFor({ col: "syn" })} scroll={false} className={chip(colorBy === "syn")}>Firm</Link>
             <Link href={hrefFor({ col: "type" })} scroll={false} className={chip(colorBy === "type")}>Type of firm</Link>
-            <Link href={hrefFor({ col: "sharp" })} scroll={false} className={chip(colorBy === "sharp")}>Sharpness</Link>
           </div>
         </div>
       </div>

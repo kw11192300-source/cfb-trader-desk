@@ -154,7 +154,7 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
   const toSeries = (p: Record<string, number[]>, xs: number[]): Series[] =>
     Object.entries(p).map(([sid, ys]) => ({ id: sid, name: synName[sid] ?? sid, color: color[sid] ?? "#888", pts: xs.map((x, i) => [x, ys[i]] as [number, number]), step: true }));
   const hrs = (new Date(game.start_utc).getTime() - Date.now()) / 3600000;
-  const pv = sp.pv === "t" ? "t" : "m", colBy = sp.col === "type" ? "type" : sp.col === "sharp" ? "sharp" : "syn";
+  const pv = sp.pv === "t" ? "t" : "m", colBy = sp.col === "type" ? "type" : sp.col === "syn" ? "syn" : "sharp";
   const href = (c?: string, syn?: string) => {
     const q = new URLSearchParams();
     if (c) q.set("c", c);
