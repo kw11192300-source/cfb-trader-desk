@@ -15,12 +15,14 @@ const tone = (n: number) => (n > 0.5 ? "text-up" : n < -0.5 ? "text-down" : "tex
 
 /** What kind of firm a syndicate is, for colouring the picture by who is trading rather than by name. */
 const TYPES: Record<string, { name: string; color: string }> = {
-  public: { name: "Public money", color: "#f97316" },
+  public: { name: "Public money", color: "#a855f7" },
   maker: { name: "Market makers", color: "#14b8a6" },
-  lab: { name: "Research labs", color: "#e879f9" },
+  lab: { name: "Research labs", color: "#f59e0b" },
   kalshi: { name: "Kalshi followers", color: "#10b981" },
   model: { name: "Model syndicates", color: "#3b82f6" },
 };
+const TIER_ORDER = ["sharp", "leaning", "slight", "none", "public"];
+const TYPE_ORDER = ["maker", "model", "kalshi", "lab", "public"];
 const typeOf = (engine: string) => (engine === "public" ? "public" : engine === "mm" || engine === "ref" ? "maker" : engine === "agent" ? "lab" : engine === "kalshi" ? "kalshi" : "model");
 
 function pdf(x: number, mu: number, sd: number) {
@@ -114,16 +116,24 @@ function Payoff({ game, lots, dim, colorOf, nameOf, showAll }: { game: ExGame; l
   );
 }
 
-function Ladder({ game, lots, dim, colorOf, nameOf, by }: { game: ExGame; lots: Lot[]; dim: Dim; colorOf: (o: string) => string; nameOf: (o: string) => string; by: "owner" | "holder" }) {
+function Ladder({ game, lots, dim, colorOf, nameOf, by, rankOf }: { game: ExGame; lots: Lot[]; dim: Dim; colorOf: (o: string) => string; nameOf: (o: string) => string; by: "owner" | "holder"; rankOf?: (o: string) => number }) {
   const ls = lots.filter((l) => (dim === "t") === (l.kind === "total"));
   const keys = [...new Set(ls.map((l) => `${l.kind}|${l.line}`))].map((k) => ({ kind: k.split("|")[0] as Lot["kind"], line: Number(k.split("|")[1]) })).sort((a, b) => (a.kind === "total" || b.kind === "total" ? (a.kind === b.kind ? b.line - a.line : a.kind === "total" ? 1 : -1) : (a.kind === "ml" ? 0 : a.line) - (b.kind === "ml" ? 0 : b.line))); // the moneyline is a spread of zero, so it sits between -1.5 and +1.5
   if (!keys.length) return null;
   const rows = keys.map((k) => {
     const net: Record<string, number> = {};
     for (const l of ls) if (l.kind === k.kind && l.line === k.line) net[by === "holder" ? l.holder : l.owner] = (net[by === "holder" ? l.holder : l.owner] ?? 0) + l.qty;
-    const pos = Object.entries(net).filter(([, q]) => q > 0.3).sort((a, b) => b[1] - a[1]);
-    const neg = Object.entries(net).filter(([, q]) => q < -0.3).sort((a, b) => a[1] - b[1]);
-    return { ...k, pos, neg, long: pos.reduce((a, [, q]) => a + q, 0), short: neg.reduce((a, [, q]) => a - q, 0) };
+    // chunks of the same kind sit together (sharpest, or the first kind, nearest the middle), and within a kind the biggest comes first
+    const grp = (o: string) => (rankOf ? rankOf(o) : 0);
+    const pos = Object.entries(net).filter(([, q]) => q > 0.3).sort((a, b) => grp(a[0]) - grp(b[0]) || b[1] - a[1]);
+    const neg = Object.entries(net).filter(([, q]) => q < -0.3).sort((a, b) => grp(a[0]) - grp(b[0]) || a[1] - b[1]);
+    // what each holder paid on this contract: the average price of the lots on the side it holds, and how many trades that took
+    const entry = (o: string, side: 1 | -1) => {
+      const ms = ls.filter((l) => l.kind === k.kind && l.line === k.line && (by === "holder" ? l.holder : l.owner) === o && Math.sign(l.qty) === side);
+      const q = ms.reduce((a, l) => a + Math.abs(l.qty), 0);
+      return q > 0 ? { avg: ms.reduce((a, l) => a + Math.abs(l.qty) * l.price, 0) / q, n: ms.length } : null;
+    };
+    return { ...k, pos, neg, entry, long: pos.reduce((a, [, q]) => a + q, 0), short: neg.reduce((a, [, q]) => a - q, 0) };
   });
   const max = Math.max(1, ...rows.flatMap((r) => [r.long, r.short]));
   const lt = dim === "t" ? "Under" : game.away.abbr, rt = dim === "t" ? "Over" : game.home.abbr;
@@ -138,7 +148,7 @@ function Ladder({ game, lots, dim, colorOf, nameOf, by }: { game: ExGame; lots: 
             <div className="flex items-center justify-end gap-1.5">
               <span className="font-mono text-[10px] text-muted">{r.short > 0.3 ? r.short.toFixed(0) : ""}</span>
               <div className="flex h-3.5 flex-row-reverse" style={{ width: `${(r.short / max) * 82}%` }}>
-                {r.neg.map(([o, q]) => <div key={o} style={{ width: `${(-q / r.short) * 100}%`, background: colorOf(o) }} title={`${nameOf(o)}: ${(-q).toFixed(0)} backing ${lt}`} className="h-full border-l border-background first:border-l-0" />)}
+                {r.neg.map(([o, q]) => <div key={o} style={{ width: `${(-q / r.short) * 100}%`, background: colorOf(o) }} title={(() => { const e = r.entry(o, -1); return `${nameOf(o)}: ${(-q).toFixed(0)} backing ${lt}${e ? `\nSold at an average of ${(e.avg * 100).toFixed(0)}¢ (so it backs ${lt} at ${(100 - e.avg * 100).toFixed(0)}¢), ${e.n} trade${e.n === 1 ? "" : "s"}\nPrice now ${pct(fairOf(game, r.kind, r.line))}` : ""}`; })()} className="h-full border-l border-background first:border-l-0" />)}
               </div>
             </div>
             <span className={`border-x border-border bg-surface py-0.5 text-center font-mono ${r.kind === "ml" ? "font-semibold text-accent" : "text-foreground"}`} title={label(r, game)}>
@@ -146,7 +156,7 @@ function Ladder({ game, lots, dim, colorOf, nameOf, by }: { game: ExGame; lots: 
             </span>
             <div className="flex items-center gap-1.5">
               <div className="flex h-3.5" style={{ width: `${(r.long / max) * 82}%` }}>
-                {r.pos.map(([o, q]) => <div key={o} style={{ width: `${(q / r.long) * 100}%`, background: colorOf(o) }} title={`${nameOf(o)}: ${q.toFixed(0)} backing ${rt}`} className="h-full border-l border-background first:border-l-0" />)}
+                {r.pos.map(([o, q]) => <div key={o} style={{ width: `${(q / r.long) * 100}%`, background: colorOf(o) }} title={(() => { const e = r.entry(o, 1); return `${nameOf(o)}: ${q.toFixed(0)} backing ${rt}${e ? `\nBought at an average of ${(e.avg * 100).toFixed(0)}¢, ${e.n} trade${e.n === 1 ? "" : "s"}\nPrice now ${pct(fairOf(game, r.kind, r.line))}` : ""}`; })()} className="h-full border-l border-background first:border-l-0" />)}
               </div>
               <span className="font-mono text-[10px] text-muted">{r.long > 0.3 ? r.long.toFixed(0) : ""}</span>
             </div>
@@ -240,7 +250,7 @@ export function GamePositions({ game, lots, syns, members, dim, colorBy, showAll
         with the shaded hill showing how likely each result is by DraftKings&rsquo; price. Below it, each bar is a line on this game: how many contracts back each side, split by who holds them. The grid at the bottom reads the same books at the results that matter for the lines actually held.
       </p>
       <Payoff game={game} lots={lots} dim={dim} colorOf={colorOf} nameOf={nameOf} showAll={showAll} />
-      <div className="mt-6"><Ladder game={game} lots={lots} dim={dim} by={colorBy === "sharp" ? "holder" : "owner"} colorOf={colorBy === "sharp" ? (h) => (mem[h] ? TIERS[tierOf(mem[h], game.sport)].color : "#888") : colorOf} nameOf={colorBy === "sharp" ? (h) => `${mem[h]?.name ?? h} (${mem[h] ? TIERS[tierOf(mem[h], game.sport)].name : ""})` : nameOf} /></div>
+      <div className="mt-6"><Ladder game={game} lots={lots} dim={dim} by={colorBy === "sharp" ? "holder" : "owner"} colorOf={colorBy === "sharp" ? (h) => (mem[h] ? TIERS[tierOf(mem[h], game.sport)].color : "#888") : colorOf} nameOf={colorBy === "sharp" ? (h) => `${mem[h]?.name ?? h} (${mem[h] ? TIERS[tierOf(mem[h], game.sport)].name : ""})` : nameOf} rankOf={colorBy === "sharp" ? (h) => (mem[h] ? TIER_ORDER.indexOf(tierOf(mem[h], game.sport)) : 9) : colorBy === "type" ? (o) => TYPE_ORDER.indexOf(typeOf(info[o]?.engine ?? "")) : undefined} /></div>
       <div className="mt-6"><Heat game={game} lots={lots} dim={dim} colorOf={colorOf} nameOf={nameOf} /></div>
     </section>
   );
