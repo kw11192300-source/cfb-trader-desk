@@ -1,3 +1,4 @@
+import { sideIsHome } from "./betSide";
 import type { Bet, Game } from "./types";
 
 export type BetOutcome = "win" | "loss" | "push" | "n/a";
@@ -17,12 +18,12 @@ export function evaluateBetAtMargin(bet: Bet, game: Game, homeMargin: number): {
   let margin: number;
   if (bet.market === "moneyline") {
     // homeMargin === 0 (a tie) never happens in real CFB - callers skip it entirely.
-    const sideIsHome = bet.side === game.home_team;
+    const isHomeSide = sideIsHome(bet.side, game);
     const homeWon = homeMargin > 0;
-    margin = (sideIsHome ? homeWon : !homeWon) ? 1 : -1;
+    margin = (isHomeSide ? homeWon : !homeWon) ? 1 : -1;
   } else {
-    const sideIsHome = bet.side === game.home_team;
-    const actualMarginForSide = sideIsHome ? homeMargin : -homeMargin;
+    const isHomeSide = sideIsHome(bet.side, game);
+    const actualMarginForSide = isHomeSide ? homeMargin : -homeMargin;
     margin = actualMarginForSide + bet.line;
   }
 

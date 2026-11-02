@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { sideIsHome } from "./betSide";
 import { supabaseAdmin } from "./supabase-admin";
 import { type DisplayLine, mergeLines, pickHeadlineLine } from "./mergedLines";
 import { devigTwoWay } from "./oddsMath";
@@ -462,12 +463,12 @@ function gradeBet(bet: Bet, game: Game | null): { status: BetStatus; profit: num
     margin = bet.side === "over" ? total - bet.line : bet.line - total;
   } else if (bet.market === "moneyline") {
     const homeWon = game.home_points > game.away_points;
-    const sideIsHome = bet.side === game.home_team;
-    margin = (sideIsHome ? homeWon : !homeWon) ? 1 : -1; // no push concept for moneyline
+    const isHomeSide = sideIsHome(bet.side, game);
+    margin = (isHomeSide ? homeWon : !homeWon) ? 1 : -1; // no push concept for moneyline
   } else {
     // spread (default)
-    const sideIsHome = bet.side === game.home_team;
-    const actualMarginForSide = sideIsHome ? game.home_points - game.away_points : game.away_points - game.home_points;
+    const isHomeSide = sideIsHome(bet.side, game);
+    const actualMarginForSide = isHomeSide ? game.home_points - game.away_points : game.away_points - game.home_points;
     margin = actualMarginForSide + bet.line;
   }
 

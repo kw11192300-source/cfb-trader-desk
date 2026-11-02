@@ -1,3 +1,4 @@
+import { sideIsHome } from "./betSide";
 import type { NhlMarket } from "./types";
 import type { Bet, Game } from "./types";
 
@@ -11,7 +12,7 @@ export type Clv = { value: number; unit: "pts" | "%" };
  * Positive = you got a better number or price than the market ended up at. Null when we have no price for that market. */
 export function nhlBetClv(bet: Bet, game: Game | null, m: NhlMarket | null): Clv | null {
   if (!game || !m) return null;
-  const isHome = bet.side === game.home_team;
+  const isHome = sideIsHome(bet.side, game);
   const priceClv = (closeOdds: number | null): Clv | null => (closeOdds === null ? null : { value: (implied(closeOdds) - implied(bet.odds)) * 100, unit: "%" });
 
   if (bet.market === "moneyline" || (bet.market === "spread" && Math.abs(bet.line) === 0.5)) {

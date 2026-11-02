@@ -1,3 +1,4 @@
+import { betSideTeam } from "@/lib/betSide";
 import BreakdownTable from "./BreakdownTable";
 import PnlChart from "./PnlChart";
 import { byWeek as summarizeByWeek, fmtPct, summarizeBets } from "@/lib/betBreakdown";
@@ -17,8 +18,9 @@ function impliedProb(odds: number): number {
  * either team specifically, just to the game). */
 function betExposure(bet: GradedBet["bet"], game: Game | null): { team: string | null; conference: string | null } {
   if (!game || bet.market === "total") return { team: null, conference: null };
-  if (bet.side === game.home_team) return { team: game.home_team, conference: game.home_conference };
-  if (bet.side === game.away_team) return { team: game.away_team, conference: game.away_conference };
+  const which = betSideTeam(bet.side, game);
+  if (which === "home") return { team: game.home_team, conference: game.home_conference };
+  if (which === "away") return { team: game.away_team, conference: game.away_conference };
   return { team: bet.side, conference: null };
 }
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { sideIsHome } from "@/lib/betSide";
 import { useMemo, useState } from "react";
 import BreakdownTable from "./BreakdownTable";
 import LocalDateTime from "./LocalDateTime";
@@ -64,7 +65,7 @@ function moneylineClv(bet: Bet, currentForSide: number | null): Clv | null {
  * against the moneyline market instead. */
 function computeClv(bet: Bet, game: Game | null, currentLine: DisplayLine | null): Clv | null {
   if (!game || !currentLine) return null;
-  const isHome = bet.side === game.home_team;
+  const isHome = sideIsHome(bet.side, game);
   const currentMoneylineForSide = isHome ? currentLine.homeMoneyline : currentLine.awayMoneyline;
 
   if (bet.market === "spread" && Math.abs(bet.line) === 0.5) {

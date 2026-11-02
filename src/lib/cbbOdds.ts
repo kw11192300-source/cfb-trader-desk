@@ -93,7 +93,17 @@ export function parseOpen(o: EspnOdds): CbbOpen | null {
     spread_home_odds_open: price(ps.home?.open?.odds),
     total_odds_open: price(tot.over?.open?.odds),
   };
+  open.spread_home_open = fixOpenSign(open.spread_home_open, open.ml_home_open, open.ml_away_open);
   return Object.values(open).some((v) => v !== null) ? open : null;
+}
+
+/** ESPN's opening spread has the wrong sign on about one game in fifteen (an opener of home -5.5 for a game that closed at home +8.5, or the mirror image of a
+ * number that never moved). Its opening moneyline is right, so the favourite named by the moneyline decides: the home team's spread is negative when the home team
+ * is the moneyline favourite and positive when it is the underdog. Left alone when the moneylines are missing or too close to call. */
+export function fixOpenSign(spread: number | null, mlHome: number | null, mlAway: number | null): number | null {
+  if (spread === null || spread === 0 || mlHome === null || mlAway === null || Math.abs(mlHome - mlAway) < 20) return spread;
+  const homeFavourite = mlHome < mlAway; // the favourite has the lower (more negative) price
+  return homeFavourite ? -Math.abs(spread) : Math.abs(spread);
 }
 
 type EspnEvent = {
