@@ -43,7 +43,8 @@ IMPACT = 0.03  # a full-strength sharp trader's full-size trade moves everyone's
 IMPACT_Q = 50.0  # contracts that count as a full-size trade
 FLOW_DECAY = 0.6  # how much of that market move is still felt a round later
 SHARP_CLV = 0.02  # average closing-line value (2 cents) that makes a taker fully "sharp"
-SHARP_N = 10.0  # effective trades of evidence before a taker's record counts in full
+SHARP_N = 25.0  # a taker's record counts half at this many trades (its own count, not the decayed weight) and more as it grows
+SHARP_GAMES = 40.0  # finished games a syndicate's model weight needs behind it before it can lift every trader's sharpness in full
 MM_REACT = 2.0  # a market maker moves its own view of a game this many times harder than a follower when its quote is hit
 LEAN_CAP = 0.03  # a market maker's inventory lean moves its quotes at most this far (3 cents): past it, a position is worked off by stopping the heavy side, not by paying ever more (Careful Book gave up 472 units on fills 3 to 19 cents off DraftKings)
 MAKER_SOFT = 0.7  # a market maker stops offering new risk once it has used this share of its risk limit, so it always has room to keep quoting
@@ -61,7 +62,7 @@ CAP_BASE, CAP_FULL = 100.0, 200.0  # a syndicate's per-game limit starts here an
 CORE_MIN = 10.0  # the main lines (moneyline and the spread and total nearest the DraftKings number) are always quoted: a maker posts at least this many contracts a side there,
 CORE_MIN_NEAR = 25.0  # within CORE_NEAR_H hours of kickoff the main-line floor is larger, so the late public flow has depth to hit
 CORE_NEAR_H = 3.0
-NEAR_WIDEN = 1.3  # a market maker's half-spread is this much wider inside CORE_NEAR_H hours of kickoff, where late line moves do the most damage (it was the last hour only)
+NEAR_WIDEN = 1.0  # a market maker's half-spread multiplier inside CORE_NEAR_H hours of kickoff: 1.0 keeps spreads tight into the start (it was 1.3 near kickoff)
 CORE_TAPER = 0.35  # a maker past its soft cap still quotes the main lines at this share of its normal size (never less than CORE_MIN)
 CORE_RAMP = 0.25  # as if the game were at least this far up its limit ramp, and past its soft risk cap (up to its hard limits), so a game never sits with no price to trade at
 SPORT_BONUS = 0.5  # a trader whose takes have beaten the close in a sport gets up to this much more room on that sport's games (and so does its syndicate)
@@ -144,6 +145,14 @@ def _res_add(st: dict, sport: str, gid: str, r: float) -> None:
     h = d["h"][zlib.crc32(gid.encode()) & 1]
     h[0] += r
     h[1] += 1
+
+
+def _clvs_add(st: dict, sport: str, c: float) -> None:
+    """A taker's whole closing-line record in a sport, undecayed: count, sum and sum of squares, so its average and the error on it are known. This is what the sharp score reads."""
+    d = st.setdefault("clvs", {}).setdefault(sport, {"n": 0, "s": 0.0, "q": 0.0})
+    d["n"] += 1
+    d["s"] += c
+    d["q"] += c * c
 
 
 def _iso(d: datetime) -> str:
@@ -277,6 +286,18 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         if t.get("rem_s") is None:
             t["rem_s"] = t["qty"]
     traded_games = {t["game_id"] for t in open_trades}
+    clvs_backfilled = None
+    if "clvs_v1" not in meta:  # once: each taker's whole closing-line record per sport, from the settled trades still in the ledger
+        clvs_backfilled = 0
+        for t_ in store.rows("ex_trades", {"settled": True}):
+            c_ = t_.get("close_p")
+            if c_ is None:
+                continue
+            for side_ in ("buyer", "seller"):
+                m_ = members.get(t_[side_])
+                if m_ is not None and t_[side_] != t_["maker"]:
+                    _clvs_add(m_["stats"], t_["game_id"].split(":")[0], (c_ - t_["price"]) if side_ == "buyer" else (t_["price"] - c_))
+                    clvs_backfilled += 1
     res_backfilled = None
     if "res_v1" not in meta:  # once: build the result-edge record from every settled trade still in the ledger (nothing settled this round is in the database yet, so nothing is counted twice)
         res_backfilled = 0
@@ -478,6 +499,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 if role == "taker":  # the track record other traders read: closing-line value on what this trader chose to hit, by sport
                     fl = st.setdefault("flow", {}).setdefault(g["sport"], {"s": 0.0, "w": 0.0, "n": 0})
                     fl["s"], fl["w"], fl["n"] = fl["s"] * 0.97 + c, fl["w"] * 0.97 + 1.0, fl["n"] + 1
+                    _clvs_add(st, g["sport"], c)
         settled_rows.append(t)
         settled_by_game.setdefault(t["game_id"], []).append(t)
         stats["settled"] += 1
@@ -681,11 +703,15 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         m = members[mid]
         if m["params"].get("public"):  # labelled public money: never treated as informed, however a lucky run looks
             return 0.0
-        fl = (m["stats"].get("flow") or {}).get(sport)
+        rec = (m["stats"].get("clvs") or {}).get(sport)
         s1 = 0.0
-        if fl and fl["w"] > 0:
-            s1 = float(np.clip(fl["s"] / fl["w"] / SHARP_CLV, 0.0, 1.0)) * fl["w"] / (fl["w"] + SHARP_N)
-        s2 = 0.7 * float(np.clip((weights[(m["syndicate_id"], sport)] - W0) / (W_MAX - W0), 0.0, 1.0))
+        if rec and rec["n"] >= 2:  # the whole record's average closing-line value less one standard error (so a few lucky trades cannot look sharp), then discounted until the record is long
+            n_ = rec["n"]
+            mean_ = rec["s"] / n_
+            se_ = float(np.sqrt(max(0.0, rec["q"] / n_ - mean_ * mean_) / n_))
+            s1 = float(np.clip((mean_ - se_) / SHARP_CLV, 0.0, 1.0)) * n_ / (n_ + SHARP_N)
+        g = (((syns[m["syndicate_id"]].get("learn") or {}).get("stats") or {}).get(sport) or {}).get("g", 0.0)
+        s2 = 0.7 * float(np.clip((weights[(m["syndicate_id"], sport)] - W0) / (W_MAX - W0), 0.0, 1.0)) * min(1.0, g / SHARP_GAMES)
         return max(s1, s2)
 
     # market moves caused by sharp flow: a shift in each game's expected margin and total that everyone who follows the flow adds to their fair prices
@@ -1485,6 +1511,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         store.insert("ex_snapshots", snaps)
     if marks:
         store.insert("ex_marks", marks)
+    if clvs_backfilled is not None:
+        store.upsert("ex_meta", [{"key": "clvs_v1", "value": {"sides": clvs_backfilled, "ts": _iso(now)}}])
     if res_backfilled is not None:
         store.upsert("ex_meta", [{"key": "res_v1", "value": {"trades": res_backfilled, "ts": _iso(now)}}])
     store.upsert("ex_meta", [{"key": "round", "value": {"n": rnd, "ts": _iso(now), "markets": len(markets), "games": len(by_gid),
