@@ -148,7 +148,8 @@ function Ladder({ game, lots, dim, colorOf, nameOf, by, rankOf }: { game: ExGame
             <div className="flex items-center justify-end gap-1.5">
               <span className="font-mono text-[10px] text-muted">{r.short > 0.3 ? r.short.toFixed(0) : ""}</span>
               <div className="flex h-3.5 flex-row-reverse" style={{ width: `${(r.short / max) * 82}%` }}>
-                {r.neg.map(([o, q]) => <div key={o} style={{ width: `${(-q / r.short) * 100}%`, background: colorOf(o) }} title={(() => { const e = r.entry(o, -1); return `${nameOf(o)}: ${(-q).toFixed(0)} backing ${lt}${e ? `\nSold at an average of ${(e.avg * 100).toFixed(0)}¢ (so it backs ${lt} at ${(100 - e.avg * 100).toFixed(0)}¢), ${e.n} trade${e.n === 1 ? "" : "s"}\nPrice now ${pct(fairOf(game, r.kind, r.line))}` : ""}`; })()} className="h-full border-l border-background first:border-l-0" />)}
+                {r.neg.map(([o, q]) => <div key={o} style={{ width: `${(-q / r.short) * 100}%`, background: colorOf(o) }} title={(() => { const e = r.entry(o, -1); const now = fairOf(game, r.kind, r.line); return `${nameOf(o)}: ${(-q).toFixed(0)} backing ${lt}${e ? ` at ${(100 - e.avg * 100).toFixed(0)}¢ (${e.n} trade${e.n === 1 ? "" : "s"})${now != null ? `
+Price now ${(100 - now * 100).toFixed(0)}¢` : ""}` : ""}`; })()} className="h-full border-l border-background first:border-l-0" />)}
               </div>
             </div>
             <span className={`border-x border-border bg-surface py-0.5 text-center font-mono ${r.kind === "ml" ? "font-semibold text-accent" : "text-foreground"}`} title={label(r, game)}>
@@ -156,7 +157,8 @@ function Ladder({ game, lots, dim, colorOf, nameOf, by, rankOf }: { game: ExGame
             </span>
             <div className="flex items-center gap-1.5">
               <div className="flex h-3.5" style={{ width: `${(r.long / max) * 82}%` }}>
-                {r.pos.map(([o, q]) => <div key={o} style={{ width: `${(q / r.long) * 100}%`, background: colorOf(o) }} title={(() => { const e = r.entry(o, 1); return `${nameOf(o)}: ${q.toFixed(0)} backing ${rt}${e ? `\nBought at an average of ${(e.avg * 100).toFixed(0)}¢, ${e.n} trade${e.n === 1 ? "" : "s"}\nPrice now ${pct(fairOf(game, r.kind, r.line))}` : ""}`; })()} className="h-full border-l border-background first:border-l-0" />)}
+                {r.pos.map(([o, q]) => <div key={o} style={{ width: `${(q / r.long) * 100}%`, background: colorOf(o) }} title={(() => { const e = r.entry(o, 1); const now = fairOf(game, r.kind, r.line); return `${nameOf(o)}: ${q.toFixed(0)} backing ${rt}${e ? ` at ${(e.avg * 100).toFixed(0)}¢ (${e.n} trade${e.n === 1 ? "" : "s"})${now != null ? `
+Price now ${(now * 100).toFixed(0)}¢` : ""}` : ""}`; })()} className="h-full border-l border-background first:border-l-0" />)}
               </div>
               <span className="font-mono text-[10px] text-muted">{r.long > 0.3 ? r.long.toFixed(0) : ""}</span>
             </div>
