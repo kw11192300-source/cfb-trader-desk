@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { type ExGame, type ExMark, type ExMember, type ExSyndicate, type ExTrade, label } from "@/lib/syndicates";
+import { type Discovery, type ExGame, type ExMark, type ExMember, type ExSyndicate, type ExTrade, label } from "@/lib/syndicates";
 
 type Closing = {
   src: string;
@@ -27,7 +27,7 @@ const tone = (n: number) => (n > 0.05 ? "text-up" : n < -0.05 ? "text-down" : "t
 const cents = (p: number | null | undefined) => (p == null ? "–" : `${(p * 100).toFixed(0)}¢`);
 
 /** What a finished game was about: how it came out against each contract, who was closer, where the money came from (price versus result), and the best and worst single trades. */
-export default function GameReview({ game, result, trades, marks, members, syndicates }: { game: ExGame; result: Result; trades: ExTrade[]; marks: ExMark[]; members: ExMember[]; syndicates: ExSyndicate[] }) {
+export default function GameReview({ game, result, trades, marks, members, syndicates, discovery }: { game: ExGame; result: Result; trades: ExTrade[]; marks: ExMark[]; members: ExMember[]; syndicates: ExSyndicate[]; discovery: Discovery | null }) {
   const mem = Object.fromEntries(members.map((m) => [m.id, m]));
   const syn = Object.fromEntries(syndicates.map((s) => [s.id, s]));
   const hs = result.home_score ?? 0, as = result.away_score ?? 0;
@@ -83,6 +83,27 @@ export default function GameReview({ game, result, trades, marks, members, syndi
 
   const kick = new Date(game.start_utc).getTime();
   single.sort((a, b) => b.pnl - a.pnl);
+
+  // opening, discovery and close: where DraftKings (or, before it posted, the exchange) opened, and where each line finished
+  const firstMk = marks[0], lastMk = marks[marks.length - 1];
+  const mainAt = (m: ExMark | undefined, kind: string) => m?.lines.find((l) => l[0] === kind)?.[1];
+  const mlAt = (m: ExMark | undefined) => {
+    const i = m?.lines.findIndex((l) => l[0] === "ml") ?? -1;
+    return m && i >= 0 ? m.r[i] : null;
+  };
+  const homeBy = (v: number) => `${result.home.abbr} by ${v.toFixed(1)}`;
+  const d = discovery;
+  const gapOpen = (a: number | undefined | null, b: number | undefined | null) => (a == null || b == null ? null : Math.abs(a - b));
+  const dSpread = d ? { open: gapOpen(d.seed?.[0], d.dk?.[0]), then: gapOpen(d.internal?.[0], d.dk?.[0]) } : null;
+  const dTotal = d ? { open: gapOpen(d.seed?.[1], d.dk?.[1]), then: gapOpen(d.internal?.[1], d.dk?.[1]) } : null;
+  const cmp = (after: number, before: number, better: string, worse: string) => (Math.abs(after - before) < 0.05 ? "about the same" : after < before ? better : worse);
+
+  // value picked: the trades whose price beat the closing price by the most, size counted (this is price, not the result)
+  const value = single
+    .filter((x) => x.t.close_p != null)
+    .map((x) => ({ ...x, v: x.t.qty * (x.side === "buyer" ? x.t.close_p! - x.t.price : x.t.price - x.t.close_p!) }))
+    .sort((a, b) => b.v - a.v)
+    .slice(0, 4);
   const line = (x: { pnl: number; t: ExTrade; side: "buyer" | "seller" }) => {
     const m = mem[x.t[x.side]];
     const buy = x.side === "buyer";
@@ -126,6 +147,53 @@ export default function GameReview({ game, result, trades, marks, members, syndi
           <p className="mt-1 text-[10px] text-muted">Closing prices are the chance of the home side, the home side covering, or the over. A difference under half a cent counts as level.</p>
         </div>
       )}
+
+      <div className="mb-5 rounded-md border border-border p-3">
+        <p className="mb-1 text-xs font-semibold text-foreground">Opening line and discovery</p>
+        {d ? (
+          <div className="space-y-1 text-[11px] leading-relaxed text-muted">
+            <p>DraftKings had not priced this game, so the exchange made the line. It opened from the rating models at <span className="text-foreground">{d.seed ? `${homeBy(d.seed[0])}, total ${d.seed[1].toFixed(1)}` : "–"}</span>. By the time DraftKings posted, {d.hours_before.toFixed(0)} hours before kickoff and {d.rounds} rounds later, trading had moved it to <span className="text-foreground">{d.internal ? `${homeBy(d.internal[0])}, total ${d.internal[1].toFixed(1)}` : "–"}</span>, and DraftKings opened at <span className="text-foreground">{d.dk ? `${homeBy(d.dk[0])}, total ${d.dk[1].toFixed(1)}` : "–"}</span>.</p>
+            {dSpread && dSpread.open != null && dSpread.then != null && dTotal && dTotal.open != null && dTotal.then != null && (
+              <p>Off DraftKings by: spread {dSpread.open.toFixed(1)} at the opener, {dSpread.then.toFixed(1)} after trading ({cmp(dSpread.then, dSpread.open, "trading moved it toward DraftKings", "trading moved it away from DraftKings")}); total {dTotal.open.toFixed(1)} then {dTotal.then.toFixed(1)} ({cmp(dTotal.then, dTotal.open, "closer", "further")}).</p>
+            )}
+            {lastMk && <p>Then DraftKings&rsquo; line closed at spread {mainAt(lastMk, "spread") ?? "–"}, total {mainAt(lastMk, "total") ?? "–"}.</p>}
+          </div>
+        ) : (
+          <div className="space-y-1 text-[11px] leading-relaxed text-muted">
+            {firstMk && lastMk ? (
+              <>
+                <p>DraftKings opened (as the exchange first saw it) at spread <span className="text-foreground">{mainAt(firstMk, "spread") ?? "–"}</span>, total <span className="text-foreground">{mainAt(firstMk, "total") ?? "–"}</span>, and closed at spread <span className="text-foreground">{mainAt(lastMk, "spread") ?? "–"}</span>, total <span className="text-foreground">{mainAt(lastMk, "total") ?? "–"}</span>.</p>
+                {mlAt(firstMk) != null && mlAt(lastMk) != null && <p>The {result.home.abbr} moneyline went from {cents(mlAt(firstMk))} to {cents(mlAt(lastMk))}.</p>}
+              </>
+            ) : (
+              <p>No price history was kept for this game.</p>
+            )}
+          </div>
+        )}
+        {value.length > 0 && (
+          <div className="mt-3">
+            <p className="mb-1 text-xs font-semibold text-foreground">Who picked off value</p>
+            <p className="mb-1 text-[10px] text-muted">The trades whose price beat the closing price by the most, counting size (units of closing-line value). It rewards the price, whatever the result was.</p>
+            <ul>
+              {value.map((x) => {
+                const m = mem[x.t[x.side]];
+                const buy = x.side === "buyer";
+                const hrs = (kick - new Date(x.t.ts).getTime()) / 3600000;
+                const before = d && new Date(x.t.ts).getTime() < new Date(d.found).getTime();
+                return (
+                  <li key={`${x.t.id}${x.side}v`} className="flex flex-wrap items-baseline justify-between gap-x-3 border-t border-border py-1.5 text-[11px]">
+                    <span className="min-w-0">
+                      <Link href={`/syndicates/traders/${m.id}`} className="text-foreground hover:text-accent">{m.name}</Link>
+                      <span className="ml-1 text-muted">({syn[m.syndicate_id]?.name}) {buy ? "bought" : "sold"} {label({ kind: x.t.kind, line: x.t.line }, game)} {Math.round(x.t.qty)} at {cents(x.t.price)}, closed {cents(x.t.close_p)}, {hrs >= 1 ? `${hrs.toFixed(0)}h` : `${Math.max(0, hrs * 60).toFixed(0)}m`} before kickoff{before ? ", before DraftKings posted" : ""}</span>
+                    </span>
+                    <span className="font-mono text-up">{u(x.v)}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+      </div>
 
       <div className="mb-5 grid gap-5 lg:grid-cols-2">
         <div>

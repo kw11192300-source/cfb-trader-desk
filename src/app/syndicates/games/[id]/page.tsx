@@ -210,7 +210,7 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
           </p>
         </div>
 
-        {result && <GameReview game={game as ExGame} result={result as unknown as Parameters<typeof GameReview>[0]["result"]} trades={trades} marks={marks} members={members} syndicates={syndicates} />}
+        {result && <GameReview game={game as ExGame} result={result as unknown as Parameters<typeof GameReview>[0]["result"]} trades={trades} marks={marks} members={members} syndicates={syndicates} discovery={disc ?? null} />}
 
         {result && (
           <section className="mb-6 rounded-lg border border-border bg-surface p-4">
