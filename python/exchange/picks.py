@@ -23,7 +23,8 @@ WIN_UNITS = 100.0 / 110.0  # profit on a winning 1-unit bet at -110
 SPREAD_TIERS = ((1.0, "A"), (0.5, "B"))  # minimum predicted move for each tier
 TOTAL_TIERS = ((1.3, "A"), (1.0, "B"))
 SHARE_A, SHARE_B = 0.07, 0.20  # share of the priced games that can be tier A, and tier A or B together
-MIN_LEAD = timedelta(minutes=15)  # no picks inside the last quarter hour before the start: the number is about to be the close
+MIN_LEAD = timedelta(minutes=60)  # no picks inside the last hour before the start: the number is about to be the close
+MOVED = 0.5  # points: a line that has already moved this far from its open is "moved"; a pick may not bet that it will move back
 KEEP_DAYS = 90
 BOARD_MAX_AGE = timedelta(hours=3)  # the board is rewritten every 30 to 60 minutes while its job runs: a board older than this is stale and makes no picks
 
@@ -48,37 +49,45 @@ def _load(store) -> dict:
 
 def generate_cbb(client, now: datetime, have: set) -> list[dict]:
     """New CBB movement picks from the published board: one per game and market, the first time the predicted remaining move clears a tier."""
+    snap = client.table("cbb_odds_snapshots").select("captured_at").order("captured_at", desc=True).limit(1).execute().data or []
+    if not snap or now - datetime.fromisoformat(snap[0]["captured_at"].replace("Z", "+00:00")) > BOARD_MAX_AGE:
+        return []  # the lines themselves are stale (the odds timer or the Update scores & lines button has not run): no picks off old numbers
     rows = client.table("cbb_game_board").select("game_id,start_date,home_team,away_team,payload,updated_at").gte("start_date", (now + MIN_LEAD).isoformat()).gte("updated_at", (now - BOARD_MAX_AGE).isoformat()).execute().data or []
     out = []
-    # rank every priced game by the size of its predicted move, per market: a tier needs both the size and a place inside its share of the board
-    ranks: dict[str, dict] = {"spread": {}, "total": {}}
-    for kind in ("spread", "total"):
-        key = "remaining_spread" if kind == "spread" else "remaining_total"
-        priced = sorted(((abs((r["payload"].get("move") or {}).get(key) or 0.0), r["game_id"]) for r in rows if (r["payload"].get("move") or {}).get(key) is not None), reverse=True)
-        ranks[kind] = {gid: (i, len(priced)) for i, (_, gid) in enumerate(priced)}
+    # the eligible games per market: a pick follows the move the model expects from the open, and never bets that a line which has already moved will drift back
+    # toward where it opened. Tiers are then a share of the eligible games, biggest predicted move first.
+    elig: dict[str, list] = {"spread": [], "total": []}
     for r in rows:
         p = r["payload"] or {}
         mk, mv, bets = p.get("market") or {}, p.get("move") or {}, p.get("bets") or {}
         for kind in ("spread", "total"):
-            pid = f"cbb:{r['game_id']}|{kind}"
             side = (bets.get(kind) or {}).get("side")
             rem = mv.get("remaining_spread" if kind == "spread" else "remaining_total")
             line = mk.get("cur_margin" if kind == "spread" else "cur_total")
-            if pid in have or not side or rem is None or line is None:
+            pred = mv.get("spread" if kind == "spread" else "total")
+            opened = mk.get("open_margin" if kind == "spread" else "open_total")
+            if not side or rem is None or line is None or pred is None or pred * rem <= 0:
                 continue
-            tier = _tier(abs(rem), SPREAD_TIERS if kind == "spread" else TOTAL_TIERS)
-            i, n = ranks[kind].get(r["game_id"], (0, 1))
+            if opened is not None and (float(line) - float(opened)) * rem < 0 and abs(float(line) - float(opened)) >= MOVED:
+                continue
+            elig[kind].append((abs(float(rem)), r, side, float(rem), float(line), opened, mk))
+    for kind in ("spread", "total"):
+        ranked = sorted(elig[kind], key=lambda x: -x[0])
+        n = len(ranked)
+        for i, (size, r, side, rem, line, opened, mk) in enumerate(ranked):
+            pid = f"cbb:{r['game_id']}|{kind}"
+            tier = _tier(size, SPREAD_TIERS if kind == "spread" else TOTAL_TIERS)
             if tier == "A" and i >= math.ceil(SHARE_A * n):
-                tier = "B"  # big enough for A but not among the biggest few on today's board
+                tier = "B"  # big enough for A but not among the biggest few eligible games on the board
             if tier == "B" and i >= math.ceil(SHARE_B * n):
                 tier = None
-            if not tier:
+            if pid in have or not tier:
                 continue
             out.append({
-                "id": pid, "source": "cbb_movement", "sport": "cbb", "game_id": r["game_id"], "kind": kind, "side": side, "line": float(line),
-                "price": PRICE, "tier": tier, "rem": round(float(rem), 2), "exp_clv": round(abs(float(rem)), 2), "units": 1.0, "units_scaled": scaled_units(rem, kind),
+                "id": pid, "source": "cbb_movement", "sport": "cbb", "game_id": r["game_id"], "kind": kind, "side": side, "line": line,
+                "price": PRICE, "tier": tier, "rem": round(rem, 2), "exp_clv": round(size, 2), "units": 1.0, "units_scaled": scaled_units(rem, kind),
                 "ts": now.isoformat(), "start": r["start_date"], "teams": f"{r['away_team']} @ {r['home_team']}", "home": r["home_team"], "away": r["away_team"],
-                "open": mk.get("open_margin" if kind == "spread" else "open_total"),
+                "open": opened,
             })
     return out
 
