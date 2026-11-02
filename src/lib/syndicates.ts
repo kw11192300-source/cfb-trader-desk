@@ -660,6 +660,16 @@ export async function getSignals(): Promise<{ open: Signal[]; done: Signal[] }> 
   return { open: Object.values(v.open ?? {}), done: v.done ?? [] };
 }
 
+/** The games behind open signals: names, state, DraftKings' current main-line prices and the book (for each line's current DraftKings and exchange price). */
+export type SignalGame = { [K in "id" | "start_utc" | "state" | "completed" | "home" | "away" | "home_score" | "away_score" | "book"]: ExGame[K] } & {
+  ref: (NonNullable<ExGame["ref"]> & { spread_home?: number | null; spread_away?: number | null; over?: number | null; under?: number | null }) | null;
+};
+export async function getSignalGames(ids: string[]): Promise<Record<string, SignalGame>> {
+  if (!ids.length) return {};
+  const { data } = await supabase.from("ex_games").select("id,start_utc,state,completed,home,away,home_score,away_score,ref,book").in("id", ids);
+  return Object.fromEntries(((data ?? []) as SignalGame[]).map((g) => [g.id, g]));
+}
+
 /** Track record of sharp pile-ups (python/exchange/piles.py): totals per size and group, [n, wins, sum pnl, sum pnl^2, sum clv, sum clv^2, n with clv]. */
 export type PileRecent = { game: string; teams: string; sport: string; kind: string; line: number; side: 1 | -1; ref: number; close: number | null; y: number; v: number; n: number; opp: number; top: number; ts: string };
 export async function getPiles(): Promise<{ openCount: number; cells: Record<string, number[]>; recent: PileRecent[] }> {
