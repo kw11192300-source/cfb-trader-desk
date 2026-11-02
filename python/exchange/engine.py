@@ -61,6 +61,7 @@ CAP_BASE, CAP_FULL = 100.0, 200.0  # a syndicate's per-game limit starts here an
 CORE_MIN = 10.0  # the main lines (moneyline and the spread and total nearest the DraftKings number) are always quoted: a maker posts at least this many contracts a side there,
 CORE_MIN_NEAR = 25.0  # within CORE_NEAR_H hours of kickoff the main-line floor is larger, so the late public flow has depth to hit
 CORE_NEAR_H = 3.0
+NEAR_WIDEN = 1.3  # a market maker's half-spread is this much wider inside CORE_NEAR_H hours of kickoff, where late line moves do the most damage (it was the last hour only)
 CORE_TAPER = 0.35  # a maker past its soft cap still quotes the main lines at this share of its normal size (never less than CORE_MIN)
 CORE_RAMP = 0.25  # as if the game were at least this far up its limit ramp, and past its soft risk cap (up to its hard limits), so a game never sits with no price to trade at
 SPORT_BONUS = 0.5  # a trader whose takes have beaten the close in a sport gets up to this much more room on that sport's games (and so does its syndicate)
@@ -1025,14 +1026,14 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                     stop_buy, stop_sell = lean_ > 0, lean_ < 0  # long (or short) past the cap: do not add to it
                     lean_ = LEAN_CAP if lean_ > 0 else -LEAN_CAP
                 c = fairs[(m["id"], k)] - lean_
-                half = max(RULES["half_min"], p["half"] * patience(m)) * tmult * (1.3 if mk["hrs"] < 1 else 1.0) + 0.004 * tox.get((m["id"], k), 0.0)
+                half = max(RULES["half_min"], p["half"] * patience(m)) * tmult * (NEAR_WIDEN if mk["hrs"] < CORE_NEAR_H else 1.0) + 0.004 * tox.get((m["id"], k), 0.0)
             else:
                 c = fairs[(m["id"], k)] - 2.0 * p["half"] * net.get((m["id"], k), 0.0) / max(1.0, p["size"])  # a full-size position moves both quotes two half-spreads
                 half = max(RULES["half_min"], p["half"] * patience(m))
             hb = ha = half
             sz_b = sz_a = 1.0
             if pl:  # the lab's policy: a shift of the middle, a half-spread and a size for each side
-                c += float(np.clip(pl.get("shift", 0.0), -0.06, 0.06))
+                c += float(np.clip(pl.get("shift", 0.0), -LEAN_CAP, LEAN_CAP))
                 hb = float(np.clip(pl.get("half_bid", half), RULES["half_min"], RULES["edge_max"]))
                 ha = float(np.clip(pl.get("half_ask", half), RULES["half_min"], RULES["edge_max"]))
                 sz_b, sz_a = float(np.clip(pl.get("size_bid", 1.0), 0.0, 2.0)), float(np.clip(pl.get("size_ask", 1.0), 0.0, 2.0))
