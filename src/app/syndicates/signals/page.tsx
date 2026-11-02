@@ -12,6 +12,8 @@ const MKT: Record<string, string> = { ml: "Moneyline", spread: "Spread", total: 
 /** What DraftKings' juice costs a bettor on top of the no-vig price, per contract: about -110 both sides on spreads and totals, less on moneylines. */
 const HALF_VIG: Record<string, number> = { ml: 0.02, spread: 0.0238, total: 0.0238 };
 
+/** How far inside the exchange's price DraftKings' no-vig price must sit for a bet to count as worth playing: Good to is the exchange's price less this. Not the full juice (about 2.4¢), so a bet at the cutoff still gives up a little to the juice. */
+const GOOD_TO_MARGIN = 0.01;
 const mean = (a: number[]) => a.reduce((s, v) => s + v, 0) / (a.length || 1);
 const se = (a: number[]) => (a.length > 1 ? Math.sqrt(a.reduce((s, v) => s + (v - mean(a)) ** 2, 0) / (a.length - 1) / a.length) : null);
 const c1 = (n: number) => `${n >= 0 ? "+" : ""}${(n * 100).toFixed(1)}¢`;
@@ -105,8 +107,8 @@ function betLabel(s: Signal): string {
   return `${s.side > 0 ? "Over" : "Under"} ${s.line}`;
 }
 
-/** The worst DraftKings no-vig price still worth taking, after DraftKings' juice. `even` is the stricter of two cutoffs: the price the exchange put on this side when the signal was logged (`then`) and its price now (`now`),
- * each less `hv`, the juice a bettor pays on top of the no-vig price (about 2 to 2.4¢). The stricter one rules so the cutoff cannot be talked past: once DraftKings has moved beyond what the exchange said at the start,
+/** The worst DraftKings no-vig price still worth taking, with a 1¢ margin. `even` is the stricter of two cutoffs: the price the exchange put on this side when the signal was logged (`then`) and its price now (`now`),
+ * each less `margin` (1¢), the edge that must be left over. The stricter one rules so the cutoff cannot be talked past: once DraftKings has moved beyond what the exchange said at the start,
  * the edge that was logged is gone, even if the exchange has since moved on too. `good` is whether DraftKings' no-vig price now (`fair`) is still better than `even`. */
 type Limit = { even: number; now: number; then: number | null; good: boolean };
 const agoText = (ms: number) => {
@@ -114,9 +116,9 @@ const agoText = (ms: number) => {
   return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
 };
 const toAmerican = (p: number) => (p >= 0.5 ? -(100 * p) / (1 - p) : (100 * (1 - p)) / p);
-function goodTo(pNow: number, pThen: number | null, fair: number | null, hv: number): Limit {
-  const p = (pThen == null ? pNow : Math.min(pNow, pThen)) - hv;
-  return { even: toAmerican(p), now: toAmerican(pNow - hv), then: pThen == null ? null : toAmerican(pThen - hv), good: fair != null && fair < p };
+function goodTo(pNow: number, pThen: number | null, fair: number | null, margin: number): Limit {
+  const p = (pThen == null ? pNow : Math.min(pNow, pThen)) - margin;
+  return { even: toAmerican(p), now: toAmerican(pNow - margin), then: pThen == null ? null : toAmerican(pThen - margin), good: fair != null && fair < p };
 }
 
 type OpenInfo = { g?: SignalGame; dkP: number | null; exP: number | null; moved: number | null; now: number | null; live: boolean; limit: Limit | null; bettable: boolean; why: string };
@@ -171,7 +173,7 @@ function OpenHead() {
         <th className="px-3 py-2">Game</th><th className="px-3 py-2">Logged</th><th className="px-3 py-2">Bet</th><th className="px-3 py-2">Kind</th><th className="px-3 py-2">Starts</th>
         <th className="px-3 py-2 text-right" title="Gap between the exchange and DraftKings, or the sharp push, when it was logged">Size</th>
         <th className="px-3 py-2 text-right" title="DraftKings' no-vig price for this side when the signal was logged, and the American odds it equals">Play price</th>
-        <th className="px-3 py-2 text-right" title="The worst DraftKings no-vig price still worth taking after the juice: the stricter of what the exchange said this side was worth when the signal was logged and what it says now, less the juice. Underneath are the two.">Good to</th>
+        <th className="px-3 py-2 text-right" title="The worst DraftKings no-vig price still worth taking with a 1¢ margin: the stricter of what the exchange said this side was worth when the signal was logged and what it says now, less 1¢. Underneath are the two.">Good to</th>
         <th className="px-3 py-2 text-right" title="The exchange's two-sided price for this side when logged">Exchange then</th>
         <th className="px-3 py-2 text-right" title="DraftKings' no-vig price on this side now, in cents and as American odds: the same measure as Play price, so the two compare directly. Hover a price for what DraftKings actually posts.">DK now</th>
         <th className="px-3 py-2 text-right" title="Change in DraftKings' no-vig price since the signal, in the signal's direction">Moved</th>
@@ -200,7 +202,7 @@ function OpenRow({ s, info, agrees, grouped, head, ago }: { s: Signal; info: Ope
         <td className="px-3 py-1.5 text-right">{(side(s.ref) * 100).toFixed(1)}¢<span className="ml-1 text-[10px] text-muted">{amer(side(s.ref))}</span></td>
         <td className="px-3 py-1.5 text-right">{limit == null ? <span className="text-muted">–</span> : <>{amStr(limit.even)}<span className="block text-[10px] text-muted">{limit.then != null ? `then ${amStr(limit.then)} · ` : ""}now {amStr(limit.now)}</span></>}</td>
         <td className="px-3 py-1.5 text-right text-muted">{s.x == null ? "–" : `${(side(s.x) * 100).toFixed(1)}¢`}</td>
-        <td className={`px-3 py-1.5 text-right ${limit && info.dkP != null ? (limit.good ? "text-up" : "text-down") : ""}`} title={`DraftKings' no-vig price on this side now${now != null ? `; it posts ${amStr(now)} with the juice` : ""}${limit ? (limit.good ? ". Better than Good to: still worth taking" : ". Past Good to: no edge left after the juice") : ""}`}>{info.dkP == null ? <span className="text-muted">–</span> : <>{(side(info.dkP) * 100).toFixed(1)}¢<span className="ml-1 text-[10px] text-muted">{amer(side(info.dkP))}</span>{now == null && s.kind !== "ml" ? <span className="block text-[10px] text-muted">line moved</span> : null}</>}</td>
+        <td className={`px-3 py-1.5 text-right ${limit && info.dkP != null ? (limit.good ? "text-up" : "text-down") : ""}`} title={`DraftKings' no-vig price on this side now${now != null ? `; it posts ${amStr(now)} with the juice` : ""}${limit ? (limit.good ? ". Better than Good to: still worth taking" : ". Past Good to: less than 1¢ of edge left") : ""}`}>{info.dkP == null ? <span className="text-muted">–</span> : <>{(side(info.dkP) * 100).toFixed(1)}¢<span className="ml-1 text-[10px] text-muted">{amer(side(info.dkP))}</span>{now == null && s.kind !== "ml" ? <span className="block text-[10px] text-muted">line moved</span> : null}</>}</td>
         <td className={`px-3 py-1.5 text-right ${moved == null ? "text-muted" : tone(moved)}`}>{moved == null ? "–" : c1(moved)}</td>
         <td className="px-3 py-1.5 text-right text-muted">{exP == null ? "–" : `${(side(exP) * 100).toFixed(1)}¢`}</td>
         <td className="px-3 py-1.5 text-center font-sans" title={why}>{bettable ? <span className="text-up">yes</span> : <span className="text-muted">no</span>}</td>
@@ -259,9 +261,9 @@ export default async function SignalsPage({ searchParams }: { searchParams: Prom
     const dkP = row ? row[2] : null, exP = row?.[9] ?? null;
     const now = dkNowAmerican(x, g);
     const live = !!g && (g.state !== "pre" || new Date(g.start_utc).getTime() <= nowMs);
-    const limit = exP != null && !live ? goodTo(x.side > 0 ? exP : 1 - exP, x.x == null ? null : x.side > 0 ? x.x : 1 - x.x, dkP == null ? null : x.side > 0 ? dkP : 1 - dkP, HALF_VIG[x.kind] ?? 0.0238) : null;
+    const limit = exP != null && !live ? goodTo(x.side > 0 ? exP : 1 - exP, x.x == null ? null : x.side > 0 ? x.x : 1 - x.x, dkP == null ? null : x.side > 0 ? dkP : 1 - dkP, GOOD_TO_MARGIN) : null;
     const bettable = !!g && !live && now != null && !!limit?.good;
-    const why = !g ? "game not found" : live ? "game has started" : now == null ? (x.kind === "ml" ? "no DraftKings price" : "DraftKings' line is a different number now") : !limit ? "no exchange price to compare with" : !limit.good ? "DraftKings' no-vig price is past the good-to price (the stricter of the exchange's price when logged and now, less the juice): no edge left" : "DraftKings still offers this number at a price within the good-to price";
+    const why = !g ? "game not found" : live ? "game has started" : now == null ? (x.kind === "ml" ? "no DraftKings price" : "DraftKings' line is a different number now") : !limit ? "no exchange price to compare with" : !limit.good ? "DraftKings' no-vig price is past the good-to price (the stricter of the exchange's price when logged and now, less 1¢): not enough edge left" : "DraftKings still offers this number at a price within the good-to price";
     return { g, dkP, exP, moved: dkP != null ? x.side * (dkP - x.ref) : null, now, live, limit, bettable, why };
   };
   const infos = new Map(o0.map((x) => [x.id, infoOf(x)] as const));
@@ -431,7 +433,7 @@ export default async function SignalsPage({ searchParams }: { searchParams: Prom
             <p className="mb-2 max-w-3xl text-[11px] leading-relaxed text-muted">
               Signals whose games have not finished. <strong>Logged</strong> is when the disagreement first showed up. <strong>Bet</strong> is the side the signal points to. <strong>Play price</strong> is DraftKings&rsquo; no-vig price when it was logged, with the American odds it equals before juice.
               <strong> DK now</strong> is DraftKings&rsquo; real price on that side if its main line is still the same number, and <strong>Moved</strong> is how far DraftKings&rsquo; price has already gone toward the signal (the live version of the close test).
-              <strong> Good to</strong> is the worst DraftKings no-vig price still worth taking once DraftKings&rsquo; juice (about 2 to 2.4¢) is paid: the stricter of what the exchange said this side was worth when the signal was logged (<em>then</em>) and what it says now, less the juice.
+              <strong> Good to</strong> is the worst DraftKings no-vig price still worth taking with 1¢ of edge left: the stricter of what the exchange said this side was worth when the signal was logged (<em>then</em>) and what it says now, less 1¢. DraftKings&rsquo; juice is about 2.4¢, so a bet right at Good to still gives up a little to it.
               <strong> DK now</strong> is DraftKings&rsquo; no-vig price on the same footing as Play price and Good to, so they compare directly: better than Good to (green) is still worth taking, past it (red) is not. Using the stricter cutoff means that once DraftKings has moved past the logged price, it is not chased just because the exchange moved too.
               <strong> Bettable</strong> means the game has not started, DraftKings still offers that exact number, and its no-vig price is still within Good to (better than the cutoff). A <span className="text-accent">gap + sharp</span> tag means a gap and sharp flow have both flagged the same side of the same market.
             </p>
