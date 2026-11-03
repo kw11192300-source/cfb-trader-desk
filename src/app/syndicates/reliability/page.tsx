@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { ReliabilityChart, type RelSeries } from "@/components/ReliabilityChart";
 import { SyndicateHeader } from "@/components/SyndicateParts";
-import { ALT_BUCKETS, altBuckets, getClosings, getExchange, getReliability, relBins, type RelBin, relSummary } from "@/lib/syndicates";
+import { ALT_BUCKETS, altBuckets, getClosings, getExchange, getReliability, relBins, relGames, type RelBin, relSummary } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
@@ -163,7 +163,7 @@ export default async function ReliabilityPage({ searchParams }: { searchParams: 
         <section className="mb-8">
           <h3 className="mb-1 text-sm font-semibold text-foreground">{scope === "x" ? "By sport and market" : scope === "s" ? "Every trading firm, by sport and market" : "Every trader, by sport and market"}</h3>
           <p className="mb-2 text-[11px] text-muted">
-            Each cell is the average gap between how often the side won and what it cost, per contract (green: got more than paid for), with the number of trades under it. Cells under 5 trades are left unshaded. Click a name to chart it.
+            Each cell is the average gap between how often the side won and what it cost, per contract (green: got more than paid for), with the number of trades and the number of finished games under it. Read the games: every trade in a game shares one result, so a cell is only as solid as its games. Cells under 5 trades are left unshaded. Click a name to chart it.
           </p>
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full min-w-[1100px] text-[11px]">
@@ -180,9 +180,10 @@ export default async function ReliabilityPage({ searchParams }: { searchParams: 
                     <td className="whitespace-nowrap px-3 py-1 font-sans text-foreground">{r.link ? <Link href={r.link} className="hover:text-accent">{r.name}</Link> : r.name}</td>
                     {cols.map(([s, k], i) => {
                       const b = relSummary(relBins(rel.cells, r.entity, s, k));
+                      const g = relGames(rel.gc, r.entity, s, k);
                       return (
                         <td key={`${s}${k}`} style={shade(b.bias, b.n)} className={`px-2 py-1 text-center ${i % 3 === 0 ? "border-l border-border" : ""}`}>
-                          {b.bias == null ? <span className="text-muted">·</span> : <>{c1(b.bias)}<span className="block text-[9px] text-muted">{b.n}</span></>}
+                          {b.bias == null ? <span className="text-muted">·</span> : <>{c1(b.bias)}<span className="block text-[9px] text-muted">{b.n} trades</span><span className={`block text-[9px] ${g < 30 ? "text-muted/70" : "text-muted"}`}>{g} {g === 1 ? "game" : "games"}</span></>}
                         </td>
                       );
                     })}

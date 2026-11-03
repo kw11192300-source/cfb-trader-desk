@@ -48,6 +48,29 @@ def add_game(rel: dict, gid: str, sport: str, trades: list[dict], members: dict)
     return True
 
 
+def add_game_counts(rel: dict, gid: str, sport: str, trades: list[dict], members: dict) -> bool:
+    """How many finished games sit behind each cell of the record: all the trades in one game share one result, so the games, not the trades, are the real sample.
+    Layout: rel["gc"][entity]["sport|kind"] = number of games; a game is counted once."""
+    if gid in rel["gc_seen"]:
+        return False
+    rel["gc_seen"].add(gid)
+    touched: set[tuple[str, str]] = set()
+    for t in trades:
+        if t.get("outcome") is None or t.get("outcome") == 0.5:
+            continue
+        key = f"{sport}|{t['kind']}"
+        touched.add(("x", key))
+        for who in (t["buyer"], t["seller"]):
+            m = members.get(who)
+            if m:
+                touched.add((f"s:{m['syndicate_id']}", key))
+                touched.add((f"m:{who}", key))
+    for entity, key in touched:
+        cell = rel["gc"].setdefault(entity, {})
+        cell[key] = cell.get(key, 0) + 1
+    return True
+
+
 def off_bucket(off: float) -> str:
     """How far a line sits from the main number, in points: the buckets the alternate-line record is kept in."""
     return "main" if off <= 0.5 else "1" if off <= 1.5 else "2" if off <= 2.5 else "3-4" if off <= 4.5 else "5+"
@@ -84,13 +107,14 @@ def _add_alt(alt: dict, entity: str, sport: str, kind: str, bucket: str, p: floa
 
 def load(meta: dict) -> dict:
     v = meta.get("rel") or {}
-    return {"_seen": set(v.get("games", [])), "cells": v.get("cells", {}), "alt_seen": set(v.get("alt_games", [])), "alt": v.get("alt", {})}
+    return {"_seen": set(v.get("games", [])), "cells": v.get("cells", {}), "alt_seen": set(v.get("alt_games", [])), "alt": v.get("alt", {}),
+            "gc_seen": set(v.get("gc_games", [])), "gc": v.get("gc", {})}
 
 
 def dump(rel: dict) -> dict:
     rnd = lambda c: {e: {sk: {b: [v[0], round(v[1], 2), round(v[2], 3), round(v[3], 3)] for b, v in bins.items()} for sk, bins in sks.items()} for e, sks in c.items()}  # noqa: E731
     alt = {e: {sk: {b: [v[0], round(v[1], 2), round(v[2], 3), round(v[3], 3)] for b, v in bins.items()} for sk, bins in sks.items()} for e, sks in rel["alt"].items()}
-    return {"games": sorted(rel["_seen"]), "cells": rnd(rel["cells"]), "alt_games": sorted(rel["alt_seen"]), "alt": alt}
+    return {"games": sorted(rel["_seen"]), "cells": rnd(rel["cells"]), "alt_games": sorted(rel["alt_seen"]), "alt": alt, "gc_games": sorted(rel["gc_seen"]), "gc": rel["gc"]}
 
 
 def backfill(store) -> int:
@@ -110,5 +134,8 @@ def backfill(store) -> int:
         g = games.get(gid)
         if g and g.get("ref") and not g.get("voided") and not any(t.get("outcome") is None for t in trs):
             add_alt(rel, gid, gid.split(":")[0], trs, members, {"spread": g["ref"].get("spread"), "total": g["ref"].get("total")})
+    for gid, trs in by_game.items():  # the games behind each cell
+        if not any(t.get("outcome") is None for t in trs):
+            add_game_counts(rel, gid, gid.split(":")[0], trs, members)
     store.upsert("ex_meta", [{"key": "rel", "value": dump(rel)}])
     return n

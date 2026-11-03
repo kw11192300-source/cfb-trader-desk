@@ -626,10 +626,22 @@ export async function getClosings(): Promise<ExClosing[]> {
 /** Reliability record: how often a price came true. cells[entity]["sport|kind"][bin] = [trades, contracts, sum price x contracts, sum outcome x contracts]. */
 export type RelCells = Record<string, Record<string, Record<string, [number, number, number, number]>>>;
 export type AltCells = Record<string, Record<string, Record<string, [number, number, number, number]>>>;
-export async function getReliability(): Promise<{ games: number; cells: RelCells; alt: AltCells; altGames: number }> {
+/** Finished games behind each cell: gc[entity]["sport|kind"] = games. */
+export type GameCounts = Record<string, Record<string, number>>;
+export async function getReliability(): Promise<{ games: number; cells: RelCells; alt: AltCells; altGames: number; gc: GameCounts }> {
   const { data } = await supabase.from("ex_meta").select("value").eq("key", "rel").maybeSingle();
-  const v = (data?.value ?? {}) as { games?: string[]; cells?: RelCells; alt?: AltCells; alt_games?: string[] };
-  return { games: v.games?.length ?? 0, cells: v.cells ?? {}, alt: v.alt ?? {}, altGames: v.alt_games?.length ?? 0 };
+  const v = (data?.value ?? {}) as { games?: string[]; cells?: RelCells; alt?: AltCells; alt_games?: string[]; gc?: GameCounts };
+  return { games: v.games?.length ?? 0, cells: v.cells ?? {}, alt: v.alt ?? {}, altGames: v.alt_games?.length ?? 0, gc: v.gc ?? {} };
+}
+
+/** Games behind an entity's record in the chosen sport and market (null = all), added up. */
+export function relGames(gc: GameCounts, entity: string, sport: string | null, kind: string | null): number {
+  let n = 0;
+  for (const [sk, g] of Object.entries(gc[entity] ?? {})) {
+    const [s, k] = sk.split("|");
+    if ((!sport || s === sport) && (!kind || k === kind)) n += g;
+  }
+  return n;
 }
 
 /** The alternate-line record (python/exchange/reliability.py add_alt): per distance from the main number, [trades, contracts, sum price x contracts, sum outcome x contracts], added up over the chosen sport and market. */

@@ -516,6 +516,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             rel_changed |= reliability.add_game(rel, gid, games[gid]["sport"], trs, members)
             gr_ = games[gid].get("ref") or {}
             rel_changed |= reliability.add_alt(rel, gid, games[gid]["sport"], trs, members, {"spread": gr_.get("spread"), "total": gr_.get("total")})
+            rel_changed |= reliability.add_game_counts(rel, gid, games[gid]["sport"], trs, members)
             row = results.game_result(games[gid], trs, members)
             signals.resolve(sig, gid, row.get("closing"))
             piles.resolve(pst, gid, games[gid])
