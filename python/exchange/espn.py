@@ -65,6 +65,38 @@ def fix_open_sign(o: dict | None) -> dict | None:
     return {**o, "spread": -s if o["ml_home"] < o["ml_away"] else s}
 
 
+def flip_odds(o: dict | None) -> dict | None:
+    """The same snapshot seen from the other team: the home spread changes sign, and the home and away prices swap."""
+    if not o:
+        return o
+    return {**o, "spread": None if o.get("spread") is None else -o["spread"], "spread_home": o.get("spread_away"), "spread_away": o.get("spread_home"),
+            "ml_home": o.get("ml_away"), "ml_away": o.get("ml_home")}
+
+
+def swap_event(ev: dict) -> dict:
+    """The same event with the two teams (and their scores) and the odds turned round: used when ESPN swaps which team it calls home after the exchange has already listed the game."""
+    return {**ev, "home": ev["away"], "away": ev["home"], "now": flip_odds(ev.get("now")), "open": flip_odds(ev.get("open"))}
+
+
+def favourite_abbr(details: str | None) -> str | None:
+    """The team named in ESPN's one-line price ("FSU -28.5") when it names a favourite."""
+    m = re.match(r"^\s*([A-Za-z0-9&.'\-]+)\s+[-+]?\d", details or "")
+    return m.group(1) if m else None
+
+
+def oriented(now: dict | None, open_: dict | None, details: str | None, home_abbr: str | None, away_abbr: str | None) -> tuple[dict | None, dict | None]:
+    """On a neutral-site game ESPN can list one team as the home competitor while its odds block treats the other as home (FSU vs FAMU: FAMU the home competitor, but the odds had
+    FSU at home -28.5). The one-line price names the favourite, so when it disagrees with the sign of the home spread the snapshots are turned round to the competitors' own orientation."""
+    fav = favourite_abbr(details)
+    sp = (now or {}).get("spread")
+    if not fav or sp is None or sp == 0 or fav not in (home_abbr, away_abbr):
+        return now, open_
+    home_fav_by_name = fav == home_abbr
+    if home_fav_by_name == (sp < 0):
+        return now, open_
+    return flip_odds(now), flip_odds(open_)
+
+
 def parse_event(sport: str, e: dict) -> dict | None:
     c = (e.get("competitions") or [{}])[0]
     comp = {x["homeAway"]: x for x in c.get("competitors", [])}
@@ -82,10 +114,12 @@ def parse_event(sport: str, e: dict) -> dict | None:
         return {"id": str(t["id"]), "name": t.get("displayName") or t.get("name"), "abbr": t.get("abbreviation"),
                 "score": int(float(sc)) if sc not in (None, "") else None}
 
+    now_, open_ = oriented(_odds(o, "close") if o else None, fix_open_sign(_odds(o, "open")) if o else None, (o or {}).get("details"),
+                           (comp["home"].get("team") or {}).get("abbreviation"), (comp["away"].get("team") or {}).get("abbreviation"))
     return {
         "id": f"{sport}:{e['id']}", "sport": sport, "start": e.get("date"), "state": st.get("state"), "completed": bool(st.get("completed")),
         "detail": st.get("detail"), "neutral": bool(c.get("neutralSite")), "home": team(comp["home"]), "away": team(comp["away"]),
-        "now": _odds(o, "close") if o else None, "open": fix_open_sign(_odds(o, "open")) if o else None,
+        "now": now_, "open": open_,
     }
 
 

@@ -36,6 +36,11 @@ export type ExMemberStats = {
   clv_sum: number;
   clv_sq?: number;
   clv_n: number;
+  /** closing-line value split in two: the part from filling below DraftKings' price at the time (fill_sum), and DraftKings' move toward the side since (drift_*) */
+  fill_sum?: number;
+  drift_sum?: number;
+  drift_sq?: number;
+  drift_n?: number;
   peak: number;
   max_dd: number;
   wins: number;
@@ -225,6 +230,10 @@ export type Row = {
   /** standard error of the average CLV, when the spread is known */
   clvSe: number | null;
   clvN: number;
+  /** average move of DraftKings' price toward the side taken, from the fill to the close: the part of CLV that is not just finding a quote off the market */
+  drift: number | null;
+  driftSe: number | null;
+  driftN: number;
   /** average cents per contract the quotes captured against DraftKings when filled, or null if no quote has been filled */
   capture: number | null;
   makerPnl: number;
@@ -292,7 +301,9 @@ export function summarize(syndicates: ExSyndicate[], members: ExMember[]): { mem
     return {
       id, name, syndicate, color, bankroll, open: equity - bankroll, equity, pnl: equity - start, realized, roi: volume > 0 ? realized / volume : 0,
       openRisk: ms.reduce((a, m) => a + (m.open_risk ?? 0), 0), trades: sum((s) => s.n_maker + s.n_taker), volume,
-      clv: clvN > 0 ? sum((s) => s.clv_sum) / clvN : null, clvSe: clvSe(sum((s) => s.clv_sum), sum((s) => s.clv_sq ?? 0), clvN), clvN, capture: sum((s) => s.cap_q ?? 0) > 0 ? sum((s) => s.cap_sum ?? 0) / sum((s) => s.cap_q ?? 0) : null, makerPnl: sum((s) => s.pnl_maker), takerPnl: sum((s) => s.pnl_taker),
+      clv: clvN > 0 ? sum((s) => s.clv_sum) / clvN : null, clvSe: clvSe(sum((s) => s.clv_sum), sum((s) => s.clv_sq ?? 0), clvN), clvN,
+      drift: sum((s) => s.drift_n ?? 0) > 0 ? sum((s) => s.drift_sum ?? 0) / sum((s) => s.drift_n ?? 0) : null, driftSe: clvSe(sum((s) => s.drift_sum ?? 0), sum((s) => s.drift_sq ?? 0), sum((s) => s.drift_n ?? 0)), driftN: sum((s) => s.drift_n ?? 0),
+      capture: sum((s) => s.cap_q ?? 0) > 0 ? sum((s) => s.cap_sum ?? 0) / sum((s) => s.cap_q ?? 0) : null, makerPnl: sum((s) => s.pnl_maker), takerPnl: sum((s) => s.pnl_taker),
       maxDd: Math.max(0, ...st.map((s) => s.max_dd)), winRate: decided > 0 ? sum((s) => s.wins) / decided : null, note, isPublic,
       sPnl: sum((s) => s.s_pnl ?? 0), sTraded: sum((s) => s.s_traded ?? 0), sRoi: sum((s) => s.s_traded ?? 0) > 0 ? sum((s) => s.s_pnl ?? 0) / sum((s) => s.s_traded ?? 0) : null, sGames: sum((s) => s.s_games ?? 0),
       cash: ms.reduce((a, m) => a + m.cash, 0), available: ms.reduce((a, m) => a + Math.max(0, m.cash + MARGIN_CREDIT * Math.max(0, m.locked - (m.open_risk ?? m.locked)) - RESERVE_FRAC * m.start_units), 0), pending: ms.reduce((a, m) => a + m.locked, 0), kind,
@@ -501,6 +512,8 @@ export const SORTS: { key: string; label: string; get: (r: Row) => number | null
   { key: "sroi", label: "ROI on settled volume", get: (r) => r.sRoi },
   { key: "clv", label: "CLV", get: (r) => r.clv },
   { key: "clvlow", label: "CLV (low end of range)", get: (r) => (r.clv == null ? null : r.clv - 1.96 * (r.clvSe ?? 0.05)) },
+  { key: "drift", label: "DK move", get: (r) => r.drift },
+  { key: "driftlow", label: "DK move (low end of range)", get: (r) => (r.drift == null ? null : r.drift - 1.96 * (r.driftSe ?? 0.05)) },
   { key: "vol", label: "Volume", get: (r) => r.volume },
   { key: "trades", label: "Trades", get: (r) => r.trades },
   { key: "risk", label: "At risk", get: (r) => r.openRisk },

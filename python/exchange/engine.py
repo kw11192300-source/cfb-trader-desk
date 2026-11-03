@@ -147,6 +147,19 @@ def _res_add(st: dict, sport: str, gid: str, r: float) -> None:
     h[1] += 1
 
 
+def _drift_add(st: dict, role: str, fill: float, drift: float) -> None:
+    """Splits closing-line value in two. `fill` is how much better than DraftKings' own price at that moment the fill was (the exchange's quote was off DraftKings, and the trader took it);
+    `drift` is how far DraftKings' price then moved toward the side taken, from that same moment to the close. Only the second says anything about being right about the game: the first is
+    a trader finding a quote that sits off the market, which a trader with no model at all does as well (Liquidity Partners earns about +4c a contract from it)."""
+    st["fill_sum"] = st.get("fill_sum", 0.0) + fill
+    st["drift_sum"] = st.get("drift_sum", 0.0) + drift
+    st["drift_sq"] = st.get("drift_sq", 0.0) + drift * drift
+    st["drift_n"] = st.get("drift_n", 0) + 1
+    if role == "taker":
+        st["drift_taker_sum"] = st.get("drift_taker_sum", 0.0) + drift
+        st["drift_taker_n"] = st.get("drift_taker_n", 0) + 1
+
+
 def _clvs_add(st: dict, sport: str, c: float) -> None:
     """A taker's whole closing-line record in a sport, undecayed: count, sum and sum of squares, so its average and the error on it are known. This is what the sharp score reads."""
     d = st.setdefault("clvs", {}).setdefault(sport, {"n": 0, "s": 0.0, "q": 0.0})
@@ -298,6 +311,32 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 if m_ is not None and t_[side_] != t_["maker"]:
                     _clvs_add(m_["stats"], t_["game_id"].split(":")[0], (c_ - t_["price"]) if side_ == "buyer" else (t_["price"] - c_))
                     clvs_backfilled += 1
+    drift_backfilled = None
+    if "clvs_v2" not in meta:  # once: rebuild every trader's split of closing-line value, and the record the sharp score reads, from DraftKings' move since each fill (rebuilt from nothing, so a rerun cannot double count)
+        drift_backfilled = 0
+        for m_ in members.values():
+            for k_ in ("clvs", "flow", "fill_sum", "drift_sum", "drift_sq", "drift_n", "drift_taker_sum", "drift_taker_n"):
+                m_["stats"].pop(k_, None)
+        for t_ in sorted(store.rows("ex_trades", {"settled": True}), key=lambda x: x["ts"]):
+            c_, rp_ = t_.get("close_p"), t_.get("ref_p")
+            if c_ is None:
+                continue
+            sp_ = t_["game_id"].split(":")[0]
+            for side_ in ("buyer", "seller"):
+                m_ = members.get(t_[side_])
+                if m_ is None:
+                    continue
+                role_ = "maker" if t_["maker"] == t_[side_] else "taker"
+                cc_ = (c_ - t_["price"]) if side_ == "buyer" else (t_["price"] - c_)
+                dd_ = None if rp_ is None else ((c_ - rp_) if side_ == "buyer" else (rp_ - c_))
+                if dd_ is not None:
+                    _drift_add(m_["stats"], role_, cc_ - dd_, dd_)
+                if role_ == "taker":
+                    sc_ = cc_ if dd_ is None else dd_
+                    fl_ = m_["stats"].setdefault("flow", {}).setdefault(sp_, {"s": 0.0, "w": 0.0, "n": 0})
+                    fl_["s"], fl_["w"], fl_["n"] = fl_["s"] * 0.97 + sc_, fl_["w"] * 0.97 + 1.0, fl_["n"] + 1
+                    _clvs_add(m_["stats"], sp_, sc_)
+                drift_backfilled += 1
     res_backfilled = None
     if "res_v1" not in meta:  # once: build the result-edge record from every settled trade still in the ledger (nothing settled this round is in the database yet, so nothing is counted twice)
         res_backfilled = 0
@@ -319,6 +358,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     pending: dict[str, dict] = {}  # upcoming games with no DraftKings line yet: kept only if a baseline price can be built for them
     for ev in events:
         ex = games.get(ev["id"])
+        if ex is not None and ex["home"]["id"] == ev["away"]["id"] and ex["away"]["id"] == ev["home"]["id"]:
+            ev = espn.swap_event(ev)  # ESPN swapped which team it calls home (it does that on neutral-site games, at kickoff): keep the orientation every trade, price and line was made in
         has_odds = bool(ev["now"]) and ev["state"] == "pre"
         cand = not has_odds and ev["state"] == "pre" and _pdate(ev["start"]) <= now + timedelta(hours=horizon(ev["sport"]))
         if ex is None and not has_odds and not cand:
@@ -489,6 +530,10 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             st["biggest"] = max(st.get("biggest", 0.0), t["qty"] * (t["price"] if side == "buyer" else 1 - t["price"]))
             if close_p is not None:
                 c = (close_p - t["price"]) if side == "buyer" else (t["price"] - close_p)
+                rp_ = t.get("ref_p")
+                dr_ = None if rp_ is None else ((close_p - rp_) if side == "buyer" else (rp_ - close_p))  # DraftKings' move toward this side since the fill
+                if dr_ is not None:
+                    _drift_add(st, role, c - dr_, dr_)
                 st["clv_sum"] += c
                 st["clv_sq"] = st.get("clv_sq", 0.0) + c * c
                 st["clv_n"] += 1
@@ -498,8 +543,9 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 st[f"clv_{role}_n"] = st.get(f"clv_{role}_n", 0) + 1
                 if role == "taker":  # the track record other traders read: closing-line value on what this trader chose to hit, by sport
                     fl = st.setdefault("flow", {}).setdefault(g["sport"], {"s": 0.0, "w": 0.0, "n": 0})
-                    fl["s"], fl["w"], fl["n"] = fl["s"] * 0.97 + c, fl["w"] * 0.97 + 1.0, fl["n"] + 1
-                    _clvs_add(st, g["sport"], c)
+                    sc_ = c if dr_ is None else dr_  # the sharp record is DraftKings' move toward what a trader took, not the price it found: a quote that sits off the market is not information
+                    fl["s"], fl["w"], fl["n"] = fl["s"] * 0.97 + sc_, fl["w"] * 0.97 + 1.0, fl["n"] + 1
+                    _clvs_add(st, g["sport"], sc_)
         settled_rows.append(t)
         settled_by_game.setdefault(t["game_id"], []).append(t)
         stats["settled"] += 1
@@ -1546,6 +1592,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         store.upsert("ex_meta", [{"key": "clvs_v1", "value": {"sides": clvs_backfilled, "ts": _iso(now)}}])
     if res_backfilled is not None:
         store.upsert("ex_meta", [{"key": "res_v1", "value": {"trades": res_backfilled, "ts": _iso(now)}}])
+    if drift_backfilled is not None:
+        store.upsert("ex_meta", [{"key": "clvs_v2", "value": {"sides": drift_backfilled, "ts": _iso(now)}}])
     store.upsert("ex_meta", [{"key": "round", "value": {"n": rnd, "ts": _iso(now), "markets": len(markets), "games": len(by_gid),
                                                          "new_trades": len(new_trades), "settled": stats["settled"], "ticks": ticks, "pub": pubstat, "quotes": qstat, "liq": liq,
                                                          "secs": round(time.time() - t_start, 1), "errors": [s["id"] for s in syns.values() if ((s.get("learn") or {}).get("agent") or {}).get("error")]}}])

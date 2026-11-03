@@ -61,7 +61,7 @@ export function SharpMoney({ game, lots, members, synName, synColor }: { game: E
     <section className="mb-8">
       <h3 className="mb-1 text-sm font-semibold text-foreground">Where the sharpest accounts are: {SPORT[sport]} record on this game</h3>
       <p className="mb-3 max-w-3xl text-[11px] leading-relaxed text-muted">
-        A trader&rsquo;s sharpness in a sport comes from its record as a taker: how often the price it paid was beaten by the close, with more weight as the trades pile up. It is 0 to 1, per sport, and early on it is thin: {everyone} of {members.length} accounts
+        A trader&rsquo;s sharpness in a sport comes from its record as a taker: how far DraftKings&rsquo; price moved toward what it took after it traded (not just buying below DraftKings&rsquo; price, which any trader can do with a quote that sits off the market), with more weight as the trades pile up. It is 0 to 1, per sport, and early on it is thin: {everyone} of {members.length} accounts
         have any {SPORT[sport]} record at all. Treat the order as a lead, not a verdict. &ldquo;Leverage&rdquo; is how much of the account&rsquo;s per-game limit the worst case on this game uses, and how much of its bankroll.
       </p>
       {sharp.length === 0 ? (

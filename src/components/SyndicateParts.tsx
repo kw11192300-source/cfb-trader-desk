@@ -59,6 +59,12 @@ export function SyndicateHeader({ active, round }: { active: "board" | "markets"
 }
 
 /** Green or red only when the whole 95% range sits on one side of zero; grey while the sample is too small to tell. */
+function driftTone(r: Row): string {
+  if (r.drift == null || r.driftSe == null) return "text-muted";
+  const lo = r.drift - 1.96 * r.driftSe, hi = r.drift + 1.96 * r.driftSe;
+  return lo > 0 ? "text-up" : hi < 0 ? "text-down" : "text-muted";
+}
+
 function clvTone(r: Row): string {
   if (r.clv == null) return "text-muted";
   if (r.clvSe == null) return "text-muted";
@@ -98,7 +104,8 @@ export function LeaderTable({ rows, linkBase, title, showSyn = false, sort = "cl
               {th("spnl", "Settled P&L", "Profit or loss on games that have finished, counting every trade made on them (including positions netted off earlier). Below it: finished games and win rate")}
               {th("open", "Open P&L", "What the open positions would make or lose if closed at the current DraftKings price. It moves with the lines before any game finishes and is not money yet")}
               {th("equity", "Equity", "Bankroll plus open P&L: what the account is worth marked to DraftKings now. Below it: the change over the last 24 hours")}
-              {th("clvlow", "CLV", "Closing-line value, ranked by the low end of its 95% range so a big average on a few trades does not win")}
+              {th("clvlow", "CLV", "Closing-line value: the close against the price paid, ranked by the low end of its 95% range so a big average on a few trades does not win. It includes buying below DraftKings' price at the moment of the fill, which any trader can do by finding a quote that sits off the market; DK move, next to it, is the part that is not")}
+              {th("driftlow", "DK move", "How far DraftKings' price moved toward the side this account took, from the moment of each fill to the close: the part of CLV that says it was right about the game rather than finding a cheap quote. Ranked by the low end of its 95% range")}
               {th("sroi", "Return on stake", "Settled P&L divided by the units put up on those finished games (a buyer's price, a seller's 1 minus the price, added up across every trade). Below it: that stake")}
               {full && (
                 <>
@@ -155,6 +162,11 @@ export function LeaderTable({ rows, linkBase, title, showSyn = false, sort = "cl
                     {r.clv == null ? "–" : `${r.clv >= 0 ? "+" : ""}${(r.clv * 100).toFixed(1)}¢`}
                     {r.clv != null && r.clvSe != null && <span className="ml-1 text-[10px] text-muted">±{(1.96 * r.clvSe * 100).toFixed(1)}</span>}
                     {r.sGames < 10 ? <span className="block text-[10px] font-normal text-warn" title="Fewer than 10 finished games: too early to read as skill">provisional</span> : <span className={sub}>{r.clvN} sides</span>}
+                  </td>
+                  <td className={`px-3 py-2 text-right ${driftTone(r)}`} title={r.driftN ? `${r.driftN} settled sides${r.driftSe != null ? `; 95% range ${((r.drift! - 1.96 * r.driftSe) * 100).toFixed(1)}¢ to ${((r.drift! + 1.96 * r.driftSe) * 100).toFixed(1)}¢` : ""}` : undefined}>
+                    {r.drift == null ? "–" : `${r.drift >= 0 ? "+" : ""}${(r.drift * 100).toFixed(1)}¢`}
+                    {r.drift != null && r.driftSe != null && <span className="ml-1 text-[10px] text-muted">±{(1.96 * r.driftSe * 100).toFixed(1)}</span>}
+                    <span className={sub}>{r.clv != null && r.drift != null ? `${((r.clv - r.drift) * 100).toFixed(1)}¢ from fills` : ""}</span>
                   </td>
                   <td className={`px-3 py-2 text-right ${r.sRoi == null ? "text-muted" : tone(r.sRoi)}`}>
                     {r.sRoi == null ? "–" : `${(r.sRoi * 100).toFixed(1)}%`}
