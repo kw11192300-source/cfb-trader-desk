@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
-from . import cbbtiers, espn, house, kalshi, news, pricing, piles, ratings, reliability, results, risk, signals, wing
+from . import cbbtiers, espn, house, kalshi, news, pricing, piles, ratings, reliability, results, risk, seedcal, signals, wing
 from .agents import manage as agent_manage, sandbox as agent_sandbox
 from .members import roster
 from .pricing import Dist, ckey, clip
@@ -404,7 +404,14 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     def opening(g: dict) -> tuple[float, float] | None:
         sp = g["sport"]
         rs = [r for r in (ratings.predict(e, rat.get(f"{sp}|{e}"), g["home"]["id"], g["away"]["id"], bool(g.get("neutral"))) for e in ("elo", "ridge_long", "ridge_short")) if r]
-        return (float(np.mean([r[0] for r in rs])), float(np.mean([r[1] for r in rs]))) if len(rs) >= 2 else None
+        if len(rs) < 2:
+            return None
+        m, t = float(np.mean([r[0] for r in rs])), float(np.mean([r[1] for r in rs]))
+        if sp == "cbb":  # the ratings squeeze mismatches early in the season: put the margin on DraftKings' scale (exchange/seedcal.py), by the two teams' tiers and the time of year
+            ct = (rat.get("cbb|tiers") or {}).get("tiers", {})
+            pair = "".join(sorted([ct.get(str(g["home"]["id"]), "C"), ct.get(str(g["away"]["id"]), "C")]))
+            m, t = seedcal.calibrate(sp, m, t, _pdate(g["start_utc"]).date(), pair)
+        return m, t
 
     n_cbb = 0
     for gid, g in sorted(pre.items(), key=lambda kv: kv[1]["start_utc"]):
