@@ -12,6 +12,7 @@ Layout of the stored value (ex_meta key "rel"):
 from __future__ import annotations
 
 BINS = 10
+ALT_ENTITIES = ("x", "s:wing")  # the alternate-line record is kept for the exchange as a whole and for the Wing Desk's own side
 
 
 def _bin(p: float) -> str:
@@ -47,14 +48,49 @@ def add_game(rel: dict, gid: str, sport: str, trades: list[dict], members: dict)
     return True
 
 
+def off_bucket(off: float) -> str:
+    """How far a line sits from the main number, in points: the buckets the alternate-line record is kept in."""
+    return "main" if off <= 0.5 else "1" if off <= 1.5 else "2" if off <= 2.5 else "3-4" if off <= 4.5 else "5+"
+
+
+def add_alt(rel: dict, gid: str, sport: str, trades: list[dict], members: dict, main: dict) -> bool:
+    """The same observations, kept by distance from the main number: is a price on a line two, three, six points off the main one as right as on the main line?
+    Layout: rel["alt"][entity]["sport|kind"][bucket] = [trades, contracts, sum of price x contracts, sum of outcome x contracts]; a game is counted once."""
+    if gid in rel["alt_seen"]:
+        return False
+    rel["alt_seen"].add(gid)
+    for t in trades:
+        out, kind = t.get("outcome"), t["kind"]
+        mn = main.get(kind)
+        if out is None or out == 0.5 or kind not in ("spread", "total") or mn is None:
+            continue
+        b = off_bucket(abs(t["line"] - mn))
+        p, q = t["price"], t["qty"]
+        _add_alt(rel["alt"], "x", sport, kind, b, p, out, q)
+        for who, pp, yy in ((t["buyer"], p, out), (t["seller"], 1 - p, 1 - out)):
+            m = members.get(who)
+            if m and m["syndicate_id"] == "wing":
+                _add_alt(rel["alt"], "s:wing", sport, kind, b, pp, yy, q)
+    return True
+
+
+def _add_alt(alt: dict, entity: str, sport: str, kind: str, bucket: str, p: float, y: float, q: float) -> None:
+    c = alt.setdefault(entity, {}).setdefault(f"{sport}|{kind}", {}).setdefault(bucket, [0, 0.0, 0.0, 0.0])
+    c[0] += 1
+    c[1] += q
+    c[2] += q * p
+    c[3] += q * y
+
+
 def load(meta: dict) -> dict:
     v = meta.get("rel") or {}
-    return {"_seen": set(v.get("games", [])), "cells": v.get("cells", {})}
+    return {"_seen": set(v.get("games", [])), "cells": v.get("cells", {}), "alt_seen": set(v.get("alt_games", [])), "alt": v.get("alt", {})}
 
 
 def dump(rel: dict) -> dict:
     rnd = lambda c: {e: {sk: {b: [v[0], round(v[1], 2), round(v[2], 3), round(v[3], 3)] for b, v in bins.items()} for sk, bins in sks.items()} for e, sks in c.items()}  # noqa: E731
-    return {"games": sorted(rel["_seen"]), "cells": rnd(rel["cells"])}
+    alt = {e: {sk: {b: [v[0], round(v[1], 2), round(v[2], 3), round(v[3], 3)] for b, v in bins.items()} for sk, bins in sks.items()} for e, sks in rel["alt"].items()}
+    return {"games": sorted(rel["_seen"]), "cells": rnd(rel["cells"]), "alt_games": sorted(rel["alt_seen"]), "alt": alt}
 
 
 def backfill(store) -> int:
@@ -69,5 +105,10 @@ def backfill(store) -> int:
         if any(t.get("outcome") is None for t in trs):
             continue
         n += add_game(rel, gid, gid.split(":")[0], trs, members)
+    games = {g["id"]: g for g in store.rows("ex_games")}
+    for gid, trs in by_game.items():  # the by-distance record, from each game's closing main lines
+        g = games.get(gid)
+        if g and g.get("ref") and not g.get("voided") and not any(t.get("outcome") is None for t in trs):
+            add_alt(rel, gid, gid.split(":")[0], trs, members, {"spread": g["ref"].get("spread"), "total": g["ref"].get("total")})
     store.upsert("ex_meta", [{"key": "rel", "value": dump(rel)}])
     return n

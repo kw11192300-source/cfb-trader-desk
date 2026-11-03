@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
-from . import cbbtiers, espn, house, kalshi, news, pricing, piles, ratings, reliability, results, risk, signals
+from . import cbbtiers, espn, house, kalshi, news, pricing, piles, ratings, reliability, results, risk, signals, wing
 from .agents import manage as agent_manage, sandbox as agent_sandbox
 from .members import roster
 from .pricing import Dist, ckey, clip
@@ -514,6 +514,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     for gid, trs in settled_by_game.items():  # the historical record of each finished game, from its whole trade ledger
         if not games[gid].get("voided"):
             rel_changed |= reliability.add_game(rel, gid, games[gid]["sport"], trs, members)
+            gr_ = games[gid].get("ref") or {}
+            rel_changed |= reliability.add_alt(rel, gid, games[gid]["sport"], trs, members, {"spread": gr_.get("spread"), "total": gr_.get("total")})
             row = results.game_result(games[gid], trs, members)
             signals.resolve(sig, gid, row.get("closing"))
             piles.resolve(pst, gid, games[gid])
@@ -550,11 +552,16 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             markets[k] = {"gid": gid, "sport": g["sport"], "kind": kind, "line": line, "ref": p_ref(gid, kind, line), "srcf": srcf, "src": g["ref"].get("src") or "dk",
                           "hrs": (_pdate(g["start_utc"]) - now).total_seconds() / 3600,
                           "ramp": ramp((_pdate(g["start_utc"]) - now).total_seconds() / 3600, g["sport"]) * (cbbtiers.mult(tier_pair(g), (_pdate(g["start_utc"]) - now).total_seconds() / 3600) if g["sport"] == "cbb" else 1.0),
+                          "off": 0.0 if kind == "ml" or main is None else abs(line - main),
                           "near": kind == "ml" or (main is not None and abs(line - main) <= 2),
                           "core": kind == "ml" or (main is not None and abs(line - main) <= 0.5 + 1e-9)}
     by_gid: dict[str, list[str]] = {}
+    anchors: dict[tuple[str, str], list[tuple[float, float]]] = {}  # (game, kind) -> the main lines and their prices: what the Wing Desk keeps while it reshapes the lines around them
     for k, mk in markets.items():
         by_gid.setdefault(mk["gid"], []).append(k)
+        if mk["core"] and mk["kind"] != "ml" and mk["src"] == "dk":
+            anchors.setdefault((mk["gid"], mk["kind"]), []).append((mk["line"], mk["ref"]))
+    wing_rho: dict[tuple[str, str], float] = {}
     prev_eco: dict[str, float] = {}  # the exchange's own price last round: a market maker's starting point carries what the crowd has already learned
     for gid in by_gid:
         for row in games[gid].get("book") or []:
@@ -675,6 +682,16 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     def fair(m: dict, k: str) -> float:
         mk = markets[k]
         sid = m["syndicate_id"]
+        if m["params"].get("wing"):  # the Wing Desk: DraftKings' price on the main line, reshaped with this game's own width, nudged by what the exchange has learned
+            an = min(anchors[(mk["gid"], mk["kind"])], key=lambda a_: abs(a_[0] - mk["line"]))
+            rk = (mk["gid"], mk["kind"])
+            if rk not in wing_rho:
+                gr = games[mk["gid"]]["ref"]
+                wing_rho[rk] = wing.rho(mk["sport"], mk["kind"], gr.get("spread"), gr.get("total"))
+            base_ = wing.alt_price(mk["ref"], an[1], wing_rho[rk], wing.anchor(an[1], prev_eco.get(ckey(mk["gid"], mk["kind"], an[0]))))
+            pe_ = prev_eco.get(k)
+            f_ = 0.75 * base_ + 0.25 * pe_ if pe_ is not None else base_
+            return clip(f_, max(mk["ref"] - BAND, base_ - 0.06), min(mk["ref"] + BAND, base_ + 0.06))
         if m["params"].get("mm"):  # a market maker has no model: it blends the reference prices and lets order flow move it from there
             r, ks, pe = mk["ref"], (kal.get(mk["gid"], {}).get((mk["kind"], mk["line"])) if mk["src"] != "exchange" else None), prev_eco.get(k)
             f = 0.5 * r + 0.3 * ks[2] + 0.2 * pe if ks and pe is not None else 0.6 * r + 0.4 * ks[2] if ks else 0.8 * r + 0.2 * pe if pe is not None else r
@@ -693,6 +710,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         for k, mk in markets.items():
             if kinds and mk["kind"] not in kinds:
                 continue
+            if m["params"].get("wing") and (mk["core"] or mk["kind"] == "ml" or mk["sport"] not in wing.WING_SPORTS or mk["src"] != "dk" or (mk["gid"], mk["kind"]) not in anchors):
+                continue  # the Wing Desk quotes only the alternate lines, only where DraftKings has priced the main one, and not in hockey
             on = mk["sport"] in focus
             if on or mk["near"]:
                 mine[m["id"]].append((k, on))
@@ -1053,6 +1072,15 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                     lean_ = LEAN_CAP if lean_ > 0 else -LEAN_CAP
                 c = fairs[(m["id"], k)] - lean_
                 half = max(RULES["half_min"], p["half"] * patience(m)) * tmult * (NEAR_WIDEN if mk["hrs"] < CORE_NEAR_H else 1.0) + 0.004 * tox.get((m["id"], k), 0.0)
+                if p.get("wing"):  # further from the main number is less certain and thinner: wider there; and wider on the whole game while sharp flow is moving it
+                    ix_ = 0 if mk["kind"] == "spread" else 1
+                    sdk_ = sd_of[mk["sport"]][ix_]
+                    half += wing.half_extra(mk["off"], sdk_)
+                    pr_ = max(abs(flow.get(mk["gid"], (0.0, 0.0))[ix_]), abs((mmb.get((m["id"], mk["gid"])) or (0.0, 0.0))[ix_])) / sdk_
+                    if pr_ >= wing.PULL_AT:
+                        qstat["pulled"] = qstat.get("pulled", 0) + 1
+                        continue  # the quotes on this line stay down until the pressure fades
+                    half += wing.pressure_widen(pr_)
             else:
                 c = fairs[(m["id"], k)] - 2.0 * p["half"] * net.get((m["id"], k), 0.0) / max(1.0, p["size"])  # a full-size position moves both quotes two half-spreads
                 half = max(RULES["half_min"], p["half"] * patience(m))
@@ -1068,6 +1096,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 qstat["crossed"] += 1
                 continue
             size = p["size"] * taper * (1.0 if on else 0.5) * max(0.3, mk["ramp"])
+            if p.get("wing"):
+                size *= wing.size_factor(mk["off"], sd_of[mk["sport"]][0 if mk["kind"] == "spread" else 1])
             core = mk["core"]
             if core:
                 size = max(size, CORE_MIN_NEAR if mk["hrs"] <= CORE_NEAR_H else CORE_MIN)

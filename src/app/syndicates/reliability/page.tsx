@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { ReliabilityChart, type RelSeries } from "@/components/ReliabilityChart";
 import { SyndicateHeader } from "@/components/SyndicateParts";
-import { getClosings, getExchange, getReliability, relBins, type RelBin, relSummary } from "@/lib/syndicates";
+import { ALT_BUCKETS, altBuckets, getClosings, getExchange, getReliability, relBins, type RelBin, relSummary } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
@@ -191,6 +191,52 @@ export default async function ReliabilityPage({ searchParams }: { searchParams: 
               </tbody>
             </table>
           </div>
+        </section>
+
+        <section className="mt-10">
+          <h3 className="mb-1 text-sm font-semibold text-foreground">Alternate lines: is a price three points off the main number as right as the main number&rsquo;s?</h3>
+          <p className="mb-3 max-w-3xl text-[11px] leading-relaxed text-muted">
+            The exchange prices every line around DraftKings&rsquo; main number from one curve. This groups settled spread and total trades by how far their line sat from the main number when the game closed, and compares what the side cost with how often it won.
+            A bias near zero means the prices out there are right; a steady plus or minus means the curve is too narrow or too wide. The right-hand columns are the Wing Desk&rsquo;s own side: what it was paid when it sold and what it paid when it bought,
+            so a negative bias there is it giving value away on those lines. {rel.altGames} finished games are counted here{sport ? `, filtered to ${SPORT[sport]}` : ""}{kind ? ` ${KIND[kind].toLowerCase()}s` : ""}.
+          </p>
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full min-w-[820px] text-xs">
+              <thead className="bg-surface text-left text-muted">
+                <tr>
+                  <th className="px-3 py-2" rowSpan={2}>Distance from the main number</th>
+                  <th className="border-l border-border px-3 py-1 text-center" colSpan={4}>Every trade on the exchange (yes side)</th>
+                  <th className="border-l border-border px-3 py-1 text-center" colSpan={4}>Wing Desk&rsquo;s side</th>
+                </tr>
+                <tr>
+                  {[0, 1].flatMap((g) => ["Trades", "Price", "Won", "Bias"].map((h, i) => <th key={`${g}${h}`} className={`px-3 py-1 text-right font-normal ${i === 0 ? "border-l border-border" : ""}`}>{h}</th>))}
+                </tr>
+              </thead>
+              <tbody className="font-mono">
+                {(() => {
+                  const ex = altBuckets(rel.alt, "x", sport, kind), wg = altBuckets(rel.alt, "s:wing", sport, kind);
+                  const cell = (v: { n: number; q: number; price: number; ran: number } | undefined, first: boolean) => {
+                    if (!v) return [0, 1, 2, 3].map((i) => <td key={i} className={`px-3 py-1.5 text-right text-muted ${first && i === 0 ? "border-l border-border" : ""}`}>·</td>);
+                    const bias = v.ran - v.price, se = Math.sqrt((v.price * (1 - v.price)) / Math.max(1, v.n));
+                    return [
+                      <td key="n" className={`px-3 py-1.5 text-right text-muted ${first ? "border-l border-border" : ""}`}>{v.n}</td>,
+                      <td key="p" className="px-3 py-1.5 text-right">{(v.price * 100).toFixed(1)}¢</td>,
+                      <td key="r" className="px-3 py-1.5 text-right">{(v.ran * 100).toFixed(1)}¢</td>,
+                      <td key="b" className={`px-3 py-1.5 text-right ${v.n < 30 ? "text-muted" : bias > 0.005 ? "text-up" : bias < -0.005 ? "text-down" : "text-muted"}`}>{c1(bias)}<span className="ml-1 text-[10px] text-muted">±{(196 * se).toFixed(1)}</span></td>,
+                    ];
+                  };
+                  return ALT_BUCKETS.map((b) => (
+                    <tr key={b} className="border-t border-border">
+                      <td className="px-3 py-1.5 font-sans text-foreground">{b === "main" ? "Main number" : `${b} point${b === "1" ? "" : "s"} off`}</td>
+                      {cell(ex[b], true)}
+                      {cell(wg[b], true)}
+                    </tr>
+                  ));
+                })()}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-[10px] text-muted">The ± is a 95% range and is wide until a row has a few hundred trades. Rows under 30 trades are greyed.</p>
         </section>
       </main>
     </div>

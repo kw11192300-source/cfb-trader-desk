@@ -22,7 +22,7 @@ TRADERS_PER = 5
 TRADER_UNITS = SYNDICATE_UNITS / TRADERS_PER
 NAMES = ["Avery", "Blake", "Casey", "Drew", "Emery", "Finley", "Gray", "Harper", "Indigo", "Jules", "Kai", "Logan", "Morgan", "Nico", "Oakley", "Parker",
          "Quinn", "Reese", "Sage", "Tatum", "Uma", "Val", "Wren", "Xan", "Yael", "Zion", "Arden", "Bryn", "Cleo", "Dale", "Eden", "Flynn", "Gale", "Hollis",
-         "Ivy", "Jordan", "Kit", "Lane", "Marlow", "Nova", "Onyx", "Phoenix", "Remy", "Sky", "Teagan", "Ulric", "Vesper", "Wynn", "Yarrow", "Zeke", "Rune", "Sloane", "Tove", "Ash", "Bell", "Cove", "Dune", "Fern", "Glen", "Hale", "Ike", "Jett", "Kerry", "Lark", "Moss", "Noor", "Orin", "Pace", "Quill", "Rhys", "Sol", "Tarn", "Ulla", "Vance", "Wick", "Xia", "Yves", "Zora", "Alma", "Bram", "Cyra", "Dov", "Briar", "Cass", "Dex", "Elio", "Fable", "Gus", "Hux", "Iris", "Joss", "Kade", "Lyra", "Milo", "Nell", "Otis", "Pia", "Quin", "Rhea"]
+         "Ivy", "Jordan", "Kit", "Lane", "Marlow", "Nova", "Onyx", "Phoenix", "Remy", "Sky", "Teagan", "Ulric", "Vesper", "Wynn", "Yarrow", "Zeke", "Rune", "Sloane", "Tove", "Ash", "Bell", "Cove", "Dune", "Fern", "Glen", "Hale", "Ike", "Jett", "Kerry", "Lark", "Moss", "Noor", "Orin", "Pace", "Quill", "Rhys", "Sol", "Tarn", "Ulla", "Vance", "Wick", "Xia", "Yves", "Zora", "Alma", "Bram", "Cyra", "Dov", "Briar", "Cass", "Dex", "Elio", "Fable", "Gus", "Hux", "Iris", "Joss", "Kade", "Lyra", "Milo", "Nell", "Otis", "Pia", "Quin", "Rhea", "Sabine", "Tobin", "Vera", "Wells", "Yuki", "Zara", "Arlo", "Bree", "Cade", "Dara"]
 # (role, number of focus sports): two market makers (a specialist and a generalist), two takers, one who does both
 SEATS = [("maker", 2), ("maker", 3), ("taker", 2), ("taker", 1), ("both", 2)]
 PUBLIC_UNITS = 25_000.0  # the public-money firm is bigger than the others: a crowd has more money than any one desk
@@ -69,6 +69,8 @@ SYNDICATES = [
          tagline="Public money: recreational bettors who lean to favorites, overs and underdog moneylines, pile in during the last few hours before a game, and pay a few cents over fair for it. Not sharp - the flow the market makers live on."),
     dict(id="labk", name="Maker Lab", engine="agent", color="#38bdf8", agent={"lines": True, "mode": "maker"}, mmstyle="lab",
          tagline="A research agent that builds the market-making playbook: where to quote, how wide, and where to lean from what the sharp accounts and public money are doing. It earns the spread and builds positions on the sharp side."),
+    dict(id="wing", name="Wing Desk", engine="mm", color="#22d3ee", mmstyle="wing",
+         tagline="Market makers for the alternate lines: they quote only the spreads and totals around the main number, where nobody else posts, with a price that keeps DraftKings' main line but fits the width of results to each game (a big favourite or a high total gets a wider curve). They quote wider the further out they go and earn the spread on both sides."),
 ]
 
 
@@ -104,6 +106,9 @@ def roster() -> tuple[list[dict], list[dict]]:
                 params.update(focus=focus, mm=True, half=round(r.uniform(0.011, 0.015) if lab else r.uniform(0.008, 0.012) if tight else r.uniform(0.015, 0.019), 4),
                               size=round(r.uniform(70, 90) if lab else r.uniform(90, 100) if tight else r.uniform(55, 75)), tox=0.8 if lab else 0.5 if tight else 1.0,
                               eta=round(r.uniform(0.8, 1.2) if lab else r.uniform(0.7, 1.0) if tight else r.uniform(1.1, 1.5), 2), inv=1.0 if (tight or lab) else 1.5)
+                if s["mmstyle"] == "wing":  # alternate-line makers: spreads and totals only, off the main number, wider and a little smaller than the other books
+                    params.update(focus=[sp for sp in SPORTS if sp != "nhl"], wing=True, kinds=["spread", "total"], half=round(r.uniform(0.014, 0.020), 4),
+                                  size=round(r.uniform(45, 65)), tox=1.0, eta=round(r.uniform(0.9, 1.3), 2), inv=1.5)
                 if lab:
                     params["lab"] = True
                     params["max_risk"] = 150.0

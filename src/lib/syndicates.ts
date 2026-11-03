@@ -625,10 +625,26 @@ export async function getClosings(): Promise<ExClosing[]> {
 
 /** Reliability record: how often a price came true. cells[entity]["sport|kind"][bin] = [trades, contracts, sum price x contracts, sum outcome x contracts]. */
 export type RelCells = Record<string, Record<string, Record<string, [number, number, number, number]>>>;
-export async function getReliability(): Promise<{ games: number; cells: RelCells }> {
+export type AltCells = Record<string, Record<string, Record<string, [number, number, number, number]>>>;
+export async function getReliability(): Promise<{ games: number; cells: RelCells; alt: AltCells; altGames: number }> {
   const { data } = await supabase.from("ex_meta").select("value").eq("key", "rel").maybeSingle();
-  const v = (data?.value ?? {}) as { games?: string[]; cells?: RelCells };
-  return { games: v.games?.length ?? 0, cells: v.cells ?? {} };
+  const v = (data?.value ?? {}) as { games?: string[]; cells?: RelCells; alt?: AltCells; alt_games?: string[] };
+  return { games: v.games?.length ?? 0, cells: v.cells ?? {}, alt: v.alt ?? {}, altGames: v.alt_games?.length ?? 0 };
+}
+
+/** The alternate-line record (python/exchange/reliability.py add_alt): per distance from the main number, [trades, contracts, sum price x contracts, sum outcome x contracts], added up over the chosen sport and market. */
+export const ALT_BUCKETS = ["main", "1", "2", "3-4", "5+"] as const;
+export function altBuckets(alt: AltCells, entity: string, sport: string | null, kind: string | null): Record<string, { n: number; q: number; price: number; ran: number } | undefined> {
+  const acc: Record<string, [number, number, number, number]> = {};
+  for (const [sk, bins] of Object.entries(alt[entity] ?? {})) {
+    const [s, k] = sk.split("|");
+    if ((sport && s !== sport) || (kind && k !== kind)) continue;
+    for (const [b, v] of Object.entries(bins)) {
+      const a = (acc[b] ??= [0, 0, 0, 0]);
+      for (let i = 0; i < 4; i++) a[i] += v[i];
+    }
+  }
+  return Object.fromEntries(Object.entries(acc).map(([b, v]) => [b, v[1] > 0 ? { n: v[0], q: v[1], price: v[2] / v[1], ran: v[3] / v[1] } : undefined]));
 }
 
 export type RelBin = { bin: number; n: number; w: number; p: number; f: number };
