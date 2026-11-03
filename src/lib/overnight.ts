@@ -146,7 +146,7 @@ export function expectedMove(sport: string, kind: string, tier: string | null, l
 }
 
 export type NightRow = {
-  game: string; sport: string; teams: string; kind: string; line: number; flow: number; exp_move: number | null; mm?: { side: string | null; clv: number | null; age_h: number };
+  game: string; sport: string; teams: string; kind: string; line: number; p?: number; x?: number | null; flow: number; exp_move: number | null; mm?: { side: string | null; clv: number | null; age_h: number };
   done?: boolean; void?: boolean; move?: number; y?: number;
 };
 export type Night = { key: string; date: string; ts: string; scored: boolean; rows: NightRow[] };
@@ -156,26 +156,49 @@ export async function getNights(limit = 14): Promise<Night[]> {
   return ((data ?? []) as { key: string; value: { date: string; ts: string; scored: boolean; rows: NightRow[] } }[]).map((r) => ({ key: r.key, date: r.value.date, ts: r.value.ts, scored: r.value.scored, rows: r.value.rows ?? [] }));
 }
 
-/** How the saved snapshots did, row by row: a sharp lean, a movement-model call, and the volatility rank. Positive "toward" means the number moved the way it was called. */
+export const SHARP_LEAN = 40; // weighted contracts of sharp flow that count as a lean
+export const GAP_MIN = 0.01; // exchange price against DraftKings, in price (1 cent), that counts as the exchange leaning
+export const MM_MIN = 0.5; // movement-model call, in points
+
+export type Indicator = { key: "sharp" | "exchange" | "model"; label: string; dir: 1 | -1 };
+/** The independent reads on which way a number may go: sharp flow since DraftKings posted, the exchange's price against DraftKings' now, and the site's movement model (college basketball, fresh board).
+ * Direction is toward the home side or the over (+1) or the away side or the under (-1). The exchange's own line from before DraftKings posted is deliberately not one of them: it was 7.7 points from the
+ * closing spread on average against 1.8 for DraftKings' posted number, and DraftKings moved only a few percent of the way toward it. */
+export function indicators(r: { netW: number; gap: number | null; mm: { side: string | null; clv: number | null; ageH: number } | null }): { list: Indicator[]; net: number; agree: boolean; conflict: boolean } {
+  const list: Indicator[] = [];
+  if (Math.abs(r.netW) >= SHARP_LEAN) list.push({ key: "sharp", label: "sharp flow", dir: r.netW > 0 ? 1 : -1 });
+  if (r.gap != null && Math.abs(r.gap) >= GAP_MIN) list.push({ key: "exchange", label: "exchange price", dir: r.gap > 0 ? 1 : -1 });
+  if (r.mm && r.mm.side && r.mm.ageH <= 12 && (r.mm.clv ?? 0) >= MM_MIN) list.push({ key: "model", label: "movement model", dir: r.mm.side === "home" || r.mm.side === "over" ? 1 : -1 });
+  const net = list.reduce((a, x) => a + x.dir, 0);
+  const conflict = list.some((x) => x.dir === 1) && list.some((x) => x.dir === -1);
+  return { list, net, agree: !conflict && list.length >= 2, conflict };
+}
+
+type Tally = { n: number; toward: number; pts: number };
+const tally = (): Tally => ({ n: 0, toward: 0, pts: 0 });
+const add = (t: Tally, dir: number, move: number) => { t.n++; t.pts += dir * move; t.toward += dir * move > 0.001 ? 1 : 0; };
+
+/** How the saved snapshots did, row by row, for each read on its own and for two or more agreeing, plus whether the volatility rank found the bigger movers. */
 export function scoreNights(nights: Night[]) {
-  const dirOf = (r: NightRow, positive: boolean) => (r.kind === "total" ? (positive ? "over" : "under") : positive ? "home" : "away");
-  const acc = { lean: { n: 0, toward: 0, pts: 0 }, mm: { n: 0, toward: 0, pts: 0 }, top: { n: 0, abs: 0 }, rest: { n: 0, abs: 0 }, scored: 0, rows: 0 };
+  const keys = ["sharp", "exchange", "model", "agree"] as const;
+  const empty = () => ({ sharp: tally(), exchange: tally(), model: tally(), agree: tally() });
+  const acc = { ...empty(), top: { n: 0, abs: 0 }, rest: { n: 0, abs: 0 }, scored: 0, rows: 0 };
   const perNight = nights.map((nt) => {
     const done = nt.rows.filter((r) => r.done && !r.void && r.move != null && r.kind !== "ml");
     const rank = [...done].filter((r) => r.exp_move != null).sort((a, b) => (b.exp_move ?? 0) - (a.exp_move ?? 0));
     const top = rank.slice(0, 8), rest = rank.slice(8);
-    const lean = done.filter((r) => Math.abs(r.flow) >= 40);
-    const mmr = done.filter((r) => r.mm && r.mm.side && (r.mm.clv ?? 0) >= 0.5);
-    const rec = { date: nt.date, rows: nt.rows.length, scored: done.length, lean: { n: 0, toward: 0, pts: 0 }, mm: { n: 0, toward: 0, pts: 0 }, topAbs: top.length ? top.reduce((a, r) => a + Math.abs(r.move!), 0) / top.length : null, restAbs: rest.length ? rest.reduce((a, r) => a + Math.abs(r.move!), 0) / rest.length : null };
-    for (const r of lean) { const s = Math.sign(r.flow) * r.move!; rec.lean.n++; rec.lean.pts += s; rec.lean.toward += s > 0.001 ? 1 : 0; }
-    for (const r of mmr) { const pos = r.mm!.side === "home" || r.mm!.side === "over"; const s = (pos ? 1 : -1) * r.move!; rec.mm.n++; rec.mm.pts += s; rec.mm.toward += s > 0.001 ? 1 : 0; }
-    acc.lean.n += rec.lean.n; acc.lean.toward += rec.lean.toward; acc.lean.pts += rec.lean.pts;
-    acc.mm.n += rec.mm.n; acc.mm.toward += rec.mm.toward; acc.mm.pts += rec.mm.pts;
+    const rec = { date: nt.date, rows: nt.rows.length, scored: done.length, ...empty(), topAbs: top.length ? top.reduce((a, r) => a + Math.abs(r.move!), 0) / top.length : null, restAbs: rest.length ? rest.reduce((a, r) => a + Math.abs(r.move!), 0) / rest.length : null };
+    for (const r of done) {
+      const gap = r.x != null && r.p != null ? r.x - r.p : null;
+      const ind = indicators({ netW: r.flow, gap, mm: r.mm ? { side: r.mm.side, clv: r.mm.clv, ageH: r.mm.age_h } : null });
+      for (const i of ind.list) add(rec[i.key], i.dir, r.move!);
+      if (ind.agree) add(rec.agree, Math.sign(ind.net), r.move!);
+    }
+    for (const k of keys) { acc[k].n += rec[k].n; acc[k].toward += rec[k].toward; acc[k].pts += rec[k].pts; }
     for (const r of top) { acc.top.n++; acc.top.abs += Math.abs(r.move!); }
     for (const r of rest) { acc.rest.n++; acc.rest.abs += Math.abs(r.move!); }
     acc.scored += done.length; acc.rows += nt.rows.length;
     return rec;
   });
-  void dirOf;
   return { acc, perNight };
 }

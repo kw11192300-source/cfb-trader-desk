@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import LocalDateTime from "@/components/LocalDateTime";
 import { SyndicateHeader } from "@/components/SyndicateParts";
-import { getNights, getOvernight, type Row, scoreNights, snapshotTime } from "@/lib/overnight";
+import { getNights, getOvernight, indicators, type Row, scoreNights, snapshotTime } from "@/lib/overnight";
 import { getExchange } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
@@ -30,14 +30,12 @@ function lineText(r: Row, line: number): string {
   return "";
 }
 
-/** What the evidence says about which way a number may go, in the same words as the market: the movement model, the sharp flow and the exchange against DraftKings. */
-function direction(r: Row): { text: string; cls: string }[] {
-  const out: { text: string; cls: string }[] = [];
+/** The independent reads on which way a number may go, in the market's own words: sharp flow, the exchange's price against DraftKings, the movement model. */
+function direction(r: Row): { text: string; cls: string; agree: boolean; conflict: boolean } {
+  const ind = indicators({ netW: r.netW, gap: r.gap, mm: r.mm });
   const word = (positive: boolean) => sideWord(r, positive);
-  if (r.mm && r.mm.side && r.mm.ageH <= 12 && (r.mm.clv ?? 0) >= 0.3) out.push({ text: `movement model: ${r.mm.side === "home" || r.mm.side === "over" ? word(true) : word(false)} by ${r.mm.clv!.toFixed(1)}`, cls: "text-up" });
-  if (Math.abs(r.netW) >= 40) out.push({ text: `sharp flow: ${word(r.netW > 0)}`, cls: "text-foreground" });
-  if (r.gap != null && Math.abs(r.gap) >= 0.01) out.push({ text: `exchange ${r.gap > 0 ? word(true) : word(false)} ${cents(Math.abs(r.gap))}`, cls: "text-muted" });
-  return out;
+  const text = ind.list.length === 0 ? "" : ind.list.map((x) => `${x.label} ${word(x.dir > 0)}`).join(" · ");
+  return { text, cls: ind.agree ? "text-up" : ind.conflict ? "text-down" : "text-foreground", agree: ind.agree, conflict: ind.conflict };
 }
 
 function reads(r: Row): { text: string; cls: string }[] {
@@ -127,37 +125,54 @@ export default async function OvernightPage({ searchParams }: { searchParams: Pr
         </p>
 
         {(() => {
-          const cand = filtered.filter((r) => r.expMove != null && !r.live && r.kind !== "ml").sort((a, b) => (b.expMove ?? 0) - (a.expMove ?? 0)).slice(0, 8);
+          const open = filtered.filter((r) => r.expMove != null && !r.live && r.kind !== "ml");
+          const bigmove = [...open].sort((a, b) => (b.expMove ?? 0) - (a.expMove ?? 0)).slice(0, 8);
+          const agreeing = open.filter((r) => direction(r).agree).sort((a, b) => (b.expMove ?? 0) - (a.expMove ?? 0)).slice(0, 8);
           const ages = filtered.filter((r) => r.mm).map((r) => r.mm!.ageH);
           const minAge = ages.length ? Math.min(...ages) : null;
+          const table = (rowsIn: Row[], empty: string) => (
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full min-w-[760px] text-xs">
+                <thead className="bg-surface text-left text-muted"><tr><th className="px-3 py-2">Game</th><th className="px-3 py-2">Market</th><th className="px-3 py-2 text-right">DraftKings now</th><th className="px-3 py-2 text-right">Likely to move</th><th className="px-3 py-2">Which way: what the reads say</th></tr></thead>
+                <tbody className="font-mono">
+                  {rowsIn.length === 0 ? <tr><td colSpan={5} className="px-3 py-6 text-center font-sans text-muted">{empty}</td></tr> : rowsIn.map((r) => {
+                    const dir = direction(r);
+                    return (
+                      <tr key={`c${r.game}${r.kind}`} className="border-t border-border">
+                        <td className="px-3 py-1.5 font-sans text-foreground"><Link href={`/syndicates/games/${encodeURIComponent(r.game)}`} className="hover:text-accent">{r.teams}</Link><span className="ml-1.5 text-[10px] uppercase text-muted">{SPORT[r.sport]}</span><span className="block text-[10px] text-muted"><LocalDateTime iso={r.start} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />{r.postedH != null ? ` · up ${r.postedH.toFixed(0)} h` : ""}</span></td>
+                        <td className="px-3 py-1.5 font-sans text-muted">{r.kind === "spread" ? "Spread" : "Total"}</td>
+                        <td className="px-3 py-1.5 text-right">{lineText(r, r.now.line)}</td>
+                        <td className="px-3 py-1.5 text-right text-accent">~{r.expMove!.toFixed(1)} pts</td>
+                        <td className="px-3 py-1.5 font-sans">
+                          {dir.text ? <span className={dir.cls}>{dir.agree ? "agree: " : dir.conflict ? "disagree: " : ""}{dir.text}</span> : <span className="text-muted">no read on direction</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          );
           return (
-            <section className="mb-8">
-              <h3 className="mb-1 text-sm font-semibold text-foreground">Most likely to move before the close</h3>
-              <p className="mb-2 max-w-3xl text-[11px] leading-relaxed text-muted">
-                Ranked by how far the number is likely to travel, not which way. The size comes from a week of games: college basketball moves most, totals more than spreads, the lowest-tier games most of all, and more where the exchange&rsquo;s own line was far from what DraftKings posted.
-                Direction is shown only where there is evidence for it, and none of it is proven yet: the saved nights below build the record.
-                {minAge != null && minAge > 12 ? <span className="text-warn"> The CBB movement model is working from a board {minAge.toFixed(0)} hours old, so its calls are hidden: refresh the board first.</span> : null}
-              </p>
-              <div className="overflow-x-auto rounded-lg border border-border">
-                <table className="w-full min-w-[760px] text-xs">
-                  <thead className="bg-surface text-left text-muted"><tr><th className="px-3 py-2">Game</th><th className="px-3 py-2">Market</th><th className="px-3 py-2 text-right">DraftKings now</th><th className="px-3 py-2 text-right">Likely to move</th><th className="px-3 py-2">Evidence for a direction</th></tr></thead>
-                  <tbody className="font-mono">
-                    {cand.length === 0 ? <tr><td colSpan={5} className="px-3 py-6 text-center font-sans text-muted">No spreads or totals posted for the games still to play.</td></tr> : cand.map((r) => {
-                      const dir = direction(r);
-                      return (
-                        <tr key={`c${r.game}${r.kind}`} className="border-t border-border">
-                          <td className="px-3 py-1.5 font-sans text-foreground"><Link href={`/syndicates/games/${encodeURIComponent(r.game)}`} className="hover:text-accent">{r.teams}</Link><span className="ml-1.5 text-[10px] uppercase text-muted">{SPORT[r.sport]}</span><span className="block text-[10px] text-muted"><LocalDateTime iso={r.start} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />{r.postedH != null ? ` · up ${r.postedH.toFixed(0)} h` : ""}</span></td>
-                          <td className="px-3 py-1.5 font-sans text-muted">{r.kind === "spread" ? "Spread" : "Total"}</td>
-                          <td className="px-3 py-1.5 text-right">{lineText(r, r.now.line)}</td>
-                          <td className="px-3 py-1.5 text-right text-accent">~{r.expMove!.toFixed(1)} pts</td>
-                          <td className="px-3 py-1.5 font-sans">{dir.length === 0 ? <span className="text-muted">no direction signal</span> : dir.map((x) => <span key={x.text} className={`mr-3 inline-block ${x.cls}`}>{x.text}</span>)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </section>
+            <>
+              <section className="mb-8">
+                <h3 className="mb-1 text-sm font-semibold text-foreground">Where the reads agree on a direction</h3>
+                <p className="mb-2 max-w-3xl text-[11px] leading-relaxed text-muted">
+                  Two or more independent reads pointing the same way and none against: <strong>sharp flow</strong> since DraftKings posted ({40}+ weighted contracts), the <strong>exchange&rsquo;s price</strong> against DraftKings now (1¢ or more), and the <strong>movement model</strong> (college basketball, board under 12 hours old, 0.5+ points).
+                  The exchange&rsquo;s own line from before DraftKings posted is not counted: it was 7.7 points from the closing spread on average against 1.8 for DraftKings&rsquo; posted number, and DraftKings moved only 2 to 9% of the way toward it, so a gap like &ldquo;we had −21, DraftKings opened −35&rdquo; means the exchange was off, not that the number will fall.
+                  The reads are scored every night below; until they have a record, treat agreement as a reason to look, not a bet.
+                  {minAge != null && minAge > 12 ? <span className="text-warn"> The movement model is hidden: its board is {minAge.toFixed(0)} hours old.</span> : null}
+                </p>
+                {table(agreeing, "No spread or total has two reads pointing the same way right now.")}
+              </section>
+              <section className="mb-8">
+                <h3 className="mb-1 text-sm font-semibold text-foreground">Most likely to move before the close</h3>
+                <p className="mb-2 max-w-3xl text-[11px] leading-relaxed text-muted">
+                  Ranked by how far the number is likely to travel, not which way: college basketball moves most, totals more than spreads, the lowest-tier games most of all, and more where the exchange&rsquo;s own line was far from DraftKings&rsquo; opening number (the market is unsettled, even though the exchange is not the one to follow). A week of games stands behind it.
+                </p>
+                {table(bigmove, "No spreads or totals posted for the games still to play.")}
+              </section>
+            </>
           );
         })()}
 
@@ -228,47 +243,50 @@ export default async function OvernightPage({ searchParams }: { searchParams: Pr
           </table>
         </div>
 
-        <h3 className="mb-1 text-sm font-semibold text-foreground">Saved nights: did the calls hold up?</h3>
+        <h3 className="mb-1 text-sm font-semibold text-foreground">Saved nights: did each read hold up?</h3>
         <p className="mb-2 max-w-3xl text-[11px] leading-relaxed text-muted">
-          Every night at about 8 PM ET the exchange saves this board (sharp leans, the movement model, the volatility rank) and scores it once the games finish. <strong>Toward</strong> counts the number moving the way it was called, from the saved number to the close.
-          Spreads and totals only. A call only means something once there are a few hundred of them.
+          Every night at about 8 PM ET the exchange saves this board and scores it once the games finish. <strong>Toward</strong> counts the number moving the way the read pointed, from the saved number to the close, with the average move in points.
+          Each read is scored on its own and then when two or more agree. Spreads and totals only. A read only means something once it has a few hundred calls.
         </p>
         {nights.length === 0 ? (
           <p className="mb-8 rounded-lg border border-border bg-surface px-4 py-6 text-center text-xs text-muted">The first snapshot is saved by the first exchange round after 8 PM ET; scoring starts once those games finish.</p>
         ) : (
           <div className="mb-8">
-            <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-              {[
-                ["Sharp leans (40+ weighted contracts)", record.acc.lean.n, record.acc.lean.toward, record.acc.lean.pts],
-                ["Movement model calls (0.5+ pts)", record.acc.mm.n, record.acc.mm.toward, record.acc.mm.pts],
-              ].map(([k, n, toward, pts]) => (
-                <div key={String(k)} className="rounded-lg border border-border bg-surface px-3 py-2">
+            <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+              {([
+                ["Sharp flow", record.acc.sharp], ["Exchange price", record.acc.exchange], ["Movement model", record.acc.model], ["Two or more agree", record.acc.agree],
+              ] as [string, { n: number; toward: number; pts: number }][]).map(([k, t]) => (
+                <div key={k} className="rounded-lg border border-border bg-surface px-3 py-2">
                   <div className="text-[10px] uppercase tracking-wide text-muted">{k}</div>
-                  <div className="font-mono text-lg text-foreground">{Number(n) ? `${toward}/${n} toward` : "none scored yet"}</div>
-                  <div className={`text-[10px] ${Number(n) && Number(pts) > 0 ? "text-up" : Number(n) && Number(pts) < 0 ? "text-down" : "text-muted"}`}>{Number(n) ? `${Number(pts) / Number(n) >= 0 ? "+" : ""}${(Number(pts) / Number(n)).toFixed(2)} pts per call on average` : ""}</div>
+                  <div className="font-mono text-lg text-foreground">{t.n ? `${t.toward}/${t.n}` : "none yet"}</div>
+                  <div className={`text-[10px] ${t.n && t.pts > 0 ? "text-up" : t.n && t.pts < 0 ? "text-down" : "text-muted"}`}>{t.n ? `${t.pts / t.n >= 0 ? "+" : ""}${(t.pts / t.n).toFixed(2)} pts per call` : "toward the close"}</div>
                 </div>
               ))}
               <div className="rounded-lg border border-border bg-surface px-3 py-2">
-                <div className="text-[10px] uppercase tracking-wide text-muted">Volatility rank: top 8 each night vs the rest</div>
-                <div className="font-mono text-lg text-foreground">{record.acc.top.n ? `${(record.acc.top.abs / record.acc.top.n).toFixed(2)} vs ${record.acc.rest.n ? (record.acc.rest.abs / record.acc.rest.n).toFixed(2) : "–"} pts` : "none scored yet"}</div>
-                <div className="text-[10px] text-muted">average size of the move to the close</div>
+                <div className="text-[10px] uppercase tracking-wide text-muted">Top 8 by size of move</div>
+                <div className="font-mono text-lg text-foreground">{record.acc.top.n ? `${(record.acc.top.abs / record.acc.top.n).toFixed(1)} vs ${record.acc.rest.n ? (record.acc.rest.abs / record.acc.rest.n).toFixed(1) : "–"}` : "none yet"}</div>
+                <div className="text-[10px] text-muted">points, against the rest</div>
               </div>
             </div>
             <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full min-w-[720px] text-xs">
-                <thead className="bg-surface text-left text-muted"><tr><th className="px-3 py-2">Night</th><th className="px-3 py-2 text-right">Lines saved</th><th className="px-3 py-2 text-right">Scored</th><th className="px-3 py-2 text-right">Sharp leans toward</th><th className="px-3 py-2 text-right">Movement model toward</th><th className="px-3 py-2 text-right">Top-8 move</th><th className="px-3 py-2 text-right">Rest</th></tr></thead>
+              <table className="w-full min-w-[820px] text-xs">
+                <thead className="bg-surface text-left text-muted"><tr><th className="px-3 py-2">Night</th><th className="px-3 py-2 text-right">Lines saved</th><th className="px-3 py-2 text-right">Scored</th><th className="px-3 py-2 text-right">Sharp flow</th><th className="px-3 py-2 text-right">Exchange price</th><th className="px-3 py-2 text-right">Movement model</th><th className="px-3 py-2 text-right">Agree</th><th className="px-3 py-2 text-right">Top-8 / rest</th></tr></thead>
                 <tbody className="font-mono">
-                  {record.perNight.map((n) => (
-                    <tr key={n.date} className="border-t border-border">
-                      <td className="px-3 py-1.5 font-sans text-foreground">{n.date}</td>
-                      <td className="px-3 py-1.5 text-right text-muted">{n.rows}</td>
-                      <td className="px-3 py-1.5 text-right text-muted">{n.scored}</td>
-                      <td className="px-3 py-1.5 text-right">{n.lean.n ? `${n.lean.toward}/${n.lean.n} (${n.lean.pts / n.lean.n >= 0 ? "+" : ""}${(n.lean.pts / n.lean.n).toFixed(1)})` : "–"}</td>
-                      <td className="px-3 py-1.5 text-right">{n.mm.n ? `${n.mm.toward}/${n.mm.n} (${n.mm.pts / n.mm.n >= 0 ? "+" : ""}${(n.mm.pts / n.mm.n).toFixed(1)})` : "–"}</td>
-                      <td className="px-3 py-1.5 text-right">{n.topAbs == null ? "–" : `${n.topAbs.toFixed(1)} pts`}</td>
-                      <td className="px-3 py-1.5 text-right text-muted">{n.restAbs == null ? "–" : `${n.restAbs.toFixed(1)} pts`}</td>
-                    </tr>
-                  ))}
+                  {record.perNight.map((n) => {
+                    const c = (t: { n: number; toward: number; pts: number }) => (t.n ? `${t.toward}/${t.n} (${t.pts / t.n >= 0 ? "+" : ""}${(t.pts / t.n).toFixed(1)})` : "–");
+                    return (
+                      <tr key={n.date} className="border-t border-border">
+                        <td className="px-3 py-1.5 font-sans text-foreground">{n.date}</td>
+                        <td className="px-3 py-1.5 text-right text-muted">{n.rows}</td>
+                        <td className="px-3 py-1.5 text-right text-muted">{n.scored}</td>
+                        <td className="px-3 py-1.5 text-right">{c(n.sharp)}</td>
+                        <td className="px-3 py-1.5 text-right">{c(n.exchange)}</td>
+                        <td className="px-3 py-1.5 text-right">{c(n.model)}</td>
+                        <td className="px-3 py-1.5 text-right">{c(n.agree)}</td>
+                        <td className="px-3 py-1.5 text-right text-muted">{n.topAbs == null ? "–" : `${n.topAbs.toFixed(1)} / ${n.restAbs == null ? "–" : n.restAbs.toFixed(1)}`}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
