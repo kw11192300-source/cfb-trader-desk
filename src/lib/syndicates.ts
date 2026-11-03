@@ -41,6 +41,8 @@ export type ExMemberStats = {
   drift_sum?: number;
   drift_sq?: number;
   drift_n?: number;
+  drift_taker_sum?: number;
+  drift_taker_n?: number;
   peak: number;
   max_dd: number;
   wins: number;
@@ -130,7 +132,7 @@ export type ExMeta = { n: number; ts: string; markets: number; games: number; ne
 export type ExRatingsMeta = { ts: string; sports: string[] } | null;
 
 /** The database returns at most 1,000 rows per request whatever limit is asked for, so anything that can pass that is read in pages. */
-async function pageAll<T>(build: (from: number, to: number) => PromiseLike<{ data: unknown[] | null }>, max = 30000): Promise<T[]> {
+export async function pageAll<T>(build: (from: number, to: number) => PromiseLike<{ data: unknown[] | null }>, max = 30000): Promise<T[]> {
   const out: T[] = [];
   for (let from = 0; from < max; from += 1000) {
     const { data } = await build(from, from + 999);

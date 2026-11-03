@@ -1584,6 +1584,13 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             picks.run(store, now)
     except Exception as e:
         print(f"  (picks skipped: {str(e)[:120]})", flush=True)
+    try:  # the nightly overnight snapshot (about 8 PM Eastern) and its scoring the next day; a failure here never touches the round
+        if hasattr(store, "c"):
+            from . import overnight
+
+            overnight.run(store, now)
+    except Exception as e:
+        print(f"  (overnight skipped: {str(e)[:120]})", flush=True)
     if snaps:
         store.insert("ex_snapshots", snaps)
     if marks:

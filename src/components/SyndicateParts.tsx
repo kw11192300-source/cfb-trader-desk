@@ -7,7 +7,7 @@ import { type ExGame, type ExSnap, type ExTrade, label, pct, type Row } from "@/
 const u = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}`;
 const tone = (n: number) => (n > 0.005 ? "text-up" : n < -0.005 ? "text-down" : "text-foreground");
 
-export function SyndicateHeader({ active, round }: { active: "board" | "markets" | "volume" | "history" | "digest" | "crowding" | "positions" | "sports" | "discovery" | "trades" | "closing" | "models" | "reliability" | "signals" | "sharp" | "disagreement" | "news" | "games" | "picks" | "weekly"; round?: { n: number; ts: string } | null }) {
+export function SyndicateHeader({ active, round }: { active: "board" | "markets" | "volume" | "history" | "digest" | "crowding" | "positions" | "sports" | "discovery" | "trades" | "closing" | "models" | "reliability" | "signals" | "overnight" | "sharp" | "disagreement" | "news" | "games" | "picks" | "weekly"; round?: { n: number; ts: string } | null }) {
   const tab = (href: string, text: string, key: string) => (
     <Link href={href} className={`whitespace-nowrap rounded px-3 py-1.5 ${active === key ? "bg-accent text-background" : "text-muted hover:text-foreground"}`}>
       {text}
@@ -48,7 +48,7 @@ export function SyndicateHeader({ active, round }: { active: "board" | "markets"
           {tab("/syndicates/games", "Games", "games")}
           {menu("Trading", [["/syndicates/markets", "Markets", "markets"], ["/syndicates/positions", "Positions", "positions"], ["/syndicates/trades", "Trades", "trades"], ["/syndicates/volume", "Volume", "volume"], ["/syndicates/crowding", "Crowding", "crowding"]])}
           {menu("Performance", [["/syndicates/history", "Results", "history"], ["/syndicates/digest", "Daily digest", "digest"], ["/syndicates/weekly", "Weekly scorecard", "weekly"], ["/syndicates/closing", "Exchange vs DK", "closing"], ["/syndicates/models", "Model scorecard", "models"], ["/syndicates/reliability", "Reliability", "reliability"]])}
-          {menu("Research", [["/syndicates/sharp", "Sharp money", "sharp"], ["/syndicates/disagreement", "Disagreement", "disagreement"], ["/picks", "Picks (Desk)", "picks"], ["/syndicates/news", "News", "news"], ["/syndicates/signals", "Signals", "signals"], ["/syndicates/discovery", "Line discovery", "discovery"]])}
+          {menu("Research", [["/syndicates/sharp", "Sharp money", "sharp"], ["/syndicates/overnight", "Overnight board", "overnight"], ["/syndicates/disagreement", "Disagreement", "disagreement"], ["/picks", "Picks (Desk)", "picks"], ["/syndicates/news", "News", "news"], ["/syndicates/signals", "Signals", "signals"], ["/syndicates/discovery", "Line discovery", "discovery"]])}
           <Link href="/today" className="ml-3 whitespace-nowrap text-muted hover:text-foreground">
             ← Trader Desk
           </Link>
