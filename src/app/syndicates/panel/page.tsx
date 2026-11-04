@@ -1,7 +1,8 @@
 import Link from "next/link";
 
 import { SyndicateHeader } from "@/components/SyndicateParts";
-import { getPanelBoard, type Score } from "@/lib/panelBoard";
+import LocalDateTime from "@/components/LocalDateTime";
+import { getPanelBoard, getPanelUpcoming, type Nums, type Score } from "@/lib/panelBoard";
 import { equityOf, getExchange } from "@/lib/syndicates";
 import { supabase } from "@/lib/supabase";
 
@@ -13,9 +14,15 @@ const cell = (s: Score) => (s.n ? <><span className="text-foreground">{f(s.mae)}
 
 type Calib = Record<string, { n: number; miss?: number; t_miss?: number }>;
 
-export default async function PanelPage() {
-  const [board, { members, syndicates, meta }, { data: rp }] = await Promise.all([
+// a margin is the home team's expected winning margin; a spread writes it the other way round (a favourite is -x)
+const spreadText = (m: number) => `${m > 0 ? "-" : "+"}${Math.abs(m).toFixed(1)}`;
+const diff = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)}`;
+
+export default async function PanelPage({ searchParams }: { searchParams: Promise<{ by?: string; all?: string }> }) {
+  const sp = await searchParams;
+  const [board, upcoming, { members, syndicates, meta }, { data: rp }] = await Promise.all([
     getPanelBoard(),
+    getPanelUpcoming(),
     getExchange(),
     supabase.from("ex_meta").select("value").eq("key", "panel").maybeSingle(),
   ]);
@@ -30,6 +37,28 @@ export default async function PanelPage() {
   const bestOpen = best(board.open.filter((r) => !["seed", "line"].includes(r.key)).map((r) => ({ key: r.key, s: r.margin })));
   const bestClose = best(board.close.filter((r) => r.key !== "dk").map((r) => ({ key: r.key, s: r.dkM })));
   const bestRes = best(board.close.filter((r) => r.key !== "dk").map((r) => ({ key: r.key, s: r.resM })));
+
+  const by = sp.by === "systems" || sp.by === "total" ? sp.by : "line";
+  const sys3 = ["kenpom", "torvik", "evanmiya"] as const;
+  const mOf = (n: Nums | undefined) => (n ? n[0] : null);
+  const ranked = upcoming.rows
+    .map((r) => {
+      const ms = sys3.map((k) => mOf(r.nums[k])).filter((x): x is number => x != null);
+      const avg = mOf(r.nums.avg);
+      return {
+        ...r,
+        gapLine: avg != null ? avg - r.m : null,
+        range: ms.length >= 2 ? Math.max(...ms) - Math.min(...ms) : null,
+        gapTotal: r.nums.avg?.[1] != null ? r.nums.avg[1]! - r.t : null,
+      };
+    })
+    .filter((r) => (by === "systems" ? r.range != null : by === "total" ? r.gapTotal != null : r.gapLine != null))
+    .sort((a, b) => Math.abs((by === "systems" ? b.range : by === "total" ? b.gapTotal : b.gapLine) ?? 0) - Math.abs((by === "systems" ? a.range : by === "total" ? a.gapTotal : a.gapLine) ?? 0))
+    .slice(0, 30);
+  const shown = sp.all === "1" ? board.openGames : board.openGames.slice(0, 40);
+  const pill = (href: string, text: string, on: boolean) => (
+    <Link href={href} className={`rounded px-2.5 py-1 text-[11px] ${on ? "bg-accent text-background" : "border border-border text-muted hover:text-foreground"}`}>{text}</Link>
+  );
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -52,6 +81,98 @@ export default async function PanelPage() {
             <div key={k} className="rounded-lg border border-border bg-surface px-3 py-2"><p className="text-[10px] uppercase tracking-wide text-muted">{k}</p><p className="text-lg font-semibold text-foreground">{v}</p></div>
           ))}
         </div>
+
+        <section className="mb-8">
+          <h3 className="mb-1 text-sm font-semibold text-foreground">Biggest differences on games on offer now</h3>
+          <p className="mb-2 max-w-3xl text-[11px] text-muted">
+            The panel&rsquo;s numbers against the current line, which is DraftKings&rsquo; if it has posted and the exchange&rsquo;s own if not. Each figure is the spread, then how far the system sits from the line in points
+            (+ means it has the home team stronger than the line). Updated each round{upcoming.ts ? <> · <LocalDateTime iso={upcoming.ts} options={{ hour: "numeric", minute: "2-digit" }} /></> : null}.
+          </p>
+          <div className="mb-2 flex flex-wrap gap-2">
+            {pill("/syndicates/panel", "Panel average vs the line", by === "line")}
+            {pill("/syndicates/panel?by=systems", "Systems disagree most", by === "systems")}
+            {pill("/syndicates/panel?by=total", "Total vs the line", by === "total")}
+          </div>
+          {ranked.length === 0 ? (
+            <p className="rounded-lg border border-border bg-surface px-4 py-6 text-center text-xs text-muted">Nothing yet: this fills after the next exchange round.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full min-w-[820px] text-[11px]">
+                <thead className="bg-surface text-left text-muted">
+                  <tr><th className="px-3 py-2">Game</th><th className="px-3 py-2">Line</th><th className="px-3 py-2">Panel average</th><th className="px-3 py-2">KenPom</th><th className="px-3 py-2">Torvik</th><th className="px-3 py-2">EvanMiya</th><th className="px-3 py-2 text-right">Systems range</th></tr>
+                </thead>
+                <tbody className="font-mono">
+                  {ranked.map((r) => (
+                    <tr key={r.id} className="border-t border-border align-top">
+                      <td className="px-3 py-1 font-sans text-foreground">
+                        <Link href={`/syndicates/games/${encodeURIComponent(r.id)}`} className="hover:text-accent">{r.teams}</Link>
+                        <div className="text-[10px] text-muted"><LocalDateTime iso={r.start} options={{ weekday: "short", hour: "numeric", minute: "2-digit" }} /></div>
+                      </td>
+                      <td className="px-3 py-1">
+                        {spreadText(r.m)}
+                        <div className="text-[10px] text-muted">{r.src === "dk" ? "DraftKings" : "exchange line"} · total {r.t.toFixed(1)}</div>
+                      </td>
+                      {(["avg", ...sys3] as const).map((k) => {
+                        const n = r.nums[k];
+                        return (
+                          <td key={k} className="px-3 py-1">
+                            {n ? <>{spreadText(n[0])} <span className={Math.abs(n[0] - r.m) >= 3 ? "text-accent" : "text-muted"}>({diff(n[0] - r.m)})</span>{n[1] != null && <div className="text-[10px] text-muted">total {n[1].toFixed(1)} ({diff(n[1] - r.t)})</div>}</> : <span className="text-muted">–</span>}
+                          </td>
+                        );
+                      })}
+                      <td className="px-3 py-1 text-right">{r.range != null ? `${r.range.toFixed(1)} pts` : "–"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <section className="mb-8">
+          <h3 className="mb-1 text-sm font-semibold text-foreground">When DraftKings opened, game by game</h3>
+          <p className="mb-2 max-w-3xl text-[11px] text-muted">
+            Each game the exchange was making a line on before DraftKings posted: DraftKings&rsquo; first spread and total, then every source&rsquo;s number and its distance from DraftKings in points. The closest of the four
+            rating numbers is highlighted. Older rows were filled in afterwards from the November 3 ratings, marked <span className="text-foreground">*</span>; newer rows are logged live at the moment DraftKings posts.
+          </p>
+          {shown.length === 0 ? (
+            <p className="rounded-lg border border-border bg-surface px-4 py-6 text-center text-xs text-muted">No openings with the panel&rsquo;s numbers yet.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full min-w-[920px] text-[11px]">
+                <thead className="bg-surface text-left text-muted">
+                  <tr><th className="px-3 py-2">Game</th><th className="px-3 py-2">DraftKings opened</th><th className="px-3 py-2">Our opening seed</th><th className="px-3 py-2">Exchange when DK posted</th><th className="px-3 py-2">Panel average</th><th className="px-3 py-2">KenPom</th><th className="px-3 py-2">Torvik</th><th className="px-3 py-2">EvanMiya</th></tr>
+                </thead>
+                <tbody className="font-mono">
+                  {shown.map((g) => {
+                    const dm = g.dkSpread != null ? -g.dkSpread : g.dkM;
+                    const dt = g.dkTotal ?? g.dkT;
+                    const four = (["avg", ...sys3] as const).map((k) => [k, g.cells[k]] as const).filter(([, n]) => n);
+                    const bestK = four.length ? four.reduce((a, b) => (Math.abs(b[1]![0] - dm) < Math.abs(a[1]![0] - dm) ? b : a))[0] : null;
+                    return (
+                      <tr key={g.id} className="border-t border-border align-top">
+                        <td className="px-3 py-1 font-sans text-foreground">
+                          <Link href={`/syndicates/games/${encodeURIComponent(g.id)}`} className="hover:text-accent">{g.teams}</Link>{g.backfilled && <span className="ml-1 text-muted" title="Filled in afterwards from the November 3 ratings">*</span>}
+                          <div className="text-[10px] text-muted"><LocalDateTime iso={g.found} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} /> · {g.hours.toFixed(0)}h before</div>
+                        </td>
+                        <td className="px-3 py-1">{spreadText(dm)}<div className="text-[10px] text-muted">total {dt.toFixed(1)}</div></td>
+                        {(["seed", "line", "avg", ...sys3] as const).map((k) => {
+                          const n = g.cells[k];
+                          return (
+                            <td key={k} className="px-3 py-1">
+                              {n ? <>{spreadText(n[0])} <span className={k === bestK ? "font-semibold text-accent" : "text-muted"}>({diff(n[0] - dm)})</span>{n[1] != null && <div className="text-[10px] text-muted">total {n[1].toFixed(1)} ({diff(n[1] - dt)})</div>}</> : <span className="text-muted">–</span>}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {board.openGames.length > 40 && sp.all !== "1" && <p className="mt-2 text-[11px] text-muted"><Link href="/syndicates/panel?all=1" className="text-accent hover:underline">Show all {board.openGames.length} openings</Link></p>}
+        </section>
 
         <section className="mb-8">
           <h3 className="mb-1 text-sm font-semibold text-foreground">Against DraftKings&rsquo; first line</h3>

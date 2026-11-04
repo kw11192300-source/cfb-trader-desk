@@ -33,7 +33,7 @@ CBB_NODK_CAP = 250  # college basketball has hundreds of games a day: only this 
 PANEL_W_NODK = 0.5  # the Ratings Panel's fair price on a game DraftKings has not priced: this share of the way from the exchange's line to its own ratings-based price
 PANEL_W_DK = 0.1  # ...and once DraftKings is up, this share: it defers to the market and keeps quoting
 PANEL_DK_SIZE = 0.4  # its quote size on a game DraftKings has priced, against full size on one it has not
-PANEL_SEED_M, PANEL_SEED_T = 0.75, 0.5  # share of the opening margin and total taken from the panel while its ratings are fresh
+PANEL_SEED_M, PANEL_SEED_T = 0.9, 0.4  # share of the opening margin and total taken from the panel while its ratings are fresh
 PANEL_CAP = 400.0  # its combined worst case on one game (a pure market maker's is 200); its traders may risk 250 each: it is the one making the line before DraftKings has one
 W_FLOOR_EXCH = 0.5  # with no market to anchor to, a syndicate trusts its own model at least this much
 CUTOFF_MIN = 3
@@ -1695,6 +1695,18 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         v_ = gv.setdefault(t_["game_id"], [0.0, 0])
         v_[0] += t_["qty"]
         v_[1] += 1
+    if pan:  # the panel's own number for every college basketball game on offer, next to the current line (DraftKings' if posted, else the exchange's): the scoreboard page ranks them by how far apart they are
+        pg_ = []
+        for gid_ in by_gid:
+            g_ = games[gid_]
+            if g_["sport"] != "cbb" or not g_.get("ref"):
+                continue
+            nm_ = panel_nums(g_)
+            if nm_:
+                d_ = refs[gid_][0]
+                pg_.append({"id": gid_, "teams": f"{g_['away']['abbr']} @ {g_['home']['abbr']}", "start": g_["start_utc"], "src": g_["ref"].get("src") or "dk",
+                            "m": round(d_.m, 2), "t": round(d_.t, 1), "line": [g_["ref"].get("spread"), g_["ref"].get("total")], "nums": nm_})
+        store.upsert("ex_meta", [{"key": "panelgames", "value": {"ts": _iso(now), "rows": pg_}}])
     store.upsert("ex_meta", [{"key": "carry", "value": {
         "mmb": [[mid_, gid_, round(v_[0], 4), round(v_[1], 4)] for (mid_, gid_), v_ in mmb.items() if abs(v_[0]) > CARRY_SMALL or abs(v_[1]) > CARRY_SMALL][:4000],
         "tox": [[mid_, k_, round(v_, 3)] for (mid_, k_), v_ in sorted(tox.items(), key=lambda kv: -kv[1])[:3000] if v_ > 0.02]}}])

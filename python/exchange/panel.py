@@ -4,6 +4,7 @@ The Ratings Panel firm makes markets in college basketball games DraftKings has 
 public ratings put it instead of where our own early-season ratings (squeezed toward the middle) do. Each system is fitted on its own to DraftKings' closing lines (margin = a + b * rating gap + c * home
 court; total from the system's offence, defence and tempo), and the systems are averaged. Stored in ex_ratings under "cbb|panel", so the cloud runner reads it like any other rating.
 
+    python -m exchange.panel backfill              give older line-discovery rows the systems' numbers, computed afterwards
     python -m exchange.panel load [--local] [--dry]        read python/data/cbb/benchmarks/*.csv, fit to the DraftKings closes held so far, store
 
 Ratings go stale as the season runs: the panel's say fades with the age of the file (weight()), so an old file quietly stops mattering.
@@ -169,10 +170,45 @@ def load(store) -> dict:
     return payload
 
 
+def nums_for(payload: dict, home_id: str, away_id: str, neutral: bool) -> dict | None:
+    """Each system's own margin and total for a game, and their average (what the scoreboard logs)."""
+    out: dict = {}
+    for sy in (None, *SYSTEMS):
+        pp = predict(payload, home_id, away_id, neutral, sy)
+        if pp:
+            out[sy or "avg"] = [round(pp[0], 2), None if pp[1] is None else round(pp[1], 1)]
+    return {**out, "asof": payload.get("asof")} if out else None
+
+
+def backfill(store) -> int:
+    """Line-discovery rows written before the panel existed get the systems' numbers computed afterwards from the current ratings, marked panel_bf so the page says so."""
+    row = next((r for r in store.rows("ex_meta") if r["key"] == "discovery"), None)
+    pay = next((r["payload"] for r in store.rows("ex_ratings") if r["key"] == KEY), None)
+    if not row or not pay:
+        return 0
+    games = {g["id"]: g for g in store.rows("ex_games") if g["sport"] == "cbb"}
+    n = 0
+    for d in row["value"].get("rows", []):
+        g = games.get(d["id"])
+        if d["sport"] != "cbb" or isinstance(d.get("panel"), dict) or not g:
+            continue
+        nums = nums_for(pay, g["home"]["id"], g["away"]["id"], bool(g.get("neutral")))
+        if nums:
+            d["panel"], d["panel_bf"] = nums, True
+            n += 1
+    if n:
+        store.upsert("ex_meta", [{"key": "discovery", "value": row["value"]}])
+        store.save()
+    return n
+
+
 def main() -> None:
     from .store import FileStore, SbStore
 
     store = FileStore() if "--local" in sys.argv else SbStore()
+    if "backfill" in sys.argv:
+        print(f"{backfill(store)} line-discovery rows given the panel's numbers")
+        return
     p = build(games_from_store(store)) if "--dry" in sys.argv else load(store)
     print(f"ratings as of {p['asof']}, {sum(len(v) for v in p['systems'].values())} team ratings across {list(p['systems'])}")
     for s, c in p["calib"].items():

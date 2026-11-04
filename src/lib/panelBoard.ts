@@ -20,8 +20,18 @@ const score = (pairs: [number, number][]): Score => {
 export type OpenRow = { key: string; label: string; margin: Score; total: Score };
 export type CloseRow = { key: string; label: string; dkM: Score; dkT: Score; resM: Score; resT: Score };
 export type PairRow = { id: string; pnl: number; n: number; qty: number };
+/** One game DraftKings has opened: its first line next to every source's number (expected home margin and total). */
+export type OpenGame = { id: string; teams: string; start: string; found: string; hours: number; dkSpread: number | null; dkTotal: number | null; dkM: number; dkT: number; backfilled: boolean; cells: Record<string, Nums | null> };
+/** One game on offer now: the current line (DraftKings' if posted, else the exchange's own) next to the panel's numbers. */
+export type Upcoming = { id: string; teams: string; start: string; src: string; m: number; t: number; line: [number | null, number | null]; nums: PanelNums };
 
-export async function getPanelBoard(): Promise<{ open: OpenRow[]; close: CloseRow[]; pairs: PairRow[]; games: { open: number; close: number }; asof: string | null }> {
+export async function getPanelUpcoming(): Promise<{ ts: string | null; rows: Upcoming[] }> {
+  const { data } = await supabase.from("ex_meta").select("value").eq("key", "panelgames").maybeSingle();
+  const v = (data?.value ?? null) as { ts?: string; rows?: Upcoming[] } | null;
+  return { ts: v?.ts ?? null, rows: v?.rows ?? [] };
+}
+
+export async function getPanelBoard(): Promise<{ open: OpenRow[]; openGames: OpenGame[]; close: CloseRow[]; pairs: PairRow[]; games: { open: number; close: number }; asof: string | null }> {
   const discs = ((await getDiscoveries()) as PanelDiscovery[]).filter((d) => d.dk && d.sport === "cbb");
   const withPanel = discs.filter((d) => d.panel);
   const open: OpenRow[] = [];
@@ -40,6 +50,14 @@ export async function getPanelBoard(): Promise<{ open: OpenRow[]; close: CloseRo
     }
     open.push({ key, label, margin: score(m), total: score(t) });
   }
+
+  const openGames: OpenGame[] = withPanel
+    .map((d) => ({
+      id: d.id, teams: d.teams, start: d.start, found: d.found, hours: d.hours_before, dkSpread: d.dk_line?.[0] ?? null, dkTotal: d.dk_line?.[1] ?? null, dkM: d.dk[0], dkT: d.dk[1],
+      backfilled: Boolean((d as { panel_bf?: boolean }).panel_bf),
+      cells: { line: (d.internal as Nums | null) ?? null, seed: (d.seed as Nums | null) ?? null, kenpom: d.panel?.kenpom ?? null, torvik: d.panel?.torvik ?? null, evanmiya: d.panel?.evanmiya ?? null, avg: d.panel?.avg ?? null },
+    }))
+    .sort((a, b) => b.found.localeCompare(a.found));
 
   type R = { id: string; home_score: number | null; away_score: number | null; closing: { lines?: [string, number][]; pan?: PanelNums; src?: string } | null };
   const results = (await pageAll<R>((from, to) => supabase.from("ex_results").select("id,home_score,away_score,closing").eq("sport", "cbb").order("day", { ascending: false }).range(from, to), 20000))
@@ -79,5 +97,5 @@ export async function getPanelBoard(): Promise<{ open: OpenRow[]; close: CloseRo
     }
   }
   const asof = results.find((r) => r.closing?.pan?.asof)?.closing?.pan?.asof ?? withPanel.find((d) => d.panel?.asof)?.panel?.asof ?? null;
-  return { open, close, pairs: Object.values(byId).sort((a, b) => a.id.localeCompare(b.id)), games: { open: withPanel.length, close: results.length }, asof };
+  return { open, openGames, close, pairs: Object.values(byId).sort((a, b) => a.id.localeCompare(b.id)), games: { open: withPanel.length, close: results.length }, asof };
 }
