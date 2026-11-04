@@ -188,7 +188,7 @@ export default async function TradesPage({ searchParams }: { searchParams: Promi
                       )}
                       <td className="px-3 py-1.5 text-right">{pct(t.price)}</td>
                       <td className="px-3 py-1.5 text-right text-muted">{pct(t.ref_p)}</td>
-                      <td className="px-3 py-1.5 text-right">{t.qty}</td>
+                      <td className="px-3 py-1.5 text-right">{+t.qty.toFixed(2)}</td>
                       {picked ? (
                         <td className="px-3 py-1.5 font-sans text-muted">{sd ? names[other] ?? other : `${names[t.buyer] ?? t.buyer} / ${names[t.seller] ?? t.seller}`}</td>
                       ) : (

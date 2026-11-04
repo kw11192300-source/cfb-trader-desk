@@ -410,7 +410,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                                         "hours_before": round((_pdate(ev["start"]) - now).total_seconds() / 3600, 1), "rounds": old_ref.get("rounds"),
                                         "seed": old_ref.get("seed"), "internal": old_ref.get("mt"), "dk": [round(dk_d.m, 3), round(dk_d.t, 3)],
                                         "int_line": [old_ref.get("spread"), old_ref.get("total")], "dk_line": [ev["now"].get("spread"), ev["now"].get("total")],
-                                        "panel": (lambda p_: [round(p_[0], 2), None if p_[1] is None else round(p_[1], 1)] if p_ else None)(panel.predict(pan, ev["home"]["id"], ev["away"]["id"], bool(ev.get("neutral"))) if ev["sport"] == "cbb" else None)})
+                                        "panel": panel_nums({"sport": ev["sport"], "home": ev["home"], "away": ev["away"], "neutral": ev.get("neutral")})})
             if row["ref_open"] is None or old_ref.get("src", "dk") != "dk":  # the first real DraftKings line becomes the open
                 row["ref_open"] = ev["open"] or ev["now"]
             row["ref"] = ev["now"]
@@ -436,6 +436,17 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     # the traders' own quotes and trades clear it (moved at the end of every round). Kalshi's prices are still collected, but only as one syndicate's view.
     pan = rat.get(panel.KEY)
     pan_w = panel.weight(pan, now.date())
+
+    def panel_nums(g: dict) -> dict | None:
+        """Each outside system's own margin and total for a college basketball game, and their average, for the panel scoreboard (python/exchange/panel.py)."""
+        if g["sport"] != "cbb" or not pan:
+            return None
+        out: dict = {}
+        for sy_ in (None, *panel.SYSTEMS):
+            pp_ = panel.predict(pan, g["home"]["id"], g["away"]["id"], bool(g.get("neutral")), sy_)
+            if pp_:
+                out[sy_ or "avg"] = [round(pp_[0], 2), None if pp_[1] is None else round(pp_[1], 1)]
+        return {**out, "asof": pan.get("asof")} if out else None
     pre = {gid: g for gid, g in {**games, **pending}.items() if g["state"] == "pre" and _pdate(g["start_utc"]) <= now + timedelta(hours=horizon(g["sport"]))}
     def opening(g: dict) -> tuple[float, float] | None:
         sp = g["sport"]
@@ -626,7 +637,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             gr_ = games[gid].get("ref") or {}
             rel_changed |= reliability.add_alt(rel, gid, games[gid]["sport"], trs, members, {"spread": gr_.get("spread"), "total": gr_.get("total")})
             rel_changed |= reliability.add_game_counts(rel, gid, games[gid]["sport"], trs, members)
-            row = results.game_result(games[gid], trs, members)
+            row = results.game_result(games[gid], trs, members, panel_nums(games[gid]))
             signals.resolve(sig, gid, row.get("closing"))
             piles.resolve(pst, gid, games[gid])
             result_rows.append(row)
@@ -1253,7 +1264,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                     if qb < 1 or not oa_ or bid < oa_[0]:
                         break
                     mk_ = members[oa_[2]]
-                    qx = min(qb, oa_[1], room_for(m, mk, "buy", oa_[0]), cash_room(m, k, "buy", oa_[0]), room_for(mk_, mk, "sell", oa_[0], True), cash_room(mk_, k, "sell", oa_[0]))
+                    qx = float(np.floor(min(qb, oa_[1], room_for(m, mk, "buy", oa_[0]), cash_room(m, k, "buy", oa_[0]), room_for(mk_, mk, "sell", oa_[0], True), cash_room(mk_, k, "sell", oa_[0])) * 100) / 100)
                     if qx < 1:
                         break
                     fill(m, mk_, mk_, mk, k, oa_[0], qx)
@@ -1264,7 +1275,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                     if qa < 1 or not ob_ or ask > ob_[0]:
                         break
                     mk_ = members[ob_[2]]
-                    qx = min(qa, ob_[1], room_for(m, mk, "sell", ob_[0]), cash_room(m, k, "sell", ob_[0]), room_for(mk_, mk, "buy", ob_[0], True), cash_room(mk_, k, "buy", ob_[0]))
+                    qx = float(np.floor(min(qa, ob_[1], room_for(m, mk, "sell", ob_[0]), cash_room(m, k, "sell", ob_[0]), room_for(mk_, mk, "buy", ob_[0], True), cash_room(mk_, k, "buy", ob_[0])) * 100) / 100)
                     if qx < 1:
                         break
                     fill(mk_, m, mk_, mk, k, ob_[0], qx)

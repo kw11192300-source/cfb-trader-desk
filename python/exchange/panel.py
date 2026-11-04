@@ -163,6 +163,8 @@ def build(games: list[dict]) -> dict:
 def load(store) -> dict:
     payload = build(games_from_store(store))
     store.upsert("ex_ratings", [{"key": KEY, "payload": payload, "fitted_at": datetime.utcnow().isoformat() + "Z"}])
+    # the ratings table is private; the panel scoreboard page reads this summary (as-of date and how well each system fitted DraftKings) from the public meta table
+    store.upsert("ex_meta", [{"key": "panel", "value": {"asof": payload["asof"], "calib": {s: {k: v for k, v in c.items() if k in ("n", "miss", "t_miss")} for s, c in payload["calib"].items()}}}])
     store.save()
     return payload
 

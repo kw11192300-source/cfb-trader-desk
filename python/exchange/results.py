@@ -26,7 +26,7 @@ def et_day(iso: str) -> str:
     return _dt(iso).astimezone(ET).date().isoformat()
 
 
-def game_result(g: dict, trades: list[dict], members: dict) -> dict:
+def game_result(g: dict, trades: list[dict], members: dict, panel: dict | None = None) -> dict:
     """Result row for one finished game from every trade ever made on it."""
     syn: dict[str, dict] = {}
     trd: dict[str, dict] = {}
@@ -75,6 +75,8 @@ def game_result(g: dict, trades: list[dict], members: dict) -> dict:
             sharp_net.append(round(net, 1))
         closing = {"src": v.get("src", "dk"), "lines": [list(x) for x in lines], "dk": v["r"], "x": v.get("x"), "ks": [ks.get(x) for x in lines], "e": v.get("e"),
                    "y": [pricing.outcome(k, ln, g["home_score"], g["away_score"]) for k, ln in lines], "sharp": sharp_net}
+    if closing is not None and panel:
+        closing["pan"] = panel  # each outside rating system's own margin and total for the game, scored against DraftKings' close and the result on the panel scoreboard
     rnd = lambda d: {k: {kk: round(vv, 3) for kk, vv in v.items()} for k, v in d.items()}  # noqa: E731
     return {"id": g["id"], "day": et_day(g["start_utc"]), "sport": g["sport"], "kickoff": g["start_utc"], "home": g["home"], "away": g["away"],
             "home_score": g.get("home_score"), "away_score": g.get("away_score"), "n_trades": len(trades), "contracts": round(contracts, 1),
