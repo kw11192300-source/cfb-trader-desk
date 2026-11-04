@@ -14,7 +14,7 @@ const MIN: [string, string, number][] = [["sharp", "Sharp", 0.5], ["leaning", "L
 const SORT: [string, string][] = [["lev", "% of limit"], ["units", "Units at risk"], ["weighted", "Sharpness × size"]];
 const u = (n: number) => `${n > 0.05 ? "+" : ""}${n.toFixed(0)}`;
 const tone = (n: number) => (n > 0.5 ? "text-up" : n < -0.5 ? "text-down" : "text-muted");
-type Params = { sport?: string; min?: string; sort?: string; t?: string };
+type Params = { sport?: string; min?: string; sort?: string; t?: string; all?: string };
 const THRS = [3, 5, 10, 20, 40];
 const GROUPS: [string, string][] = [["sport:cfb", "CFB"], ["sport:nfl", "NFL"], ["sport:nhl", "NHL"], ["sport:nba", "NBA"], ["sport:cbb", "CBB"], ["kind:ml", "Moneyline"], ["kind:spread", "Spread"], ["kind:total", "Total"],
   ["hrs:>24", "More than 24h before"], ["hrs:6-24", "6 to 24h before"], ["hrs:<6", "Under 6h before"], ["top:<0.3", "Sharpest account under 0.3"], ["top:0.3-0.5", "Sharpest account 0.3 to 0.5"], ["top:>=0.5", "Sharpest account 0.5+"],
@@ -68,7 +68,8 @@ export default async function SharpPage({ searchParams }: { searchParams: Promis
   rows.sort((a, b) => score(b) - score(a));
 
   // where the sharp money piles up: every sharp trader's contracts on a line, weighted by sharpness
-  type Pile = { gid: string; kind: string; line: number; v: number; long: number; short: number; best: string; bestS: number };
+  // longW/longPx: sharpness-weighted contracts long 'yes' and the weighted price paid for them; shortW/shortPx the same for the other side (price paid is 1 minus the trade price); longQ/shortQ are raw contracts
+  type Pile = { gid: string; kind: string; line: number; v: number; long: number; short: number; best: string; bestS: number; longW: number; longPx: number; shortW: number; shortPx: number; longQ: number; shortQ: number };
   const pile: Record<string, Pile> = {};
   for (const [key, ls] of Object.entries(byHolderGame)) {
     const [holder, gid] = key.split("|");
@@ -77,13 +78,15 @@ export default async function SharpPage({ searchParams }: { searchParams: Promis
     if (!m || s < minVal) continue;
     for (const l of ls) {
       const k = `${gid}|${l.kind}|${l.line}`;
-      const P = (pile[k] ??= { gid, kind: l.kind, line: l.line, v: 0, long: 0, short: 0, best: "", bestS: 0 });
+      const P = (pile[k] ??= { gid, kind: l.kind, line: l.line, v: 0, long: 0, short: 0, best: "", bestS: 0, longW: 0, longPx: 0, shortW: 0, shortPx: 0, longQ: 0, shortQ: 0 });
       P.v += l.qty * s;
-      if (l.qty > 0) P.long += 1; else P.short += 1;
+      if (l.qty > 0) { P.long += 1; P.longW += l.qty * s; P.longPx += l.qty * s * l.price; P.longQ += l.qty; }
+      else { P.short += 1; P.shortW += -l.qty * s; P.shortPx += -l.qty * s * (1 - l.price); P.shortQ += -l.qty; }
       if (s > P.bestS) { P.bestS = s; P.best = holder; }
     }
   }
-  const piles = Object.values(pile).filter((p) => Math.abs(p.v) >= 1).sort((a, b) => Math.abs(b.v) - Math.abs(a.v)).slice(0, 20);
+  const allPiles = Object.values(pile).filter((p) => Math.abs(p.v) >= 1).sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
+  const piles = allPiles.slice(0, sp.all === "1" ? 150 : 30);
   const sideWords = (g: (typeof games)[string], kind: string, line: number, v: number) =>
     kind === "ml" ? `${v >= 0 ? g.home.abbr : g.away.abbr} to win` : kind === "spread" ? (v >= 0 ? `${g.home.abbr} ${line > 0 ? "+" : ""}${line}` : `${g.away.abbr} ${-line > 0 ? "+" : ""}${-line}`) : `${v >= 0 ? "Over" : "Under"} ${line}`;
   const eligible = members.filter((m) => !m.params.public && SPORTS.some((s) => sharpOf(m, s) >= minVal)).length;
@@ -173,22 +176,31 @@ export default async function SharpPage({ searchParams }: { searchParams: Promis
         )}
 
         <h3 className="mb-1 text-sm font-semibold text-foreground">Where the sharp money is piling up</h3>
-        <p className="mb-2 text-[11px] text-muted">Sharp-weighted contracts per line (each trader&rsquo;s contracts multiplied by its sharpness), with how many sharp accounts are on each side. A line with accounts on both sides is a disagreement, not a pile.</p>
+        <p className="mb-2 text-[11px] text-muted">Sharp-weighted contracts per line (each trader&rsquo;s contracts multiplied by its sharpness), with how many sharp accounts are on each side. Every line is its own row, so -20.5 and -19.5 are separate piles. <strong>Avg paid</strong> is what the sharp accounts paid for the leaning side on average (weighted by contracts and sharpness), <strong>Now</strong> is DraftKings&rsquo; current price for that side, and <strong>Moved</strong> is the difference: positive means the price has gone their way since they bought. A line with accounts on both sides is a disagreement, not a pile.</p>
         {piles.length === 0 ? (
           <p className="text-xs text-muted">Nothing yet at this setting.</p>
         ) : (
           <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full min-w-[720px] text-xs">
-              <thead className="bg-surface text-left text-muted"><tr><th className="px-3 py-2">Game</th><th className="px-3 py-2">Leaning to</th><th className="px-3 py-2 text-right">Sharp-weighted</th><th className="px-3 py-2 text-right">Accounts for / against</th><th className="px-3 py-2">Sharpest on it</th></tr></thead>
+            <table className="w-full min-w-[980px] text-xs">
+              <thead className="bg-surface text-left text-muted"><tr><th className="px-3 py-2">Game</th><th className="px-3 py-2">Leaning to</th><th className="px-3 py-2 text-right">Sharp-weighted</th><th className="px-3 py-2 text-right" title="Raw contracts held on the leaning side, and on the other side">Contracts for / against</th><th className="px-3 py-2 text-right" title="Average price the sharp accounts paid for the leaning side, weighted by contracts and sharpness">Avg paid</th><th className="px-3 py-2 text-right" title="The current DraftKings price (vig removed) for that side">Now</th><th className="px-3 py-2 text-right" title="Now minus average paid: positive means the price has moved their way">Moved</th><th className="px-3 py-2 text-right">Accounts for / against</th><th className="px-3 py-2">Sharpest on it</th></tr></thead>
               <tbody>
                 {piles.map((p) => {
                   const g = games[p.gid];
                   const forN = p.v >= 0 ? p.long : p.short, againstN = p.v >= 0 ? p.short : p.long;
+                  const forQ = p.v >= 0 ? p.longQ : p.shortQ, againstQ = p.v >= 0 ? p.shortQ : p.longQ;
+                  const paid = p.v >= 0 ? (p.longW > 0 ? p.longPx / p.longW : null) : (p.shortW > 0 ? p.shortPx / p.shortW : null);
+                  const fair = fairOf(g, p.kind, p.line);
+                  const nowP = fair == null ? null : p.v >= 0 ? fair : 1 - fair;
+                  const moved = paid != null && nowP != null ? (nowP - paid) * 100 : null;
                   return (
                     <tr key={`${p.gid}${p.kind}${p.line}`} className="border-t border-border">
                       <td className="px-3 py-1.5 text-foreground"><span className="mr-1.5 text-[10px] text-muted">{SPORT[g.sport]}</span><Link href={`/syndicates/games/${encodeURIComponent(p.gid)}?col=sharp`} className="hover:text-accent">{g.away.abbr} @ {g.home.abbr}</Link></td>
                       <td className="px-3 py-1.5 font-medium text-accent">{sideWords(g, p.kind, p.line, p.v)}</td>
                       <td className="px-3 py-1.5 text-right font-mono">{Math.abs(p.v).toFixed(1)}</td>
+                      <td className="px-3 py-1.5 text-right font-mono"><span className="text-foreground">{forQ.toFixed(0)}</span> / <span className={againstQ > 0.5 ? "text-down" : "text-muted"}>{againstQ.toFixed(0)}</span></td>
+                      <td className="px-3 py-1.5 text-right font-mono">{paid == null ? "–" : pct(paid)}</td>
+                      <td className="px-3 py-1.5 text-right font-mono">{nowP == null ? "–" : pct(nowP)}</td>
+                      <td className={`px-3 py-1.5 text-right font-mono ${moved == null ? "text-muted" : tone(moved)}`}>{moved == null ? "–" : `${moved >= 0 ? "+" : ""}${moved.toFixed(1)}¢`}</td>
                       <td className="px-3 py-1.5 text-right font-mono"><span className="text-up">{forN}</span> / <span className={againstN ? "text-down" : "text-muted"}>{againstN}</span></td>
                       <td className="px-3 py-1.5 text-muted">{byId[p.best]?.name} <span className="text-[10px]">({p.bestS.toFixed(2)})</span></td>
                     </tr>
@@ -197,6 +209,11 @@ export default async function SharpPage({ searchParams }: { searchParams: Promis
               </tbody>
             </table>
           </div>
+        )}
+        {allPiles.length > 30 && (
+          <p className="mt-2 text-[11px] text-muted">
+            {sp.all === "1" ? <Link href={q({})} className="text-accent hover:underline">Show the top 30 only</Link> : <Link href={`${q({})}${q({}).includes("?") ? "&" : "?"}all=1`} className="text-accent hover:underline">Show up to 150 of the {allPiles.length} piles</Link>}
+          </p>
         )}
 
         <h3 className="mb-1 mt-10 text-sm font-semibold text-foreground">Track record: does following a sharp pile beat the market?</h3>
