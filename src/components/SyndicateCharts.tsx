@@ -76,8 +76,11 @@ export function LineChart({
 }
 
 /** Bid and ask depth by line: bars for the size on each side, the fair price in the middle, a marker where the last trade was. */
-export function LadderDepth({ g }: { g: ExGame }) {
+export function LadderDepth({ g, who }: { g: ExGame; who?: Record<string, string> }) {
   const book = g.book ?? [];
+  /** Hover text for one side of a line: the best few prices, their size and who is quoting them. */
+  const tip = (lv: [number, number, string?][] | undefined, side: string) =>
+    lv && lv.length ? [side, ...lv.slice(0, 6).map(([p, q, id]) => `${Math.round(p * 100)}¢ × ${Math.round(q)}${id ? ` · ${who?.[id] ?? id}` : ""}`)].join("\n") : undefined;
   const maxSz = Math.max(1, ...book.flatMap((r) => [r[7] ?? 0, r[8] ?? 0]));
   const kinds = [["ml", "Moneyline"], ["spread", "Spread"], ["total", "Total"]] as const;
   return (
@@ -106,8 +109,8 @@ export function LadderDepth({ g }: { g: ExGame }) {
                   <td className="py-0.5 text-right">{pct(r[3])}</td>
                   <td className="py-0.5">
                     <div className="flex h-2.5 items-center">
-                      <div className="flex w-1/2 justify-end"><div className="h-2 rounded-l bg-up/70" style={{ width: `${((r[7] ?? 0) / maxSz) * 100}%` }} /></div>
-                      <div className="flex w-1/2"><div className="h-2 rounded-r bg-down/70" style={{ width: `${((r[8] ?? 0) / maxSz) * 100}%` }} /></div>
+                      <div className="flex w-1/2 cursor-help justify-end py-0.5" title={tip(r[10]?.[0], "Bids")}><div className="h-2 rounded-l bg-up/70" style={{ width: `${((r[7] ?? 0) / maxSz) * 100}%` }} /></div>
+                      <div className="flex w-1/2 cursor-help py-0.5" title={tip(r[10]?.[1], "Asks")}><div className="h-2 rounded-r bg-down/70" style={{ width: `${((r[8] ?? 0) / maxSz) * 100}%` }} /></div>
                     </div>
                   </td>
                   <td className="py-0.5">{pct(r[4])}</td>

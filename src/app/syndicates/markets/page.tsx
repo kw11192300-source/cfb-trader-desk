@@ -28,10 +28,11 @@ export default async function SyndicateMarketsPage({ searchParams }: { searchPar
   const hours = WINDOWS.find(([, v]) => String(v) === sp.h)?.[1] ?? (sport ? 168 : 48); // picking one sport can afford to show a whole week
   const explicitH = WINDOWS.some(([, v]) => String(v) === sp.h);
   const byVolume = sp.sort === "volume";
-  const [board, recent, open, { meta, members }] = await Promise.all([getExchangeBoard(hours), getRecentTrades(24), getAllOpenTrades(), getExchange()]);
+  const [board, recent, open, { meta, members, syndicates }] = await Promise.all([getExchangeBoard(hours), getRecentTrades(24), getAllOpenTrades(), getExchange()]);
   const games = board.filter((g) => !sport || g.sport === sport);
   const byId = Object.fromEntries(games.map((g) => [g.id, g]));
   const synOf = Object.fromEntries(members.map((m) => [m.id, m.syndicate_id]));
+  const who = Object.fromEntries(members.map((m) => [m.id, `${m.name} (${syndicates.find((s) => s.id === m.syndicate_id)?.name ?? m.syndicate_id})`]));
   const q = (o: { h?: number; sport?: string | null; sort?: string }) => {
     const p = new URLSearchParams();
     const h = o.h ?? hours, s = o.sport === undefined ? sport : o.sport, so = o.sort ?? (byVolume ? "volume" : "time");
@@ -102,7 +103,7 @@ export default async function SyndicateMarketsPage({ searchParams }: { searchPar
             <LocalDateTime iso={g.start_utc} options={{ weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} />
           </span>
         </div>
-        <LadderDepth g={g} />
+        <LadderDepth g={g} who={who} />
       </section>
     );
   };

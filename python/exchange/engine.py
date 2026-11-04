@@ -1234,6 +1234,12 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 ha = float(_c(pl.get("half_ask", half), RULES["half_min"], RULES["edge_max"]))
                 sz_b, sz_a = float(_c(pl.get("size_bid", 1.0), 0.0, 2.0)), float(_c(pl.get("size_ask", 1.0), 0.0, 2.0))
             bid, ask = max(0.01, float(np.floor((c - hb) * 100) / 100)), min(0.99, float(np.ceil((c + ha) * 100) / 100))
+            if p.get("panel"):  # the panel's five traders price from different rating systems and can disagree by more than a spread: a maker never posts through another's quote, it stays one cent inside it
+                oa_, ob_ = best(asks[k], m["id"]), best(bids[k], m["id"])
+                if oa_ and bid >= oa_[0]:
+                    bid = max(0.01, round(oa_[0] - 0.01, 2))
+                if ob_ and ask <= ob_[0]:
+                    ask = min(0.99, round(ob_[0] + 0.01, 2))
             if bid >= ask:
                 qstat["crossed"] += 1
                 continue

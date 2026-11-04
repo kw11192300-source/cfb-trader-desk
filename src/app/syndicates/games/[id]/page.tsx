@@ -338,16 +338,16 @@ export default async function ExchangeGamePage({ params, searchParams }: { param
               <div className="rounded-lg border border-border bg-surface p-3">
                 <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">Order book · {label(sel, game as ExGame)}</p>
                 <div className="font-mono text-[11px]">
-                  {[...(selRow[10]?.[1] ?? [])].reverse().map(([p, q]) => (
-                    <div key={`a${p}`} className="relative flex justify-between px-2 py-0.5">
+                  {[...(selRow[10]?.[1] ?? [])].reverse().map(([p, q, id]) => (
+                    <div key={`a${p}${id ?? ""}`} className="relative flex cursor-help justify-between px-2 py-0.5" title={id ? `${names[id] ?? id}: asking ${cents(p)} for ${q}` : undefined}>
                       <span className="absolute inset-y-0 right-0 bg-down/15" style={{ width: `${Math.min(100, q / 1.5)}%` }} />
                       <span className="relative text-down">{cents(p)}</span>
                       <span className="relative text-muted">{q}</span>
                     </div>
                   ))}
                   <div className="border-y border-border px-2 py-1 text-center text-[10px] text-muted">spread {selRow[3] != null && selRow[4] != null ? `${Math.round((selRow[4] - selRow[3]) * 100)}¢` : "–"}</div>
-                  {(selRow[10]?.[0] ?? []).map(([p, q]) => (
-                    <div key={`b${p}`} className="relative flex justify-between px-2 py-0.5">
+                  {(selRow[10]?.[0] ?? []).map(([p, q, id]) => (
+                    <div key={`b${p}${id ?? ""}`} className="relative flex cursor-help justify-between px-2 py-0.5" title={id ? `${names[id] ?? id}: bidding ${cents(p)} for ${q}` : undefined}>
                       <span className="absolute inset-y-0 right-0 bg-up/15" style={{ width: `${Math.min(100, q / 1.5)}%` }} />
                       <span className="relative text-up">{cents(p)}</span>
                       <span className="relative text-muted">{q}</span>
