@@ -840,7 +840,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     def sharp(mid: str, sport: str) -> float:
         """0 to 1: how much a trader's hits are worth listening to in a sport - its closing-line record as a taker, or its syndicate's proven model."""
         m = members[mid]
-        if m["params"].get("public"):  # labelled public money: never treated as informed, however a lucky run looks
+        if m["params"].get("public") or m["params"].get("panel"):  # labelled public money (and the panel, whose crossing fills are not information): never treated as informed, however a lucky run looks
             return 0.0
         rec = (m["stats"].get("clvs") or {}).get(sport)
         s1 = 0.0
@@ -1234,12 +1234,6 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 ha = float(_c(pl.get("half_ask", half), RULES["half_min"], RULES["edge_max"]))
                 sz_b, sz_a = float(_c(pl.get("size_bid", 1.0), 0.0, 2.0)), float(_c(pl.get("size_ask", 1.0), 0.0, 2.0))
             bid, ask = max(0.01, float(np.floor((c - hb) * 100) / 100)), min(0.99, float(np.ceil((c + ha) * 100) / 100))
-            if p.get("panel"):  # the panel's five traders price from different rating systems and can disagree by more than a spread: a maker never posts through another's quote, it stays one cent inside it
-                oa_, ob_ = best(asks[k], m["id"]), best(bids[k], m["id"])
-                if oa_ and bid >= oa_[0]:
-                    bid = max(0.01, round(oa_[0] - 0.01, 2))
-                if ob_ and ask <= ob_[0]:
-                    ask = min(0.99, round(ob_[0] + 0.01, 2))
             if bid >= ask:
                 qstat["crossed"] += 1
                 continue
@@ -1253,6 +1247,34 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 size = max(size, CORE_MIN_NEAR if mk["hrs"] <= CORE_NEAR_H else CORE_MIN)
             qb = min(size * sz_b, room_for(m, mk, "buy", bid, True, core), cash_room(m, k, "buy", bid)) if size * sz_b >= 5 and not (stop_buy and not core) else 0.0
             qa = min(size * sz_a, room_for(m, mk, "sell", ask, True, core), cash_room(m, k, "sell", ask)) if size * sz_a >= 5 and not (stop_sell and not core) else 0.0
+            if p.get("panel") and (qb >= 5 or qa >= 5):  # the panel's traders price from different rating systems and can disagree by more than a spread: a quote through another maker's fills against it, at the resting price, as on any exchange
+                for _ in range(3):
+                    oa_ = best(asks[k], m["id"])
+                    if qb < 1 or not oa_ or bid < oa_[0]:
+                        break
+                    mk_ = members[oa_[2]]
+                    qx = min(qb, oa_[1], room_for(m, mk, "buy", oa_[0]), cash_room(m, k, "buy", oa_[0]), room_for(mk_, mk, "sell", oa_[0], True), cash_room(mk_, k, "sell", oa_[0]))
+                    if qx < 1:
+                        break
+                    fill(m, mk_, mk_, mk, k, oa_[0], qx)
+                    oa_[1] = round(oa_[1] - qx, 2)
+                    qb -= qx
+                for _ in range(3):
+                    ob_ = best(bids[k], m["id"])
+                    if qa < 1 or not ob_ or ask > ob_[0]:
+                        break
+                    mk_ = members[ob_[2]]
+                    qx = min(qa, ob_[1], room_for(m, mk, "sell", ob_[0]), cash_room(m, k, "sell", ob_[0]), room_for(mk_, mk, "buy", ob_[0], True), cash_room(mk_, k, "buy", ob_[0]))
+                    if qx < 1:
+                        break
+                    fill(mk_, m, mk_, mk, k, ob_[0], qx)
+                    ob_[1] = round(ob_[1] - qx, 2)
+                    qa -= qx
+                oa_, ob_ = best(asks[k], m["id"]), best(bids[k], m["id"])  # anything that still crosses (no room to trade it) is held one cent inside, never posted through
+                if oa_ and bid >= oa_[0]:
+                    bid = max(0.01, round(oa_[0] - 0.01, 2))
+                if ob_ and ask <= ob_[0]:
+                    ask = min(0.99, round(ob_[0] + 0.01, 2))
             if qb >= 5:
                 bids[k].append([bid, round(qb, 2), m["id"]])
                 bids[k].sort(key=lambda x: -x[0])
