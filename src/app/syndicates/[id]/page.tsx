@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { GameHistory } from "@/components/GameHistory";
 import LocalDateTime from "@/components/LocalDateTime";
 import { scenarioPnl, scenarios } from "@/lib/syndicateGame";
 import { LineChart } from "@/components/SyndicateCharts";
@@ -17,7 +18,7 @@ const range = (a: number, b: number) => Array.from({ length: Math.max(0, Math.ro
 const u = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(1)}`;
 const SPORT: Record<string, string> = { cfb: "CFB", nfl: "NFL", nhl: "NHL", cbb: "CBB", nba: "NBA" };
 
-export default async function SyndicatePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ c?: string; sport?: string; game?: string; sort?: string; dir?: string }> }) {
+export default async function SyndicatePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ c?: string; sport?: string; game?: string; sort?: string; dir?: string; hist?: string; hsport?: string }> }) {
   const { id } = await params;
   const sp = await searchParams;
   const sportF = ["nfl", "cfb", "nhl", "nba", "cbb"].includes(sp.sport ?? "") ? sp.sport! : null;
@@ -374,6 +375,7 @@ export default async function SyndicatePage({ params, searchParams }: { params: 
           </div>
         </section>
         <EquityChart snaps={snaps} colors={colors} names={first} start={start} />
+        <GameHistory kind="firm" id={id} memberIds={mine.map((m) => m.id)} basePath={`/syndicates/${id}`} params={sp} />
         <TradeList trades={shownTrades} games={games} names={names} moreHref={`/syndicates/trades?syndicate=${id}${gameF ? `&game=${gameF}` : sportF ? `&sport=${sportF}` : ""}`} title={gameF || sportF ? `Trades (${gameF ? "this game" : sportF!.toUpperCase()}) - risk, positions and scenarios above follow the filter` : "Recent trades"} />
       </main>
     </div>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { GameHistory } from "@/components/GameHistory";
 import LocalDateTime from "@/components/LocalDateTime";
 import { PositionCards } from "@/components/PositionCards";
 import { rankIn, sharpOf } from "@/components/SharpMoney";
@@ -14,7 +15,7 @@ const SPORT: Record<string, string> = { cfb: "CFB", nfl: "NFL", nhl: "NHL", cbb:
 const u = (n: number) => `${n > 0.05 ? "+" : ""}${n.toFixed(1)}`;
 const tone = (n: number) => (n > 0.5 ? "text-up" : n < -0.5 ? "text-down" : "text-muted");
 
-export default async function TraderPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ c?: string; sport?: string; game?: string }> }) {
+export default async function TraderPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ c?: string; sport?: string; game?: string; hist?: string; hsport?: string }> }) {
   const { id } = await params;
   const sp = await searchParams;
   const sportF = ["nfl", "cfb", "nhl", "nba", "cbb"].includes(sp.sport ?? "") ? sp.sport! : null;
@@ -153,6 +154,7 @@ export default async function TraderPage({ params, searchParams }: { params: Pro
         </div>
 
         <EquityChart snaps={snaps} colors={{ [id]: syn.color }} names={{ [id]: m.name }} start={{ [id]: m.start_units }} />
+        <GameHistory kind="trader" id={id} memberIds={[id]} basePath={`/syndicates/traders/${id}`} params={sp} />
 
         <PositionCards lots={lots} games={games} limitOf={(g) => traderLimit(m) * ramp(Math.max(0, (new Date(g.start_utc).getTime() - Date.now()) / 3600000), g.sport)} title="Open positions by game" />
 
