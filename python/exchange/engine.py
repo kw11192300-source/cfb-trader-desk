@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
-from . import cbbtiers, espn, house, kalshi, news, pricing, piles, ratings, reliability, results, risk, seedcal, signals, wing
+from . import cbbtiers, espn, house, kalshi, modelcal, news, pricing, piles, ratings, reliability, results, risk, seedcal, signals, wing
 from .agents import manage as agent_manage, sandbox as agent_sandbox
 from .members import roster
 from .pricing import Dist, ckey, clip
@@ -41,7 +41,9 @@ TAKE_CLIP = 40.0  # most contracts a trader will take in one go
 MAX_FILLS = 2  # most hits a trader makes each time it acts
 IMPACT = 0.03  # a full-strength sharp trader's full-size trade moves everyone's view of the game by this share of a standard deviation
 IMPACT_Q = 50.0  # contracts that count as a full-size trade
-FLOW_DECAY = 0.6  # how much of that market move is still felt a round later
+FLOW_KEEP = 0.98  # share of a sharp-flow move still felt a round later (about an 8-hour half-life; it was 0.6, which forgot a sharp hit within an hour or two and sent the exchange back to DraftKings' number)
+FLOW_CAP = 0.12  # most the sharp flow can move a game's expected margin or total, in standard deviations (it was 0.2 when flow was forgotten within the hour; now it sticks, so it is capped near the 1 to 2 points DraftKings moved after sharp fills)
+FLOW_CONFIRM = 1.0  # when DraftKings itself moves the way the flow pointed, that much of the flow is spent: the market has caught up. Other sharp money pushing the other way also cancels it
 SHARP_CLV = 0.02  # average closing-line value (2 cents) that makes a taker fully "sharp"
 SHARP_N = 25.0  # a taker's record counts half at this many trades (its own count, not the decayed weight) and more as it grows
 SHARP_GAMES = 40.0  # finished games a syndicate's model weight needs behind it before it can lift every trader's sharpness in full
@@ -226,7 +228,12 @@ def engine_dist(engine: str, g: dict, refd: Dist, refo: Dist | None, rat: dict, 
     hid, aid, neu = g["home"]["id"], g["away"]["id"], bool(g["neutral"])
 
     def pr(name):
-        return ratings.predict(name, rat.get(f"{sp}|{name}"), hid, aid, neu)
+        r = ratings.predict(name, rat.get(f"{sp}|{name}"), hid, aid, neu)
+        if r is None:
+            return None
+        # the rating systems are regressed toward the mean, so they squeeze favourites: put each on the market's scale before it is used as an opinion (exchange/modelcal.py)
+        m, t = modelcal.calibrate(sp, name, r[0], r[1], _pdate(g["start_utc"]).date(), modelcal.tier_pair(rat, hid, aid) if sp == "cbb" else None)
+        return (m, t)
 
     if engine in ("elo", "ridge_long", "ridge_short"):
         r = pr(engine)
@@ -290,6 +297,15 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     for m in members.values():
         abide(m["params"])
     syns = {s["id"]: s for s in store.rows("ex_syndicates")}
+    modelcal_reset = False
+    if "modelcal_v1" not in meta:  # once: the rating models now speak the market's scale, so what their firms learned about their weight from the squeezed versions starts again
+        for s_ in syns.values():
+            stats_ = (s_.get("learn") or {}).get("stats") or {}
+            for sp_ in list(stats_):
+                eng_ = s_["engine"]
+                if (eng_ in ("elo", "ridge_long", "ridge_short") and modelcal.calibrated(sp_, eng_)) or (eng_ == "pace" and (modelcal.calibrated(sp_, "elo") or modelcal.calibrated(sp_, "ridge_long"))):
+                    del stats_[sp_]
+        modelcal_reset = True
     rat = {r["key"]: r["payload"] for r in store.rows("ex_ratings")}
     games = {g["id"]: g for g in store.rows("ex_games", {"completed": False})}
     open_trades = store.rows("ex_trades", {"settled": False})
@@ -661,7 +677,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     prev_views: dict[str, dict | None] = {}
     for gid, keys in by_gid.items():
         g, (d, ml) = games[gid], refs[gid]
-        views = {"lines": [], "r": [], "e": {}, "src": g["ref"].get("src") or "dk"}
+        views = {"lines": [], "r": [], "e": {}, "src": g["ref"].get("src") or "dk", "rd": [round(d.m, 3), round(d.t, 3)]}
         if g["sport"] == "cbb":
             views["tier"] = tier_pair(g)
         for kd, ln in [("ml", 0.0), ("spread", pricing.main_half(g["ref"].get("spread"))), ("total", pricing.main_half(g["ref"].get("total")))]:
@@ -818,9 +834,17 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                     fairs[(m["id"], k)] = clip(base_fairs[(m["id"], k)] + f * delta[k] + bd.get(k, 0.0), r - BAND, r + BAND)
 
     for gid in by_gid:
-        pv = (prev_views.get(gid) or {}).get("flow")
+        pvw = prev_views.get(gid) or {}
+        pv = pvw.get("flow")
         if pv and (abs(pv[0]) > 1e-6 or abs(pv[1]) > 1e-6):
-            flow[gid] = [pv[0] * FLOW_DECAY, pv[1] * FLOW_DECAY]
+            f_ = [pv[0] * FLOW_KEEP, pv[1] * FLOW_KEEP]
+            rd_ = pvw.get("rd")
+            if rd_:  # DraftKings moving toward where the sharp flow pointed settles it: that part of the flow is spent
+                d_now = refs[gid][0]
+                for i_, mv_ in ((0, d_now.m - rd_[0]), (1, d_now.t - rd_[1])):
+                    if f_[i_] * mv_ > 0:
+                        f_[i_] -= float(np.copysign(min(abs(f_[i_]), abs(mv_) * FLOW_CONFIRM), f_[i_]))
+            flow[gid] = f_
             refresh(gid)
 
     # ---- positions: open lots by trader and game, with their worst-case risk
@@ -1010,9 +1034,9 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             imp = (1.0 if taker is buyer else -1.0) * sh * IMPACT * min(1.0, qty / IMPACT_Q)
             f = flow.setdefault(mk["gid"], [0.0, 0.0])
             if mk["kind"] == "total":
-                f[1] = float(np.clip(f[1] + imp * sd_t, -0.2 * sd_t, 0.2 * sd_t))
+                f[1] = float(np.clip(f[1] + imp * sd_t, -FLOW_CAP * sd_t, FLOW_CAP * sd_t))
             else:
-                f[0] = float(np.clip(f[0] + imp * sd_m, -0.2 * sd_m, 0.2 * sd_m))
+                f[0] = float(np.clip(f[0] + imp * sd_m, -FLOW_CAP * sd_m, FLOW_CAP * sd_m))
             refresh(mk["gid"])
         return tr
 
@@ -1607,6 +1631,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         store.upsert("ex_meta", [{"key": "res_v1", "value": {"trades": res_backfilled, "ts": _iso(now)}}])
     if drift_backfilled is not None:
         store.upsert("ex_meta", [{"key": "clvs_v2", "value": {"sides": drift_backfilled, "ts": _iso(now)}}])
+    if modelcal_reset:
+        store.upsert("ex_meta", [{"key": "modelcal_v1", "value": {"ts": _iso(now)}}])
     store.upsert("ex_meta", [{"key": "round", "value": {"n": rnd, "ts": _iso(now), "markets": len(markets), "games": len(by_gid),
                                                          "new_trades": len(new_trades), "settled": stats["settled"], "ticks": ticks, "pub": pubstat, "quotes": qstat, "liq": liq,
                                                          "secs": round(time.time() - t_start, 1), "errors": [s["id"] for s in syns.values() if ((s.get("learn") or {}).get("agent") or {}).get("error")]}}])
