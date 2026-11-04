@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from scipy.special import ndtr  # the normal cdf as a plain function: scipy.stats.norm.cdf took more than a quarter of a round's time
 from scipy.stats import norm, poisson, skellam
 
 # (margin sd, total sd, league-average total) - the first two are the spread of an outcome around its expectation
@@ -60,14 +61,14 @@ class Dist:
             l += t if c == -1 else -t if c == 0 else 0.0
             return w, l
         sd = SIGMA[self.sport][0]
-        return float(1 - norm.cdf((k + 0.5 - self.m) / sd)), float(norm.cdf((c + 0.5 - self.m) / sd))
+        return float(ndtr(-(k + 0.5 - self.m) / sd)), float(ndtr((c + 0.5 - self.m) / sd))
 
     def _win_lose_t(self, L: float) -> tuple[float, float]:
         k, c = math.floor(L), math.ceil(L) - 1
         if self.sport == "nhl":
             return float(poisson.sf(k, self.t)), float(poisson.cdf(c, self.t))
         sd = SIGMA[self.sport][1]
-        return float(1 - norm.cdf((k + 0.5 - self.t) / sd)), float(norm.cdf((c + 0.5 - self.t) / sd))
+        return float(ndtr(-(k + 0.5 - self.t) / sd)), float(ndtr((c + 0.5 - self.t) / sd))
 
     def p_spread(self, line: float) -> float:
         """Price of 'home covers at home line `line`' (home -3 is line -3). Refunded pushes make the fair price win/(win+lose)."""

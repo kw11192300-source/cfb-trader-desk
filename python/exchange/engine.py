@@ -37,7 +37,10 @@ PANEL_SEED_M, PANEL_SEED_T = 0.75, 0.5  # share of the opening margin and total 
 PANEL_CAP = 400.0  # its combined worst case on one game (a pure market maker's is 200); its traders may risk 250 each: it is the one making the line before DraftKings has one
 W_FLOOR_EXCH = 0.5  # with no market to anchor to, a syndicate trusts its own model at least this much
 CUTOFF_MIN = 3
-SNAP_EVERY = 3  # rounds between equity snapshots
+ROUND_MIN = 15.0  # the round length every per-round constant below was tuned for; a round now scales them by the real minutes since the last one (RATE), so the exchange behaves the same at 5-minute spacing as at 15
+MIN_TICKS = 4  # fewest steps in a round, however short
+SNAP_MIN = 42.0  # minutes between equity snapshots (it was every 3 rounds of 15)
+CARRY_SMALL = 1e-3  # a market maker's carried-over read or toxicity below this is dropped
 VOID_AFTER_DAYS = 6
 TOTAL_FRAC = 0.75  # worst-case loss, summed over a trader's games, may not pass this share of its bankroll (it was 30%, then 50%: with 200+ games listed the sum kept filling up)
 FAR_H, FAR_FRAC = 24.0, 0.5  # games more than a day away may use at most this share of the total budget, so the games about to start always have room to be quoted and traded
@@ -111,8 +114,8 @@ def abide(p: dict) -> dict:
     p["max_risk"] = min(p.get("max_risk", cap_), cap_)
     p["kelly"] = min(p["kelly"], RULES["kelly"])
     p["size"] = min(p["size"], RULES["size"])
-    p["thr"] = float(np.clip(p["thr"], RULES["thr_min"], RULES["edge_max"]))
-    p["half"] = float(np.clip(p["half"], RULES["half_min"], RULES["edge_max"]))
+    p["thr"] = float(_c(p["thr"], RULES["thr_min"], RULES["edge_max"]))
+    p["half"] = float(_c(p["half"], RULES["half_min"], RULES["edge_max"]))
     return p
 
 
@@ -130,11 +133,16 @@ def adapt(m: dict, now: str) -> None:
         avg = (tot - rt) / (n - rn)
         old = p[field]
         new = old + 0.0025 if avg < up else old - 0.0025 if avg > down else old
-        new = float(np.clip(new, RULES[lo_clv], RULES["edge_max"]))
+        new = float(_c(new, RULES[lo_clv], RULES["edge_max"]))
         st[f"rv_{role}_n"], st[f"rv_{role}_sum"] = n, tot
         if new != old:
             p[field] = round(new, 4)
             p["log"] = ([[now, field, old, p[field], round(avg, 4)]] + p.get("log", []))[:8]
+
+
+def _c(x: float, lo: float, hi: float) -> float:
+    """np.clip for one number, about 30 times faster (it is called a million times a round)."""
+    return hi if x > hi else lo if x < lo else x
 
 
 def _now() -> datetime:
@@ -284,7 +292,7 @@ def syn_weight(s: dict, sport: str) -> float:
     (outcome - market) over every settled game so far, pulled toward a cautious prior while there is little evidence."""
     st = ((s.get("learn") or {}).get("stats") or {}).get(sport) or {}
     games = st.get("g", st.get("n", 0) / 3.0)  # a game's three main lines are one piece of evidence, not three
-    raw = float(np.clip((st.get("num", 0.0) + LAMBDA * W0) / (st.get("den", 0.0) + LAMBDA), 0.0, W_MAX))
+    raw = float(_c((st.get("num", 0.0) + LAMBDA * W0) / (st.get("den", 0.0) + LAMBDA), 0.0, W_MAX))
     if games < W_MIN_GAMES:
         return W0
     return W0 + min(1.0, games / W_FULL_GAMES) * (raw - W0)  # the weight moves toward what the data say only as the games pile up
@@ -295,6 +303,10 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     now = _now()
     meta = {r["key"]: r["value"] for r in store.rows("ex_meta")}
     rnd = int((meta.get("round") or {}).get("n", 0)) + 1
+    prev_round_ts = _pdate(meta["round"]["ts"]) if meta.get("round") and meta["round"].get("ts") else now - timedelta(minutes=ROUND_MIN)
+    RATE = float(_c((now - prev_round_ts).total_seconds() / 60.0 / ROUND_MIN, 0.15, 2.5))  # 1.0 for a 15-minute gap, about 0.33 for 5 minutes
+    if ticks == TICKS:  # the default: steps in proportion to the time the round covers, so trading and public money per hour do not change with the spacing
+        ticks = max(MIN_TICKS, int(round(TICKS * RATE)))
     rng = random.Random(seed if seed is not None else rnd)
     if len(store.rows("ex_syndicates")) < len(roster()[0]) or not store.rows("ex_members"):
         init(store)  # first run, or a syndicate was added to the roster since
@@ -765,7 +777,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             continue
         mean_ = sum(m["stats"]["clv_sum"] for m in ms_) / n_
         se_ = max(0.0, sum(m["stats"].get("clv_sq", 0.0) for m in ms_) / n_ - mean_**2) ** 0.5 / n_**0.5
-        proof_ = float(np.clip((mean_ - 1.96 * se_) / 0.02, 0.0, 1.0))  # the low end of its CLV range, scaled so +2 cents sure earns the full limit
+        proof_ = float(_c((mean_ - 1.96 * se_) / 0.02, 0.0, 1.0))  # the low end of its CLV range, scaled so +2 cents sure earns the full limit
         syn_cap[sid_] = CAP_BASE + (CAP_FULL - CAP_BASE) * proof_
     syn_bonus: dict[tuple[str, str], float] = {}  # a syndicate gets more room in a sport where its best taker has proven sharp
     for m_ in members.values():
@@ -775,7 +787,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     for sid_, s_ in syns.items():
         s_["learn"] = s_.get("learn") or {}
         ms2_ = [m for m in members.values() if m["syndicate_id"] == sid_]
-        sc_ = float(np.clip(sum(m["cash"] + m["locked"] for m in ms2_) / max(1.0, sum(m["start_units"] for m in ms2_)), LIMIT_SCALE[0], LIMIT_SCALE[1]))
+        sc_ = float(_c(sum(m["cash"] + m["locked"] for m in ms2_) / max(1.0, sum(m["start_units"] for m in ms2_)), LIMIT_SCALE[0], LIMIT_SCALE[1]))
         syn_cap[sid_] *= sc_  # a syndicate that has grown its bankroll gets a bigger per-game limit
         s_["learn"]["cap"] = round(syn_cap[sid_], 1)
         s_["learn"]["scale"] = round(sc_, 3)
@@ -803,7 +815,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             f = 0.5 * r + 0.3 * ks[2] + 0.2 * pe if ks and pe is not None else 0.6 * r + 0.4 * ks[2] if ks else 0.8 * r + 0.2 * pe if pe is not None else r
             return clip(f, r - BAND, r + BAND)
         e = eng_p.get((sid, k), mk["ref"])
-        w = float(np.clip(m["params"].get("trust", 1.0) * weights[(sid, mk["sport"])], W_FLOOR_EXCH if mk["src"] == "exchange" else 0.0, W_MAX))
+        w = float(_c(m["params"].get("trust", 1.0) * weights[(sid, mk["sport"])], W_FLOOR_EXCH if mk["src"] == "exchange" else 0.0, W_MAX))
         return clip(mk["ref"] + w * (e - mk["ref"]), mk["ref"] - BAND, mk["ref"] + BAND)
 
     # what each trader can look at: every sport, but outside its focus only the lines near the main number, smaller and pickier
@@ -836,9 +848,9 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             n_ = rec["n"]
             mean_ = rec["s"] / n_
             se_ = float(np.sqrt(max(0.0, rec["q"] / n_ - mean_ * mean_) / n_))
-            s1 = float(np.clip((mean_ - se_) / SHARP_CLV, 0.0, 1.0)) * n_ / (n_ + SHARP_N)
+            s1 = float(_c((mean_ - se_) / SHARP_CLV, 0.0, 1.0)) * n_ / (n_ + SHARP_N)
         g = (((syns[m["syndicate_id"]].get("learn") or {}).get("stats") or {}).get(sport) or {}).get("g", 0.0)
-        s2 = 0.7 * float(np.clip((weights[(m["syndicate_id"], sport)] - W0) / (W_MAX - W0), 0.0, 1.0)) * min(1.0, g / SHARP_GAMES)
+        s2 = 0.7 * float(_c((weights[(m["syndicate_id"], sport)] - W0) / (W_MAX - W0), 0.0, 1.0)) * min(1.0, g / SHARP_GAMES)
         return max(s1, s2)
 
     # market moves caused by sharp flow: a shift in each game's expected margin and total that everyone who follows the flow adds to their fair prices
@@ -872,11 +884,24 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                     r = markets[k]["ref"]
                     fairs[(m["id"], k)] = clip(base_fairs[(m["id"], k)] + f * delta[k] + bd.get(k, 0.0), r - BAND, r + BAND)
 
+    # a market maker's read of a game and its caution on a contract used to start from nothing each round; with shorter rounds that would shrink their memory, so they carry over, fading by the share of the old 15-minute round that has passed
+    cfade = max(0.0, 1.0 - RATE)
+    carry_in = meta.get("carry") or {}
+    if cfade > 0:
+        for mid_, gid_, a_, b_ in carry_in.get("mmb", []):
+            if gid_ in by_gid and mid_ in members and (abs(a_ * cfade) > CARRY_SMALL or abs(b_ * cfade) > CARRY_SMALL):
+                mmb[(mid_, gid_)] = [a_ * cfade, b_ * cfade]
+        for mid_, k_, v_ in carry_in.get("tox", []):
+            if k_ in markets and mid_ in members and v_ * cfade > 0.02:
+                tox[(mid_, k_)] = v_ * cfade
+    for gid_ in {g_ for (_m, g_) in mmb}:
+        if gid_ in by_gid:
+            refresh(gid_)
     for gid in by_gid:
         pvw = prev_views.get(gid) or {}
         pv = pvw.get("flow")
         if pv and (abs(pv[0]) > 1e-6 or abs(pv[1]) > 1e-6):
-            f_ = [pv[0] * FLOW_KEEP, pv[1] * FLOW_KEEP]
+            f_ = [pv[0] * FLOW_KEEP ** RATE, pv[1] * FLOW_KEEP ** RATE]
             rd_ = pvw.get("rd")
             if rd_:  # DraftKings moving toward where the sharp flow pointed settles it: that part of the flow is spent
                 d_now = refs[gid][0]
@@ -952,10 +977,10 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         return TOTAL_FRAC * (m["cash"] + m["locked"])
 
     def lscale(m: dict) -> float:
-        return float(np.clip((m["cash"] + m["locked"]) / max(1.0, m["start_units"]), LIMIT_SCALE[0], LIMIT_SCALE[1]))
+        return float(_c((m["cash"] + m["locked"]) / max(1.0, m["start_units"]), LIMIT_SCALE[0], LIMIT_SCALE[1]))
 
     def trust_of(sid: str, sport: str) -> float:
-        return float(np.clip((weights[(sid, sport)] - 0.05) / 0.5, 0.0, 1.0))
+        return float(_c((weights[(sid, sport)] - 0.05) / 0.5, 0.0, 1.0))
 
     def patience(m: dict) -> float:
         """Idle traders loosen up: a trader that has not traded for a few rounds asks for a little less edge and quotes a little tighter, so the market keeps moving."""
@@ -1063,9 +1088,9 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             imp = (1.0 if taker is buyer else -1.0) * MM_REACT * maker["params"].get("eta", 1.0) * IMPACT * (PUBLIC_REACT if taker["params"].get("public") else 0.5 + sharp(taker["id"], mk["sport"])) * min(1.0, qty / IMPACT_Q)
             b = mmb.setdefault((maker["id"], mk["gid"]), [0.0, 0.0])
             if mk["kind"] == "total":
-                b[1] = float(np.clip(b[1] + imp * sd_t, -0.25 * sd_t, 0.25 * sd_t))
+                b[1] = float(_c(b[1] + imp * sd_t, -0.25 * sd_t, 0.25 * sd_t))
             else:
-                b[0] = float(np.clip(b[0] + imp * sd_m, -0.25 * sd_m, 0.25 * sd_m))
+                b[0] = float(_c(b[0] + imp * sd_m, -0.25 * sd_m, 0.25 * sd_m))
             tox[(maker["id"], k)] = tox.get((maker["id"], k), 0.0) + (0.2 if taker["params"].get("public") else 1.0)
             refresh(mk["gid"])
         sh = sharp(taker["id"], mk["sport"])
@@ -1074,9 +1099,9 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             imp = (1.0 if taker is buyer else -1.0) * sh * IMPACT * min(1.0, qty / IMPACT_Q)
             f = flow.setdefault(mk["gid"], [0.0, 0.0])
             if mk["kind"] == "total":
-                f[1] = float(np.clip(f[1] + imp * sd_t, -FLOW_CAP * sd_t, FLOW_CAP * sd_t))
+                f[1] = float(_c(f[1] + imp * sd_t, -FLOW_CAP * sd_t, FLOW_CAP * sd_t))
             else:
-                f[0] = float(np.clip(f[0] + imp * sd_m, -FLOW_CAP * sd_m, FLOW_CAP * sd_m))
+                f[0] = float(_c(f[0] + imp * sd_m, -FLOW_CAP * sd_m, FLOW_CAP * sd_m))
             refresh(mk["gid"])
         return tr
 
@@ -1163,7 +1188,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         if mm:  # widen when the maker's own fills have been closing against it, tighten when they have been harmless
             n_ = m["stats"].get("clv_maker_n", 0)
             avg_ = m["stats"].get("clv_maker_sum", 0.0) / n_ if n_ >= 20 else 0.0
-            tmult = 1.0 + p.get("tox", 1.0) * float(np.clip(-avg_ / 0.02, 0.0, 1.5)) if avg_ < 0 else (0.85 if avg_ > 0.01 else 1.0)
+            tmult = 1.0 + p.get("tox", 1.0) * float(_c(-avg_ / 0.02, 0.0, 1.5)) if avg_ < 0 else (0.85 if avg_ > 0.01 else 1.0)
         polm = pol.get(m["syndicate_id"]) or {}
         for k, on in mine[m["id"]]:
             mk = markets[k]
@@ -1183,7 +1208,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 dm_, dt_ = dm_ - relief(dm_, pm_), dt_ - relief(dt_, pt_)
                 s0 = smax(mk["gid"], mk["dim"])
                 inv = (dm_ if mk["dim"] == "m" else dt_) / max(1e-9, p["size"] * s0) * (sens_of(mk["gid"], mk["kind"], mk["line"]) / s0)
-                lean_ = 2.0 * p["half"] * p.get("inv", 1.0) * inv * (float(np.clip(pl.get("inv_scale", 1.0), 0.0, 1.5)) if pl else 1.0)
+                lean_ = 2.0 * p["half"] * p.get("inv", 1.0) * inv * (float(_c(pl.get("inv_scale", 1.0), 0.0, 1.5)) if pl else 1.0)
                 if abs(lean_) > LEAN_CAP:
                     stop_buy, stop_sell = lean_ > 0, lean_ < 0  # long (or short) past the cap: do not add to it
                     lean_ = LEAN_CAP if lean_ > 0 else -LEAN_CAP
@@ -1204,10 +1229,10 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             hb = ha = half
             sz_b = sz_a = 1.0
             if pl:  # the lab's policy: a shift of the middle, a half-spread and a size for each side
-                c += float(np.clip(pl.get("shift", 0.0), -LEAN_CAP, LEAN_CAP))
-                hb = float(np.clip(pl.get("half_bid", half), RULES["half_min"], RULES["edge_max"]))
-                ha = float(np.clip(pl.get("half_ask", half), RULES["half_min"], RULES["edge_max"]))
-                sz_b, sz_a = float(np.clip(pl.get("size_bid", 1.0), 0.0, 2.0)), float(np.clip(pl.get("size_ask", 1.0), 0.0, 2.0))
+                c += float(_c(pl.get("shift", 0.0), -LEAN_CAP, LEAN_CAP))
+                hb = float(_c(pl.get("half_bid", half), RULES["half_min"], RULES["edge_max"]))
+                ha = float(_c(pl.get("half_ask", half), RULES["half_min"], RULES["edge_max"]))
+                sz_b, sz_a = float(_c(pl.get("size_bid", 1.0), 0.0, 2.0)), float(_c(pl.get("size_ask", 1.0), 0.0, 2.0))
             bid, ask = max(0.01, float(np.floor((c - hb) * 100) / 100)), min(0.99, float(np.ceil((c + ha) * 100) / 100))
             if bid >= ask:
                 qstat["crossed"] += 1
@@ -1374,9 +1399,9 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                     if od is None:
                         a = 0.0
                     elif kind == "total":
-                        a = 1.2 * float(np.clip((d0.t - od.t) / sd_t, -1, 1)) * (1 if yes else -1)
+                        a = 1.2 * float(_c((d0.t - od.t) / sd_t, -1, 1)) * (1 if yes else -1)
                     else:
-                        a = 1.2 * float(np.clip((d0.m - od.m) / sd_m, -1, 1)) * (1 if yes else -1)
+                        a = 1.2 * float(_c((d0.m - od.m) / sd_m, -1, 1)) * (1 if yes else -1)
                 else:  # casual
                     a = 0.5 * fav + 0.5 * over
                 keys.append((k, side))
@@ -1551,10 +1576,11 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             continue
         sdm, sdt = sd_of[g["sport"]]
         seed = r.get("seed") or r["mt"]
-        m1 = r["mt"][0] + float(np.clip(CENTER_ETA * (ef[0] - r["mt"][0]), -CENTER_STEP * sdm, CENTER_STEP * sdm)) if len(sp_pts) >= 2 or ml_pt is not None else r["mt"][0]
-        t1 = r["mt"][1] + float(np.clip(CENTER_ETA * (ef[1] - r["mt"][1]), -CENTER_STEP * sdt, CENTER_STEP * sdt)) if len(tt_pts) >= 2 else r["mt"][1]
-        m1 = float(np.clip(m1, seed[0] - CENTER_DRIFT * sdm, seed[0] + CENTER_DRIFT * sdm))
-        t1 = float(np.clip(t1, seed[1] - CENTER_DRIFT * sdt, seed[1] + CENTER_DRIFT * sdt))
+        eta_ = 1.0 - (1.0 - CENTER_ETA) ** RATE  # per-round moves scale with the time the round covers
+        m1 = r["mt"][0] + float(_c(eta_ * (ef[0] - r["mt"][0]), -CENTER_STEP * RATE * sdm, CENTER_STEP * RATE * sdm)) if len(sp_pts) >= 2 or ml_pt is not None else r["mt"][0]
+        t1 = r["mt"][1] + float(_c(eta_ * (ef[1] - r["mt"][1]), -CENTER_STEP * RATE * sdt, CENTER_STEP * RATE * sdt)) if len(tt_pts) >= 2 else r["mt"][1]
+        m1 = float(_c(m1, seed[0] - CENTER_DRIFT * sdm, seed[0] + CENTER_DRIFT * sdm))
+        t1 = float(_c(t1, seed[1] - CENTER_DRIFT * sdt, seed[1] + CENTER_DRIFT * sdt))
         snap = pricing.synth_snap(g["sport"], m1, t1)
         snap.update(src="exchange", mt=[round(m1, 3), round(t1, 3)], seed=seed, rounds=int(r.get("rounds", 0)) + 1, pan=bool(r.get("pan")))
         g["ref"] = snap
@@ -1567,18 +1593,20 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             unreal[t["buyer"]] = unreal.get(t["buyer"], 0.0) + t["rem_b"] * (pr_ - t["price"])
             unreal[t["seller"]] = unreal.get(t["seller"], 0.0) + t["rem_s"] * (t["price"] - pr_)
     snaps = []
+    last_snap = (meta.get("snapt") or {}).get("ts")
+    snap_due = last_snap is None or (now - _pdate(last_snap)).total_seconds() / 60.0 >= SNAP_MIN - 3.0
     for m in members.values():
         eq = m["cash"] + m["locked"] + unreal.get(m["id"], 0.0)
         m["equity"], m["open_risk"], m["updated_at"] = round(eq, 3), round(trisk(m["id"]), 3), _iso(now)
         st = m["stats"]
         st["peak"] = max(st["peak"], eq)
         st["max_dd"] = max(st["max_dd"], st["peak"] - eq)
-        if rnd % SNAP_EVERY == 0:
+        if snap_due:
             snaps.append({"ts": _iso(now), "subject": f"mem:{m['id']}", "equity": m["equity"], "realized": round(m["realized"], 3), "open_risk": m["open_risk"]})
     for sid, s in syns.items():
         s["learn"] = s.get("learn") or {}
         s["learn"]["w"] = {sp: round(weights[(sid, sp)], 3) for sp in espn.SPORTS}
-        if rnd % SNAP_EVERY == 0:
+        if snap_due:
             snaps += [{"ts": _iso(now), "subject": f"w:{sid}:{sp}", "equity": round(weights[(sid, sp)], 4), "realized": None, "open_risk": None} for sp in espn.SPORTS]
             ms = [m for m in members.values() if m["syndicate_id"] == sid]
             snaps.append({"ts": _iso(now), "subject": f"syn:{sid}", "equity": round(sum(m["equity"] for m in ms), 3),
@@ -1609,7 +1637,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     # ---- who traded this round (the idle ones loosen up next round)
     active_ = {x for t in new_trades for x in (t["buyer"], t["seller"])}
     for m_ in members.values():
-        m_["stats"]["idle"] = 0 if m_["id"] in active_ else min(PATIENCE_MAX + 4, m_["stats"].get("idle", 0) + 1)
+        m_["stats"]["idle"] = 0 if m_["id"] in active_ else min(PATIENCE_MAX + 4, round(m_["stats"].get("idle", 0) + RATE, 3))
         if m_["id"] in active_:
             m_["stats"]["last_trade"] = _iso(now)  # shown on the leaderboard as time since the last trade
 
@@ -1628,6 +1656,9 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         v_ = gv.setdefault(t_["game_id"], [0.0, 0])
         v_[0] += t_["qty"]
         v_[1] += 1
+    store.upsert("ex_meta", [{"key": "carry", "value": {
+        "mmb": [[mid_, gid_, round(v_[0], 4), round(v_[1], 4)] for (mid_, gid_), v_ in mmb.items() if abs(v_[0]) > CARRY_SMALL or abs(v_[1]) > CARRY_SMALL][:4000],
+        "tox": [[mid_, k_, round(v_, 3)] for (mid_, k_), v_ in sorted(tox.items(), key=lambda kv: -kv[1])[:3000] if v_ > 0.02]}}])
     store.upsert("ex_meta", [{"key": "gamevol", "value": {k_: [round(v_[0], 1), int(v_[1])] for k_, v_ in gv.items()}}])
     if nws["dirty"]:
         store.upsert("ex_meta", [{"key": "news", "value": news.dump(nws)}])
@@ -1665,6 +1696,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         print(f"  (overnight skipped: {str(e)[:120]})", flush=True)
     if snaps:
         store.insert("ex_snapshots", snaps)
+        store.upsert("ex_meta", [{"key": "snapt", "value": {"ts": _iso(now)}}])
     if marks:
         store.insert("ex_marks", marks)
     if clvs_backfilled is not None:

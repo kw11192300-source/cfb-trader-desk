@@ -1,8 +1,9 @@
 name: Exchange round
 
 # One round of the paper-only Syndicates exchange (python/exchange): pull ESPN's DraftKings lines and scores, settle finished games,
-# let the makers quote and the takers trade, and mark everyone to market. GitHub's scheduler runs this when it can (about every 10
-# minutes; it can lag under load) - or start it by hand from the Actions tab.
+# let the makers quote and the takers trade, and mark everyone to market. A cron-job.org job dispatches it every 5 minutes (GitHub's own
+# schedule below is only a backstop and can lag); the engine scales everything that was tuned per round by the real time since the last
+# one, so the spacing can change without changing how the exchange behaves. Or start it by hand from the Actions tab.
 on:
   schedule:
     - cron: "4-59/10 * * * *"

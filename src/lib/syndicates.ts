@@ -282,7 +282,7 @@ function lastTraded(ms: ExMember[]): { lastTrade: string | null; lastApprox: boo
   let best = -Infinity, approx = false;
   for (const m of ms) {
     const exact = m.stats.last_trade ? new Date(m.stats.last_trade).getTime() : null;
-    const guess = exact == null && m.stats.idle != null ? Date.now() - m.stats.idle * 600000 : null;
+    const guess = exact == null && m.stats.idle != null ? Date.now() - m.stats.idle * 900000 : null;
     const t = exact ?? guess;
     if (t != null && t > best) { best = t; approx = exact == null; }
   }
