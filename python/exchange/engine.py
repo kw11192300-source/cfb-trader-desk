@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
-from . import cbbtiers, espn, house, kalshi, modelcal, news, pricing, piles, ratings, reliability, results, risk, seedcal, signals, wing
+from . import cbbtiers, espn, house, kalshi, modelcal, news, panel, pricing, piles, ratings, reliability, results, risk, seedcal, signals, wing
 from .agents import manage as agent_manage, sandbox as agent_sandbox
 from .members import roster
 from .pricing import Dist, ckey, clip
@@ -29,7 +29,12 @@ SRC_LIMIT = {"dk": 1.0, "exchange": 0.25, "kalshi": 0.25, "model": 0.25}  # a ga
 CENTER_ETA = 0.7  # how far the exchange's line moves toward where the traders cleared it each round
 CENTER_STEP = 0.15  # ...but never more than this share of a standard deviation in one round
 CENTER_DRIFT = 1.0  # ...and never more than this far from where it opened
-CBB_NODK_CAP = 30  # college basketball has hundreds of games a day: only the next few that DraftKings has not priced are opened
+CBB_NODK_CAP = 250  # college basketball has hundreds of games a day: only this many that DraftKings has not priced are opened (it was 30 before the Ratings Panel made markets in them)
+PANEL_W_NODK = 0.5  # the Ratings Panel's fair price on a game DraftKings has not priced: this share of the way from the exchange's line to its own ratings-based price
+PANEL_W_DK = 0.1  # ...and once DraftKings is up, this share: it defers to the market and keeps quoting
+PANEL_DK_SIZE = 0.4  # its quote size on a game DraftKings has priced, against full size on one it has not
+PANEL_SEED_M, PANEL_SEED_T = 0.75, 0.5  # share of the opening margin and total taken from the panel while its ratings are fresh
+PANEL_CAP = 400.0  # its combined worst case on one game (a pure market maker's is 200); its traders may risk 250 each: it is the one making the line before DraftKings has one
 W_FLOOR_EXCH = 0.5  # with no market to anchor to, a syndicate trusts its own model at least this much
 CUTOFF_MIN = 3
 SNAP_EVERY = 3  # rounds between equity snapshots
@@ -392,7 +397,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                     discoveries.append({"id": ev["id"], "sport": ev["sport"], "teams": f"{ev['away']['abbr']} @ {ev['home']['abbr']}", "start": ev["start"], "found": _iso(now),
                                         "hours_before": round((_pdate(ev["start"]) - now).total_seconds() / 3600, 1), "rounds": old_ref.get("rounds"),
                                         "seed": old_ref.get("seed"), "internal": old_ref.get("mt"), "dk": [round(dk_d.m, 3), round(dk_d.t, 3)],
-                                        "int_line": [old_ref.get("spread"), old_ref.get("total")], "dk_line": [ev["now"].get("spread"), ev["now"].get("total")]})
+                                        "int_line": [old_ref.get("spread"), old_ref.get("total")], "dk_line": [ev["now"].get("spread"), ev["now"].get("total")],
+                                        "panel": (lambda p_: [round(p_[0], 2), None if p_[1] is None else round(p_[1], 1)] if p_ else None)(panel.predict(pan, ev["home"]["id"], ev["away"]["id"], bool(ev.get("neutral"))) if ev["sport"] == "cbb" else None)})
             if row["ref_open"] is None or old_ref.get("src", "dk") != "dk":  # the first real DraftKings line becomes the open
                 row["ref_open"] = ev["open"] or ev["now"]
             row["ref"] = ev["now"]
@@ -416,6 +422,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
 
     # ---- upcoming games DraftKings has not priced yet: no outside baseline. The line opens at what the rating models agree on, and from then on it is wherever
     # the traders' own quotes and trades clear it (moved at the end of every round). Kalshi's prices are still collected, but only as one syndicate's view.
+    pan = rat.get(panel.KEY)
+    pan_w = panel.weight(pan, now.date())
     pre = {gid: g for gid, g in {**games, **pending}.items() if g["state"] == "pre" and _pdate(g["start_utc"]) <= now + timedelta(hours=horizon(g["sport"]))}
     def opening(g: dict) -> tuple[float, float] | None:
         sp = g["sport"]
@@ -427,12 +435,23 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             ct = (rat.get("cbb|tiers") or {}).get("tiers", {})
             pair = "".join(sorted([ct.get(str(g["home"]["id"]), "C"), ct.get(str(g["away"]["id"]), "C")]))
             m, t = seedcal.calibrate(sp, m, t, _pdate(g["start_utc"]).date(), pair)
+            pp_ = panel.predict(pan, g["home"]["id"], g["away"]["id"], bool(g.get("neutral")))
+            if pp_ and pan_w > 0:  # the outside ratings, on DraftKings' scale, were 2 points from its lines where ours were 3 to 5: they carry most of the opening line
+                m = (1 - PANEL_SEED_M * pan_w) * m + PANEL_SEED_M * pan_w * pp_[0]
+                if pp_[1] is not None:
+                    t = (1 - PANEL_SEED_T * pan_w) * t + PANEL_SEED_T * pan_w * pp_[1]
         return m, t
 
     n_cbb = 0
     for gid, g in sorted(pre.items(), key=lambda kv: kv[1]["start_utc"]):
         r = g.get("ref")
         src = (r or {}).get("src") or ("dk" if r else None)
+        if src == "exchange" and g["sport"] == "cbb" and pan_w > 0 and r and not r.get("pan"):  # a line opened before the panel's ratings existed: re-open it from them once
+            mt2 = opening(g)
+            if mt2 is not None:
+                snap = pricing.synth_snap(g["sport"], mt2[0], mt2[1])
+                snap.update(src="exchange", mt=[round(mt2[0], 3), round(mt2[1], 3)], seed=[round(mt2[0], 3), round(mt2[1], 3)], rounds=int(r.get("rounds", 0)), pan=True)
+                g["ref"] = snap
         if src in ("dk", "exchange"):
             n_cbb += src == "exchange" and g["sport"] == "cbb"
             continue
@@ -450,7 +469,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 g["ref"] = None
             continue
         snap = pricing.synth_snap(g["sport"], mt[0], mt[1])
-        snap.update(src="exchange", mt=[round(mt[0], 3), round(mt[1], 3)], seed=[round(mt[0], 3), round(mt[1], 3)], rounds=0)
+        snap.update(src="exchange", mt=[round(mt[0], 3), round(mt[1], 3)], seed=[round(mt[0], 3), round(mt[1], 3)], rounds=0, pan=bool(g["sport"] == "cbb" and pan_w > 0))
         g["ref"] = snap
         if g.get("ref_open") is None:
             g["ref_open"] = snap
@@ -478,6 +497,15 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             if d:
                 refs[gid] = (d, ml)
                 refos[gid] = ref_dist(g["sport"], g["ref_open"])[0] if g.get("ref_open") else None
+    pdist: dict[tuple[str, str | None], Dist] = {}  # the Ratings Panel's prices of each college basketball game, on the market's scale: one per outside system (KenPom, Torvik, EvanMiya) and the average (key None); the total is KenPom's where it has one
+    if pan_w > 0:
+        for gid, (d_, _ml) in refs.items():
+            g_ = games[gid]
+            if g_["sport"] == "cbb":
+                for sy_ in (None, *panel.SYSTEMS):
+                    pp_ = panel.predict(pan, g_["home"]["id"], g_["away"]["id"], bool(g_.get("neutral")), sy_)
+                    if pp_:
+                        pdist[(gid, sy_)] = Dist("cbb", pp_[0], pp_[1] if pp_[1] is not None else d_.t)
 
     def p_ref(gid: str, kind: str, line: float) -> float | None:
         r = refs.get(gid)
@@ -722,6 +750,9 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         if any(m["params"].get("public") for m in ms_):
             syn_cap[sid_] = PUBLIC_CAP
             continue
+        if any(m["params"].get("panel") for m in ms_):
+            syn_cap[sid_] = PANEL_CAP
+            continue
         if any(m["params"].get("lab") for m in ms_):  # the maker lab gets the full limit from the start: its job is to quote everywhere and earn a thin spread
             syn_cap[sid_] = CAP_FULL
             continue
@@ -761,6 +792,12 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             base_ = wing.alt_price(mk["ref"], an[1], wing_rho[rk], wing.anchor(an[1], prev_eco.get(ckey(mk["gid"], mk["kind"], an[0]))))
             c_ = wing.cap(mk["off"])  # the first week's fills were 1.8 cents worse than DraftKings' price on average: a price that strays from the market's gets hit by whoever prices off it, so it stays close
             return clip(base_, mk["ref"] - c_, mk["ref"] + c_)
+        pd_ = pdist.get((mk["gid"], m["params"].get("psys"))) or pdist.get((mk["gid"], None)) if m["params"].get("panel") else None
+        if pd_ is not None:  # the Ratings Panel: the exchange's own line (which trading and sharp flow have moved) pulled toward the outside ratings' price; far less once DraftKings has priced the game
+            r_ = mk["ref"]
+            pe_ = prev_eco.get(k)
+            f_ = r_ + (PANEL_W_NODK if mk["src"] == "exchange" else PANEL_W_DK) * (pd_.p(mk["kind"], mk["line"]) - r_)
+            return clip(0.85 * f_ + 0.15 * pe_ if pe_ is not None else f_, r_ - BAND, r_ + BAND)
         if m["params"].get("mm"):  # a market maker has no model: it blends the reference prices and lets order flow move it from there
             r, ks, pe = mk["ref"], (kal.get(mk["gid"], {}).get((mk["kind"], mk["line"])) if mk["src"] != "exchange" else None), prev_eco.get(k)
             f = 0.5 * r + 0.3 * ks[2] + 0.2 * pe if ks and pe is not None else 0.6 * r + 0.4 * ks[2] if ks else 0.8 * r + 0.2 * pe if pe is not None else r
@@ -779,6 +816,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         for k, mk in markets.items():
             if kinds and mk["kind"] not in kinds:
                 continue
+            if m["params"].get("panel") and mk["sport"] != "cbb":
+                continue  # the Ratings Panel makes markets in college basketball only
             if m["params"].get("wing") and (mk["core"] or mk["kind"] == "ml" or mk["sport"] not in wing.WING_SPORTS or (mk["sport"], mk["kind"]) in wing.SKIP or mk["src"] != "dk" or (mk["gid"], mk["kind"]) not in anchors):
                 continue  # the Wing Desk quotes only the alternate lines, only where DraftKings has priced the main one, and not in hockey
             on = mk["sport"] in focus
@@ -933,10 +972,11 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             slack = min(slack, max(0.0, total_limit(m) * (MAKER_SOFT if soft else 1.0) * FAR_FRAC - trisk_far(m["id"])))
         bonus = 1.0 + SPORT_BONUS * float((m["stats"].get("sharp") or {}).get(mk["sport"], 0.0))
         rp = max(mk["ramp"], CORE_RAMP) if core else mk["ramp"]
-        lim = min(m["params"]["max_risk"] * lscale(m) * bonus * rp * mk["srcf"], rm + rt + slack)
+        sf = 1.0 if m["params"].get("panel") else mk["srcf"]  # the panel is the one making a game's line before DraftKings has one: full limits there
+        lim = min(m["params"]["max_risk"] * lscale(m) * bonus * rp * sf, rm + rt + slack)
         q = risk.room(vm if mk["dim"] == "m" else vt, u, lim - (rt if mk["dim"] == "m" else rm))
         sm, st_, srm, srt = spos(m["syndicate_id"], mk["gid"])
-        q2 = risk.room(sm if mk["dim"] == "m" else st_, u, syn_cap[m["syndicate_id"]] * syn_bonus.get((m["syndicate_id"], mk["sport"]), 1.0) * rp * mk["srcf"] - (srt if mk["dim"] == "m" else srm))
+        q2 = risk.room(sm if mk["dim"] == "m" else st_, u, syn_cap[m["syndicate_id"]] * syn_bonus.get((m["syndicate_id"], mk["sport"]), 1.0) * rp * sf - (srt if mk["dim"] == "m" else srm))
         return min(q, q2)
 
     def cash_room(m: dict, k: str, side: str, px: float) -> float:
@@ -1173,6 +1213,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 qstat["crossed"] += 1
                 continue
             size = p["size"] * taper * (1.0 if on else 0.5) * max(0.3, mk["ramp"])
+            if p.get("panel") and mk["src"] != "exchange":
+                size *= PANEL_DK_SIZE  # DraftKings has priced the game: the panel stays in but pulls back
             if p.get("wing"):
                 size *= wing.size_factor(mk["off"], sd_of[mk["sport"]][0 if mk["kind"] == "spread" else 1])
             core = mk["core"]
@@ -1514,7 +1556,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         m1 = float(np.clip(m1, seed[0] - CENTER_DRIFT * sdm, seed[0] + CENTER_DRIFT * sdm))
         t1 = float(np.clip(t1, seed[1] - CENTER_DRIFT * sdt, seed[1] + CENTER_DRIFT * sdt))
         snap = pricing.synth_snap(g["sport"], m1, t1)
-        snap.update(src="exchange", mt=[round(m1, 3), round(t1, 3)], seed=seed, rounds=int(r.get("rounds", 0)) + 1)
+        snap.update(src="exchange", mt=[round(m1, 3), round(t1, 3)], seed=seed, rounds=int(r.get("rounds", 0)) + 1, pan=bool(r.get("pan")))
         g["ref"] = snap
 
     # ---- mark to market

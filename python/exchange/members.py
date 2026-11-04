@@ -26,6 +26,7 @@ NAMES = ["Avery", "Blake", "Casey", "Drew", "Emery", "Finley", "Gray", "Harper",
 # (role, number of focus sports): two market makers (a specialist and a generalist), two takers, one who does both
 SEATS = [("maker", 2), ("maker", 3), ("taker", 2), ("taker", 1), ("both", 2)]
 PUBLIC_UNITS = 25_000.0  # the public-money firm is bigger than the others: a crowd has more money than any one desk
+PANEL_NAMES = ["KenPom", "Torvik", "EvanMiya", "Composite Tight", "Composite Careful"]  # the Ratings Panel's traders are named for the rating system they quote from
 PUBLIC_STYLES = ["chalk", "chalk", "lottery", "hot", "model", "homer", "drift", "casual"]  # one trader each; the crowd is not one mind
 
 
@@ -71,6 +72,8 @@ SYNDICATES = [
          tagline="A research agent that builds the market-making playbook: where to quote, how wide, and where to lean from what the sharp accounts and public money are doing. It earns the spread and builds positions on the sharp side."),
     dict(id="wing", name="Wing Desk", engine="mm", color="#22d3ee", mmstyle="wing",
          tagline="Market makers for the alternate lines: they quote only the spreads and totals around the main number, where nobody else posts, with a price that keeps DraftKings' main line but fits the width of results to each game (a big favourite or a high total gets a wider curve). They quote wider the further out they go and earn the spread on both sides."),
+    dict(id="pan", name="Ratings Panel", engine="mm", color="#a78bfa", mmstyle="panel", units=20_000.0,
+         tagline="Market makers for college basketball games DraftKings has not priced yet: they quote from the outside ratings (KenPom first, then Torvik and EvanMiya where fresh) on DraftKings' scale, with bigger limits than other desks, and move their price as sharp money and the crowd trade against them. Once DraftKings posts a line they stay in but pull back to a smaller size and defer to it."),
 ]
 
 
@@ -78,7 +81,8 @@ def roster() -> tuple[list[dict], list[dict]]:
     syns, mems = [], []
     ni = 0  # running index into NAMES, so a syndicate added later never reuses a name
     for si, s in enumerate(SYNDICATES):
-        units = PUBLIC_UNITS if s.get("public") else SYNDICATE_UNITS
+        units = PUBLIC_UNITS if s.get("public") else s.get("units", SYNDICATE_UNITS)
+        tu_ = units / TRADERS_PER
         syns.append({"id": s["id"], "name": s["name"], "engine": s["engine"], "color": s["color"], "tagline": s["tagline"],
                      "start_units": units, "learn": {"agent": {**s["agent"], "version": 0}} if "agent" in s else {}})
         if s.get("public"):
@@ -109,6 +113,8 @@ def roster() -> tuple[list[dict], list[dict]]:
                 if s["mmstyle"] == "wing":  # alternate-line makers: spreads and totals only, off the main number, wider and a little smaller than the other books
                     params.update(focus=[sp for sp in SPORTS if sp != "nhl"], wing=True, kinds=["spread", "total"], half=round(r.uniform(0.014, 0.020), 4),
                                   size=round(r.uniform(45, 65)), tox=1.0, eta=round(r.uniform(0.9, 1.3), 2), inv=1.5)
+                if s["mmstyle"] == "panel":  # the ratings panel: college basketball only, every line near the main number, bigger than the other makers
+                    params.update(psys=("kenpom", "torvik", "evanmiya", None, None)[i], focus=["cbb"], panel=True, half=round(r.uniform(0.012, 0.017), 4), size=round(r.uniform(110, 140)), tox=1.0, eta=round(r.uniform(0.9, 1.3), 2), inv=1.0, max_risk=250.0)
                 if lab:
                     params["lab"] = True
                     params["max_risk"] = 150.0
@@ -117,10 +123,10 @@ def roster() -> tuple[list[dict], list[dict]]:
                         params.update(take_scale=0.2, thr=0.03, kelly=0.1)  # its quotes come from the lab's published policy, not from the trader's own strategy
             if s["id"] == "pace":
                 params["kinds"] = ["total"]
-            mems.append({"id": f"{s['id']}-{i + 1}", "syndicate_id": s["id"], "name": NAMES[ni], "role": role, "staking": "kelly",
-                         "params": params, "start_units": TRADER_UNITS, "cash": TRADER_UNITS, "locked": 0.0, "realized": 0.0,
-                         "equity": TRADER_UNITS, "open_risk": 0.0, "updated_at": None,
+            mems.append({"id": f"{s['id']}-{i + 1}", "syndicate_id": s["id"], "name": PANEL_NAMES[i] if s.get("mmstyle") == "panel" else NAMES[ni], "role": role, "staking": "kelly",
+                         "params": params, "start_units": tu_, "cash": tu_, "locked": 0.0, "realized": 0.0,
+                         "equity": tu_, "open_risk": 0.0, "updated_at": None,
                          "stats": {"n_maker": 0, "n_taker": 0, "vol_maker": 0.0, "vol_taker": 0.0, "pnl_maker": 0.0, "pnl_taker": 0.0,
-                                   "clv_sum": 0.0, "clv_n": 0, "peak": TRADER_UNITS, "max_dd": 0.0, "wins": 0, "losses": 0, "biggest": 0.0}})
+                                   "clv_sum": 0.0, "clv_n": 0, "peak": tu_, "max_dd": 0.0, "wins": 0, "losses": 0, "biggest": 0.0}})
             ni += 1
     return syns, mems

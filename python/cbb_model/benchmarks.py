@@ -67,9 +67,16 @@ def parse_workbook(path: str) -> None:
 
     OUT.mkdir(parents=True, exist_ok=True)
     wb = openpyxl.load_workbook(path, data_only=True)
+    names = {n.lower(): n for n in wb.sheetnames}
+
+    def sheet(*opts: str):  # the export's sheet names changed between downloads ("KenPom" became "kp")
+        for o in opts:
+            if o.lower() in names:
+                return wb[names[o.lower()]]
+        raise KeyError(f"no sheet like {opts} in {wb.sheetnames}")
 
     # KenPom
-    ws = wb["KenPom"]
+    ws = sheet("KenPom", "kp")
     rows = [r for r in ws.iter_rows(values_only=True)]
     kp = []
     for r in rows:
@@ -79,7 +86,7 @@ def parse_workbook(path: str) -> None:
     print("kenpom:", len(kp))
 
     # Torvik: a team row (rank, team, conf, adjoe, adjde, barthag, ...) then a detail row
-    ws = wb["BartTorvik"]
+    ws = sheet("BartTorvik", "torv")
     bt = []
     for r in ws.iter_rows(values_only=True):
         if r[0] is not None and str(r[0]).strip().isdigit() and r[1] and r[3] is not None:
@@ -96,31 +103,43 @@ def parse_workbook(path: str) -> None:
     d.to_csv(OUT / "torvik.csv", index=False)
     print("torvik:", len(d))
 
-    # EvanMiya teams: 22-field header, then 22 values per team
-    col = [r[0] for r in wb["Evan Miya Teams"].iter_rows(values_only=True)]
-    n = 22
-    head, body = col[:n], col[n:]
-    recs = [body[i : i + n] for i in range(0, len(body) - n + 1, n)]
-    em = pd.DataFrame(recs, columns=head)
-    for c in em.columns:
-        if c != "Team":
-            em[c] = pd.to_numeric(em[c], errors="coerce")
-    em = em.rename(columns={"Team": "team", "O-Rate": "off", "D-Rate": "def", "Relative Rating": "net", "True Tempo": "tempo", "Relative Ranking": "rank"})
+    # EvanMiya teams. The first export had a text header (22 fields) then 22 values per team; the November export has no header and 21 values per team:
+    # rank, team (with injury and hot-streak emoji), off, def, relative rating, then rank fields, with the tempo at position 8.
+    import re
+
+    col = [r[0] for r in sheet("Evan Miya Teams", "em tm").iter_rows(values_only=True)]
+    if col and str(col[0]).strip().isdigit():
+        n = 21
+        recs = [col[i : i + n] for i in range(0, len(col) - n + 1, n) if str(col[i]).strip().isdigit() and isinstance(col[i + 1], str)]
+        em = pd.DataFrame([{"rank": float(r[0]), "team": re.sub(r"[^\w\s.&'()\-]", "", str(r[1])).strip(), "off": float(r[2]), "def": float(r[3]), "net": float(r[4]), "tempo": float(r[8])} for r in recs])
+    else:
+        n = 22
+        head, body = col[:n], col[n:]
+        recs = [body[i : i + n] for i in range(0, len(body) - n + 1, n)]
+        em = pd.DataFrame(recs, columns=head)
+        for c in em.columns:
+            if c != "Team":
+                em[c] = pd.to_numeric(em[c], errors="coerce")
+        em = em.rename(columns={"Team": "team", "O-Rate": "off", "D-Rate": "def", "Relative Rating": "net", "True Tempo": "tempo", "Relative Ranking": "rank"})
     em.to_csv(OUT / "evanmiya_teams.csv", index=False)
     print("evanmiya teams:", len(em), "| first:", em.iloc[0][["team", "off", "def", "net"]].to_dict())
 
-    # EvanMiya players: 14-field header, then 14 values per player
-    col = [r[0] for r in wb["Evan Miya Players"].iter_rows(values_only=True)]
+    # EvanMiya players: the first export had a 14-field header then 14 values per player; the November export has no header (two lead-in rows, then 14 values per player)
+    col = [r[0] for r in sheet("Evan Miya Players", "em plyr").iter_rows(values_only=True)]
     n = 14
-    head, body = col[:n], col[n:]
+    old = pd.read_csv(OUT / "oct13" / "evanmiya_players.csv").columns.tolist() if (OUT / "oct13" / "evanmiya_players.csv").exists() else None
+    if col and col[0] is None or (len(col) > 2 and str(col[2]).strip().isdigit()):
+        body = col[2:]
+        head = old if old and len(old) == n else [f"f{i}" for i in range(n)]
+    else:
+        head, body = col[:n], col[n:]
     recs = [body[i : i + n] for i in range(0, len(body) - n + 1, n)]
     ep = pd.DataFrame(recs, columns=head)
     for c in ep.columns:
-        if c not in ("Name", "Team"):
+        if c not in ("Name", "Team") and c not in (head[1], head[2]):
             ep[c] = pd.to_numeric(ep[c], errors="coerce")
     ep.to_csv(OUT / "evanmiya_players.csv", index=False)
-    print("evanmiya players:", len(ep), "| first:", ep.iloc[0][["Name", "Team", "BPR"]].to_dict())
-
+    print("evanmiya players:", len(ep), "| first:", ep.iloc[0].tolist()[:4])
 
 def our_ratings() -> pd.DataFrame:
     import json
