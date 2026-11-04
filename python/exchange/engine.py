@@ -851,7 +851,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     def sharp(mid: str, sport: str) -> float:
         """0 to 1: how much a trader's hits are worth listening to in a sport - its closing-line record as a taker, or its syndicate's proven model."""
         m = members[mid]
-        if m["params"].get("public") or m["params"].get("panel"):  # labelled public money (and the panel, whose crossing fills are not information): never treated as informed, however a lucky run looks
+        if m["params"].get("public") or m["params"].get("panel") or (m["params"].get("mm") and not m["params"].get("lab")):  # labelled public money, the panel and the pure market makers (whose crossing fills are not information): never treated as informed, however a lucky run looks
             return 0.0
         rec = (m["stats"].get("clvs") or {}).get(sport)
         s1 = 0.0
@@ -1258,7 +1258,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 size = max(size, CORE_MIN_NEAR if mk["hrs"] <= CORE_NEAR_H else CORE_MIN)
             qb = min(size * sz_b, room_for(m, mk, "buy", bid, True, core), cash_room(m, k, "buy", bid)) if size * sz_b >= 5 and not (stop_buy and not core) else 0.0
             qa = min(size * sz_a, room_for(m, mk, "sell", ask, True, core), cash_room(m, k, "sell", ask)) if size * sz_a >= 5 and not (stop_sell and not core) else 0.0
-            if p.get("panel") and (qb >= 5 or qa >= 5):  # the panel's traders price from different rating systems and can disagree by more than a spread: a quote through another maker's fills against it, at the resting price, as on any exchange
+            if qb >= 5 or qa >= 5:  # makers price from different views and can disagree by more than a spread: a quote through another maker's fills against it, at the resting price, as on any exchange
                 for _ in range(3):
                     oa_ = best(asks[k], m["id"])
                     if qb < 1 or not oa_ or bid < oa_[0]:
