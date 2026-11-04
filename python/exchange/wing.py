@@ -26,6 +26,9 @@ EX_MAX = 0.04  # ...never more than this many cents
 PRESSURE_WIDEN = 0.03  # extra half-spread, at full pressure, on every wing line of a game that sharp flow is moving (full pressure is PRESSURE_FULL standard deviations of shift)
 PRESSURE_FULL = 0.10
 PULL_AT = 0.17  # past this much shift (the flow cap is 0.2) the desk takes its wing quotes off that game until the pressure fades
+NEAR_OFF = 3.5  # points from the main number: closer than this the market's own price is right to within about 0.3 cents (checked on 20,000 games), so the desk stays within CAP_NEAR of it
+CAP_NEAR, CAP_FAR = 0.015, 0.03  # the most the desk's fair price may sit from the market's price on a line, close to the main number and further out
+SKIP = {("cbb", "total")}  # lines the desk does not quote until its fills show a positive spread (college basketball totals lost the most per contract in its first week)
 SIZE_DECAY = 0.12  # quote size falls this much per standard deviation from the main number
 WING_SPORTS = ("nfl", "cfb", "nba", "cbb")  # not hockey: its ladder is narrow and low-scoring, with no alternate lines to speak of
 _CACHE: dict | None = None
@@ -76,6 +79,11 @@ def alt_price(p: float, p_anchor: float, r: float, center: float | None = None) 
     q0, q = norm.ppf(min(0.99, max(0.01, p_anchor))), norm.ppf(min(0.99, max(0.01, p)))
     qc = q0 if center is None else norm.ppf(min(0.99, max(0.01, center)))
     return float(min(0.99, max(0.01, norm.cdf(qc + (q - q0) * r))))
+
+
+def cap(off_points: float) -> float:
+    """How far from the market's price the desk's own fair price may go on a line this far from the main number."""
+    return CAP_NEAR if off_points <= NEAR_OFF else CAP_FAR
 
 
 def pressure_widen(pressure: float) -> float:

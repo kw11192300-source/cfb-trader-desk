@@ -743,9 +743,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 gr = games[mk["gid"]]["ref"]
                 wing_rho[rk] = wing.rho(mk["sport"], mk["kind"], gr.get("spread"), gr.get("total"))
             base_ = wing.alt_price(mk["ref"], an[1], wing_rho[rk], wing.anchor(an[1], prev_eco.get(ckey(mk["gid"], mk["kind"], an[0]))))
-            pe_ = prev_eco.get(k)
-            f_ = 0.75 * base_ + 0.25 * pe_ if pe_ is not None else base_
-            return clip(f_, max(mk["ref"] - BAND, base_ - 0.06), min(mk["ref"] + BAND, base_ + 0.06))
+            c_ = wing.cap(mk["off"])  # the first week's fills were 1.8 cents worse than DraftKings' price on average: a price that strays from the market's gets hit by whoever prices off it, so it stays close
+            return clip(base_, mk["ref"] - c_, mk["ref"] + c_)
         if m["params"].get("mm"):  # a market maker has no model: it blends the reference prices and lets order flow move it from there
             r, ks, pe = mk["ref"], (kal.get(mk["gid"], {}).get((mk["kind"], mk["line"])) if mk["src"] != "exchange" else None), prev_eco.get(k)
             f = 0.5 * r + 0.3 * ks[2] + 0.2 * pe if ks and pe is not None else 0.6 * r + 0.4 * ks[2] if ks else 0.8 * r + 0.2 * pe if pe is not None else r
@@ -764,7 +763,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         for k, mk in markets.items():
             if kinds and mk["kind"] not in kinds:
                 continue
-            if m["params"].get("wing") and (mk["core"] or mk["kind"] == "ml" or mk["sport"] not in wing.WING_SPORTS or mk["src"] != "dk" or (mk["gid"], mk["kind"]) not in anchors):
+            if m["params"].get("wing") and (mk["core"] or mk["kind"] == "ml" or mk["sport"] not in wing.WING_SPORTS or (mk["sport"], mk["kind"]) in wing.SKIP or mk["src"] != "dk" or (mk["gid"], mk["kind"]) not in anchors):
                 continue  # the Wing Desk quotes only the alternate lines, only where DraftKings has priced the main one, and not in hockey
             on = mk["sport"] in focus
             if on or mk["near"]:
