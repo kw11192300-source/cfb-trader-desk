@@ -25,6 +25,15 @@ const leans = (g: ExGame, kind: string, line: number, gap: number) => {
   return `${yes ? "Over" : "Under"} ${line}`;
 };
 
+/** The sharp-flow shift that matters for this row's market: the margin shift for a spread or moneyline, the total shift for a total, in points, with the side it favours. */
+const flowText = (r: { g: ExGame; kind: string; flow: Flow }) => {
+  if (!r.flow) return "–";
+  const v = r.kind === "total" ? r.flow[1] : r.flow[0];
+  if (Math.abs(v) < 0.05) return "–";
+  const toward = r.kind === "total" ? (v > 0 ? "over" : "under") : v > 0 ? r.g.home.abbr : r.g.away.abbr;
+  return `${Math.abs(v).toFixed(2)} pts toward ${toward}`;
+};
+
 export default async function DifferencesPage({ searchParams }: { searchParams: Promise<Params> }) {
   const sp = await searchParams;
   const sport = SPORTS.includes(sp.sport ?? "") ? sp.sport! : null;
@@ -116,7 +125,7 @@ export default async function DifferencesPage({ searchParams }: { searchParams: 
                     <th className="px-3 py-2 text-right">Gap</th>
                     <th className="px-3 py-2 text-right" title="Best bid and ask, with the size at each">Book</th>
                     <th className="px-3 py-2 text-right">Last trade</th>
-                    <th className="px-3 py-2 text-right" title="How far sharp money has shifted the game's expected margin and total, in points">Sharp flow</th>
+                    <th className="px-3 py-2 text-right" title="How far sharp money has shifted what this line depends on, in points: the expected margin for a spread or moneyline, the expected total for a total">Sharp flow</th>
                   </tr>
                 </thead>
                 <tbody className="font-mono">
@@ -133,7 +142,7 @@ export default async function DifferencesPage({ searchParams }: { searchParams: 
                       <td className={`px-3 py-1.5 text-right font-semibold ${Math.abs(r.gap) >= MIN_GAP ? "text-accent" : "text-foreground"}`}>{r.gap > 0 ? "+" : ""}{r.gap.toFixed(1)}¢</td>
                       <td className="px-3 py-1.5 text-right text-muted">{pct(r.bid)} × {r.bsz != null ? Math.round(r.bsz) : "–"} / {pct(r.ask)} × {r.asz != null ? Math.round(r.asz) : "–"}</td>
                       <td className="px-3 py-1.5 text-right text-muted">{pct(r.last)}</td>
-                      <td className="px-3 py-1.5 text-right text-muted">{r.flow && (Math.abs(r.flow[0]) >= 0.05 || Math.abs(r.flow[1]) >= 0.05) ? `${r.flow[0] >= 0 ? "+" : ""}${r.flow[0].toFixed(2)} / ${r.flow[1] >= 0 ? "+" : ""}${r.flow[1].toFixed(2)}` : "–"}</td>
+                      <td className="px-3 py-1.5 text-right text-muted">{flowText(r)}</td>
                     </tr>
                   ))}
                 </tbody>
