@@ -306,7 +306,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     prev_round_ts = _pdate(meta["round"]["ts"]) if meta.get("round") and meta["round"].get("ts") else now - timedelta(minutes=ROUND_MIN)
     RATE = float(_c((now - prev_round_ts).total_seconds() / 60.0 / ROUND_MIN, 0.15, 2.5))  # 1.0 for a 15-minute gap, about 0.33 for 5 minutes
     if ticks == TICKS:  # the default: steps in proportion to the time the round covers, so trading and public money per hour do not change with the spacing
-        ticks = max(MIN_TICKS, int(round(TICKS * RATE)))
+        ticks = max(MIN_TICKS, min(TICKS, int(round(TICKS * RATE))))  # never more than the old 12, so a catch-up round after an outage stays short
     rng = random.Random(seed if seed is not None else rnd)
     if len(store.rows("ex_syndicates")) < len(roster()[0]) or not store.rows("ex_members"):
         init(store)  # first run, or a syndicate was added to the roster since
@@ -324,6 +324,19 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                     del stats_[sp_]
         modelcal_reset = True
     rat = {r["key"]: r["payload"] for r in store.rows("ex_ratings")}
+    pan = rat.get(panel.KEY)
+    pan_w = panel.weight(pan, now.date())
+
+    def panel_nums(g: dict) -> dict | None:
+        """Each outside system's own margin and total for a college basketball game, and their average, for the panel scoreboard (python/exchange/panel.py)."""
+        if g["sport"] != "cbb" or not pan:
+            return None
+        out: dict = {}
+        for sy_ in (None, *panel.SYSTEMS):
+            pp_ = panel.predict(pan, g["home"]["id"], g["away"]["id"], bool(g.get("neutral")), sy_)
+            if pp_:
+                out[sy_ or "avg"] = [round(pp_[0], 2), None if pp_[1] is None else round(pp_[1], 1)]
+        return {**out, "asof": pan.get("asof")} if out else None
     games = {g["id"]: g for g in store.rows("ex_games", {"completed": False})}
     open_trades = store.rows("ex_trades", {"settled": False})
     for t in open_trades:
@@ -434,19 +447,6 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
 
     # ---- upcoming games DraftKings has not priced yet: no outside baseline. The line opens at what the rating models agree on, and from then on it is wherever
     # the traders' own quotes and trades clear it (moved at the end of every round). Kalshi's prices are still collected, but only as one syndicate's view.
-    pan = rat.get(panel.KEY)
-    pan_w = panel.weight(pan, now.date())
-
-    def panel_nums(g: dict) -> dict | None:
-        """Each outside system's own margin and total for a college basketball game, and their average, for the panel scoreboard (python/exchange/panel.py)."""
-        if g["sport"] != "cbb" or not pan:
-            return None
-        out: dict = {}
-        for sy_ in (None, *panel.SYSTEMS):
-            pp_ = panel.predict(pan, g["home"]["id"], g["away"]["id"], bool(g.get("neutral")), sy_)
-            if pp_:
-                out[sy_ or "avg"] = [round(pp_[0], 2), None if pp_[1] is None else round(pp_[1], 1)]
-        return {**out, "asof": pan.get("asof")} if out else None
     pre = {gid: g for gid, g in {**games, **pending}.items() if g["state"] == "pre" and _pdate(g["start_utc"]) <= now + timedelta(hours=horizon(g["sport"]))}
     def opening(g: dict) -> tuple[float, float] | None:
         sp = g["sport"]
