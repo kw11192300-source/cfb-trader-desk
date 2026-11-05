@@ -2,10 +2,10 @@
 
 Every round, each game DraftKings has priced is compared with the same game's views from the previous round. For each of its three main markets (spread, total, moneyline) this keeps:
   o / hi / lo   the opening value and the highest and lowest value seen since (the line number for a spread or total, DraftKings' no-vig price for the moneyline)
-  ts            when it last moved
+  c / ts        the value the market is accepted to be at, and when it last moved
 and writes an event whenever something moves, with the time:
-  src "dk"      DraftKings moved: from, to, how far, where it stands against its open and its peak (a move back toward the open from a peak is a reversal), and whether the exchange
-                was already pricing that way a round earlier (led)
+  src "dk"      DraftKings moved (logged the round it is seen, settled the next: confirmed or bounced back): from, to, how far, where it stands against its open and its peak (a move back toward the
+                open from a peak is a reversal), and whether the exchange was already pricing that way a round earlier (led)
   src "exch"    the exchange's price moved while DraftKings did not (the exchange moving first)
 The events go into ex_meta "moves" (newest first, a day and a half) and the page turns them into a feed.
 Values: a spread is the home team's number (a fall means the home side is laying more), a total is the number of points, the moneyline is the home win probability.
@@ -19,6 +19,7 @@ TH = {"spread": 0.5, "total": 0.5, "ml": 0.015}  # smallest round-to-round chang
 TH_X = 0.02  # the exchange's price must move this much (2 cents) in a round, with DraftKings still, to log it
 KEEP_HOURS = 36
 MAX_ROWS = 600
+BOUNCES = 2  # a market that has bounced back this many times in an hour has to hold a change for a round before the next one is logged
 
 
 def _imp(o: float | None) -> float | None:
@@ -54,55 +55,95 @@ def _val(m: str, t: tuple) -> float:
     return t[1] if m == "ml" else t[0]
 
 
-def step(g: dict, old: dict | None, v: dict, now: datetime, open_vals: dict, span_min: float | None = None) -> tuple[dict, list[dict]]:
-    """Update the tracker for one game: (new state, events). `old` and `v` are the game's views last round and this round."""
+def step(g: dict, old: dict | None, v: dict, now: datetime, open_vals: dict, span_min: float | None = None) -> tuple[dict, list[dict], list[dict]]:
+    """Update the tracker for one game: (new state, events, updates). `old` and `v` are the game's views last round and this round.
+
+    A move is logged the moment a round sees it (ok False, "new"). The next round settles it: if the market held the new value the event is confirmed (an update sets ok), and if it went straight back it
+    was a flicker (an update sets bounced). A market that has bounced twice in the last hour stops being logged instantly: its next change has to hold for a round first."""
     if old is not None and (old.get("src") or "dk") != (v.get("src") or "dk"):
         old = None  # the game was on the exchange's own line a round ago and DraftKings has just priced it: that switch is not a DraftKings move, so start fresh
     prev_mv = (old or {}).get("mv") or {}
     cur, prev = _main(v), _main(old)
     ts = now.isoformat()
+    cut = (now - timedelta(minutes=60)).isoformat()
     teams = f"{g['away']['abbr']} @ {g['home']['abbr']}"
     state: dict = {}
     events: list[dict] = []
+    updates: list[dict] = []
     for m, c in cur.items():
+        if m == "spread" and g["sport"] == "nhl":
+            continue  # a hockey puck line is always 1.5 and changes sign when the favourite switches: that is not a move (the moneyline shows the real one)
         val = _val(m, c)
         st = dict(prev_mv.get(m) or {})
+        p = prev.get(m)
+        pv = _val(m, p) if p is not None else val
         if "o" not in st:  # first time this market is tracked: its open (or the value it had a round ago), and the range includes where it was a round ago
-            pv = _val(m, prev[m]) if m in prev else val
             st["o"] = open_vals.get(m, pv)
             st["hi"], st["lo"] = max(st["o"], val, pv), min(st["o"], val, pv)
-        st["hi"], st["lo"] = max(st["hi"], val), min(st["lo"], val)
-        p = prev.get(m)
+        base = st.get("c", pv)  # the value the market is accepted to be at
+        # settle the move logged last round
+        last = st.get("last")
+        if last and not last.get("done"):
+            key = {"gid": g["id"], "mkt": m, "ts": last["ts"]}
+            if abs(val - last["frm"]) < TH[m] - 1e-9 and abs(val - last["to"]) >= TH[m] - 1e-9:  # straight back to where it was: a flicker
+                updates.append({**key, "bounced": True})
+                st["bn"] = [t for t in st.get("bn", []) if t >= cut] + [ts]
+                base = val
+            else:
+                updates.append({**key, "ok": True})
+            last["done"] = True
+            st["last"] = last
+        unstable = len([t for t in st.get("bn", []) if t >= cut]) >= BOUNCES
         moved = False
-        if p is not None:
-            pval = _val(m, p)
-            d = val - pval
-            if abs(d) >= TH[m] - 1e-9:
-                moved = True
-                o, hi, lo = st["o"], st["hi"], st["lo"]
+        if abs(val - base) >= TH[m] - 1e-9:
+            pend = st.get("pend")
+            if unstable and not (pend and (pend["v"] - base) * (val - base) > 0):
+                st["pend"] = {"v": val, "ts": ts}  # a market that keeps flickering has to hold a change for a round before it is logged
+            else:
+                d = val - base
+                o = st["o"]
+                st["hi"], st["lo"] = max(st["hi"], val), min(st["lo"], val)
+                hi, lo = st["hi"], st["lo"]
                 ext = hi if abs(hi - o) >= abs(lo - o) else lo  # the furthest the market has been from its open
-                toward_open = abs(val - o) < abs(pval - o)
+                toward_open = abs(val - o) < abs(base - o)
                 retrace = round(abs(ext - val), 3) if toward_open and abs(ext - o) > 1e-9 else 0.0
                 # was the exchange already pricing this way? its gap to DraftKings a round earlier, signed so that positive means "toward the direction DraftKings then moved"
                 gp = None
-                if p[2] is not None and p[1] is not None:
+                if p is not None and p[2] is not None and p[1] is not None:
                     gap = p[2] - p[1]  # the exchange's yes price minus DraftKings'
                     up = (d < 0) if m == "spread" else (d > 0)  # yes (home covers / over / home win) became more likely
                     gp = round((gap if up else -gap), 4)
-                events.append({"ts": ts, "gid": g["id"], "sport": g["sport"], "teams": teams, "start": g["start_utc"], "mkt": m, "src": "dk", "frm": round(pval, 4), "to": round(val, 4), "d": round(d, 4),
-                               "o": round(o, 4), "hi": round(hi, 4), "lo": round(lo, 4), "retrace": retrace, "gp": gp, "led": bool(gp is not None and gp >= 0.015), "span": span_min})
-            elif p[2] is not None and c[2] is not None and abs(p[0] - c[0]) < 1e-9 and abs(c[2] - p[2]) >= TH_X - 1e-9:
-                gap_now = c[2] - c[1]
-                events.append({"ts": ts, "gid": g["id"], "sport": g["sport"], "teams": teams, "start": g["start_utc"], "mkt": m, "src": "exch", "frm": round(p[2], 4), "to": round(c[2], 4), "d": round(c[2] - p[2], 4),
-                               "line": c[0], "dk": round(c[1], 4), "gap": round(gap_now, 4), "span": span_min})
-        if moved:
-            st["ts"], st["d"] = ts, round(val - _val(m, p), 4)
+                ets = pend["ts"] if (pend and unstable) else ts
+                events.append({"ts": ets, "gid": g["id"], "sport": g["sport"], "teams": teams, "start": g["start_utc"], "mkt": m, "src": "dk", "frm": round(base, 4), "to": round(val, 4), "d": round(d, 4),
+                               "o": round(o, 4), "hi": round(hi, 4), "lo": round(lo, 4), "retrace": retrace, "gp": gp, "led": bool(gp is not None and gp >= 0.015), "span": span_min, "ok": bool(unstable)})
+                st["c"], st["ts"], st["d"] = val, ets, round(d, 4)
+                if not unstable:
+                    st["last"] = {"ts": ets, "frm": round(base, 4), "to": round(val, 4)}
+                st.pop("pend", None)
+                moved = True
+        else:
+            st.pop("pend", None)
+            st["c"] = base
+        if not moved and p is not None and p[2] is not None and c[2] is not None and abs(p[0] - c[0]) < 1e-9 and abs(c[2] - p[2]) >= TH_X - 1e-9 and abs(val - base) < TH[m] - 1e-9:
+            events.append({"ts": ts, "gid": g["id"], "sport": g["sport"], "teams": teams, "start": g["start_utc"], "mkt": m, "src": "exch", "frm": round(p[2], 4), "to": round(c[2], 4), "d": round(c[2] - p[2], 4),
+                           "line": c[0], "dk": round(c[1], 4), "gap": round(c[2] - c[1], 4), "span": span_min})
+        st["hi"], st["lo"] = max(st["hi"], st.get("c", val)), min(st["lo"], st.get("c", val))
         st = {k: (round(x, 4) if isinstance(x, float) else x) for k, x in st.items()}
         state[m] = st
-    return state, events
+    return state, events, updates
 
 
-def merge(prior: list[dict], new: list[dict], now: datetime) -> list[dict]:
-    """New events first, anything older than KEEP_HOURS dropped, capped."""
+def merge(prior: list[dict], new: list[dict], now: datetime, updates: list[dict] | None = None) -> list[dict]:
+    """New events first, anything older than KEEP_HOURS dropped, capped. Updates settle events logged a round ago (confirmed, or bounced back)."""
     cut = (now - timedelta(hours=KEEP_HOURS)).isoformat()
-    return (sorted(new, key=lambda e: (e["ts"], abs(e.get("d", 0))), reverse=True) + [r for r in prior if r["ts"] >= cut])[:MAX_ROWS]
+    rows = sorted(new, key=lambda e: (e["ts"], abs(e.get("d", 0))), reverse=True) + [r for r in prior if r["ts"] >= cut]
+    if updates:
+        idx = {(u["gid"], u["mkt"], u["ts"]): u for u in updates}
+        for r in rows:
+            u = idx.get((r["gid"], r["mkt"], r["ts"]))
+            if u and r.get("src") == "dk":
+                if u.get("bounced"):
+                    r["bounced"], r["ok"] = True, False
+                elif u.get("ok"):
+                    r["ok"] = True
+    return rows[:MAX_ROWS]

@@ -19,7 +19,7 @@ const VIEWS: [string, string][] = [["moves", "Live moves"], ["exchange", "Exchan
 
 type Ev = {
   ts: string; gid: string; sport: string; teams: string; start: string; mkt: "spread" | "total" | "ml"; src: "dk" | "exch"; frm: number; to: number; d: number;
-  o?: number; hi?: number; lo?: number; retrace?: number; gp?: number | null; led?: boolean; span?: number | null; line?: number; dk?: number; gap?: number;
+  o?: number; hi?: number; lo?: number; retrace?: number; gp?: number | null; led?: boolean; span?: number | null; line?: number; dk?: number; gap?: number; ok?: boolean; bounced?: boolean;
 };
 type Mv = { o: number; hi: number; lo: number; ts?: string; d?: number };
 type Params = { sport?: string; h?: string; w?: string; mkt?: string; view?: string; sort?: string };
@@ -88,7 +88,8 @@ export default async function MovementPage({ searchParams }: { searchParams: Pro
   type Agg = { g: ExGame; mkt: Ev["mkt"]; first: Ev; last: Ev; n: number; net: number; led: boolean; gp: number | null; caught: number | null; best: Ev };
   const aggs: Agg[] = [];
   const grouped: Record<string, Ev[]> = {};
-  for (const e of inWin.filter((x) => x.src === "dk")) (grouped[`${e.gid}|${e.mkt}`] ??= []).push(e);
+  const bouncedN = inWin.filter((x) => x.src === "dk" && x.bounced).length;
+  for (const e of inWin.filter((x) => x.src === "dk" && !x.bounced)) (grouped[`${e.gid}|${e.mkt}`] ??= []).push(e);
   for (const evs of Object.values(grouped)) {
     evs.sort((a, b) => a.ts.localeCompare(b.ts));
     const first = evs[0], last = evs[evs.length - 1];
@@ -122,6 +123,7 @@ export default async function MovementPage({ searchParams }: { searchParams: Pro
     const st = (g.views as unknown as { mv?: Record<string, Mv> } | null)?.mv ?? {};
     for (const m of ["spread", "total", "ml"] as const) {
       if (mkt !== "all" && mkt !== m) continue;
+      if (m === "spread" && g.sport === "nhl") continue; // a hockey puck line is always 1.5 and changes sign when the favourite switches
       const now = m === "ml" ? devig(rn?.ml_home, rn?.ml_away) : rn?.[m];
       const o = st[m]?.o ?? (m === "ml" ? devig(ro?.ml_home, ro?.ml_away) : ro?.[m]);
       if (now == null || o == null) continue;
@@ -180,7 +182,7 @@ export default async function MovementPage({ searchParams }: { searchParams: Pro
             <div key={k} className="rounded-lg border border-border bg-surface px-3 py-2"><p className="text-[10px] uppercase tracking-wide text-muted">{k}</p><p className="text-lg font-semibold text-foreground">{v}</p></div>
           ))}
         </div>
-        <p className="mb-3 text-[11px] text-muted">Last move logged anywhere: {lastEv ? ago(lastEv) : "none yet"}. A market only shows once the exchange has watched it move, so a line that has not moved since tracking began is not here.</p>
+        <p className="mb-3 text-[11px] text-muted">Last move logged anywhere: {lastEv ? ago(lastEv) : "none yet"}. A move appears the round it is first seen (marked NEW); if the next round has it straight back it is hidden as a flicker{bouncedN > 0 ? ` (${bouncedN} in this window)` : ""}. A market only shows once the exchange has watched it move, so a line that has not moved since tracking began is not here.</p>
 
         {view === "moves" && (aggs.length === 0 ? (
           <p className="rounded-lg border border-border bg-surface px-4 py-8 text-center text-sm text-muted">No DraftKings line has moved in this window at this setting. Try a longer window.</p>
@@ -216,7 +218,8 @@ export default async function MovementPage({ searchParams }: { searchParams: Pro
                       <td className="px-3 py-1.5 font-sans">
                         {big && <span className="mr-1 rounded bg-down/20 px-1.5 py-0.5 text-[10px] font-semibold text-down">STEAM</span>}
                         {rev && <span className="mr-1 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] text-accent">REVERSAL</span>}
-                        {a.led && <span className="rounded bg-up/15 px-1.5 py-0.5 text-[10px] text-up">EXCHANGE LED</span>}
+                        {a.led && <span className="mr-1 rounded bg-up/15 px-1.5 py-0.5 text-[10px] text-up">EXCHANGE LED</span>}
+                        {a.last.ok === false && Date.now() - new Date(a.last.ts).getTime() < 12 * 60000 && <span className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted" title="Seen this round, not yet checked against the next one">NEW</span>}
                         {a.caught != null && <div className="mt-0.5 text-[10px] text-muted">seen after a {dur(a.caught)} gap</div>}
                       </td>
                     </tr>

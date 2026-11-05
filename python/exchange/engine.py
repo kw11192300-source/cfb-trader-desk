@@ -1593,6 +1593,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         eco[k] = round((b[0] * a[1] + a[0] * b[1]) / (a[1] + b[1]), 4) if b and a and a[1] + b[1] > 0 else last_px.get(k, prev_eco.get(k))  # no two-sided book: the last trade, else last round's price, so a price is never blank
         if b and a and a[1] + b[1] > 0:
             two_sided[k] = eco[k]
+    move_updates: list[dict] = []
     move_events: list[dict] = []  # DraftKings line moves and exchange-first moves this round, for the Line movement page (python/exchange/linemoves.py)
     span_min = round((now - prev_round_ts).total_seconds() / 60.0, 1)
     for gid, g in games.items():
@@ -1611,8 +1612,9 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         if v.get("src", "dk") == "dk":
             signals.scan(sig, g, v, two_sided, delta, markets, ckey, now, _pdate(g["start_utc"]))
             try:  # a tracking error must never stop a round
-                v["mv"], evs_ = linemoves.step(g, old, v, now, linemoves.open_values(g.get("ref_open")), span_min)
+                v["mv"], evs_, ups_ = linemoves.step(g, old, v, now, linemoves.open_values(g.get("ref_open")), span_min)
                 move_events.extend(evs_)
+                move_updates.extend(ups_)
             except Exception:
                 pass
     signals.prune(sig, now)
@@ -1746,8 +1748,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     store.upsert("ex_meta", [{"key": "carry", "value": {
         "mmb": [[mid_, gid_, round(v_[0], 4), round(v_[1], 4)] for (mid_, gid_), v_ in mmb.items() if abs(v_[0]) > CARRY_SMALL or abs(v_[1]) > CARRY_SMALL][:4000],
         "tox": [[mid_, k_, round(v_, 3)] for (mid_, k_), v_ in sorted(tox.items(), key=lambda kv: -kv[1])[:3000] if v_ > 0.02]}}])
-    if move_events or meta.get("moves"):
-        store.upsert("ex_meta", [{"key": "moves", "value": {"rows": linemoves.merge((meta.get("moves") or {}).get("rows", []), move_events, now)}}])
+    if move_events or move_updates or meta.get("moves"):
+        store.upsert("ex_meta", [{"key": "moves", "value": {"rows": linemoves.merge((meta.get("moves") or {}).get("rows", []), move_events, now, move_updates)}}])
     store.upsert("ex_meta", [{"key": "gamevol", "value": {k_: [round(v_[0], 1), int(v_[1])] for k_, v_ in gv.items()}}])
     if nws["dirty"]:
         store.upsert("ex_meta", [{"key": "news", "value": news.dump(nws)}])
