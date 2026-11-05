@@ -54,6 +54,7 @@ FLOW_CAP = 0.12  # most the sharp flow can move a game's expected margin or tota
 FLOW_CONFIRM = 1.0  # when DraftKings itself moves the way the flow pointed, that much of the flow is spent: the market has caught up. Other sharp money pushing the other way also cancels it
 SHARP_CLV = 0.02  # average closing-line value (2 cents) that makes a taker fully "sharp"
 SHARP_N = 25.0  # a taker's record counts half at this many trades (its own count, not the decayed weight) and more as it grows
+SHARP_BAD_N = 100  # takes of a firm in a sport before a clearly negative closing-line record can switch off the sharpness its model weight would otherwise give it
 SHARP_GAMES = 40.0  # finished games a syndicate's model weight needs behind it before it can lift every trader's sharpness in full
 MM_REACT = 2.0  # a market maker moves its own view of a game this many times harder than a follower when its quote is hit
 LEAN_CAP = 0.03  # a market maker's inventory lean moves its quotes at most this far (3 cents): past it, a position is worked off by stopping the heavy side, not by paying ever more (Careful Book gave up 472 units on fills 3 to 19 cents off DraftKings)
@@ -848,11 +849,32 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 mine[m["id"]].append((k, on))
                 base_fairs[(m["id"], k)] = fairs[(m["id"], k)] = fair(m, k)
 
-    def sharp(mid: str, sport: str) -> float:
-        """0 to 1: how much a trader's hits are worth listening to in a sport - its closing-line record as a taker, or its syndicate's proven model."""
+    bad_clv: dict[tuple[str, str], bool] = {}
+
+    def clv_bad(sid: str, sport: str) -> bool:
+        """True when a firm's takers, pooled, have a closing-line record in this sport that is clearly negative (the average, even a standard error and a half kinder, is still under zero): DraftKings keeps moving against what they take."""
+        k_ = (sid, sport)
+        v_ = bad_clv.get(k_)
+        if v_ is None:
+            n_ = s_ = q_ = 0.0
+            for mm_ in members.values():
+                if mm_["syndicate_id"] == sid and not mm_["params"].get("public"):
+                    r_ = (mm_["stats"].get("clvs") or {}).get(sport)
+                    if r_:
+                        n_, s_, q_ = n_ + r_["n"], s_ + r_["s"], q_ + r_["q"]
+            v_ = False
+            if n_ >= SHARP_BAD_N:
+                mean_ = s_ / n_
+                v_ = bool(mean_ + 1.645 * float(np.sqrt(max(0.0, q_ / n_ - mean_ * mean_) / n_)) < 0.0)
+            bad_clv[k_] = v_
+        return v_
+
+    def sharp_parts(mid: str, sport: str) -> tuple[float, float]:
+        """(closing-line part, model-weight part) of a trader's sharpness in a sport, each 0 to 1. The model-weight part counts for nothing while the firm's closing-line record is clearly negative:
+        a firm that bets against moves can have a model that beats results and still be the one DraftKings keeps moving away from (Fade Club in college basketball, 3.7 cents against it)."""
         m = members[mid]
         if m["params"].get("public") or m["params"].get("panel") or (m["params"].get("mm") and not m["params"].get("lab")):  # labelled public money, the panel and the pure market makers (whose crossing fills are not information): never treated as informed, however a lucky run looks
-            return 0.0
+            return 0.0, 0.0
         rec = (m["stats"].get("clvs") or {}).get(sport)
         s1 = 0.0
         if rec and rec["n"] >= 2:  # the whole record's average closing-line value less one standard error (so a few lucky trades cannot look sharp), then discounted until the record is long
@@ -862,7 +884,13 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             s1 = float(_c((mean_ - se_) / SHARP_CLV, 0.0, 1.0)) * n_ / (n_ + SHARP_N)
         g = (((syns[m["syndicate_id"]].get("learn") or {}).get("stats") or {}).get(sport) or {}).get("g", 0.0)
         s2 = 0.7 * float(_c((weights[(m["syndicate_id"], sport)] - W0) / (W_MAX - W0), 0.0, 1.0)) * min(1.0, g / SHARP_GAMES)
-        return max(s1, s2)
+        if clv_bad(m["syndicate_id"], sport):
+            s2 = 0.0
+        return s1, s2
+
+    def sharp(mid: str, sport: str) -> float:
+        """0 to 1: how much a trader's hits are worth listening to in a sport - its closing-line record as a taker, or its syndicate's proven model (unless the closing line says otherwise)."""
+        return max(sharp_parts(mid, sport))
 
     # market moves caused by sharp flow: a shift in each game's expected margin and total that everyone who follows the flow adds to their fair prices
     flow: dict[str, list[float]] = {}
@@ -1660,6 +1688,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     for m in members.values():
         adapt(m, _iso(now))
         m["stats"]["sharp"] = {sp: round(sharp(m["id"], sp), 3) for sp in espn.SPORTS}
+        m["stats"]["sharp_clv"] = {sp: round(sharp_parts(m["id"], sp)[0], 3) for sp in espn.SPORTS}  # the closing-line part alone, so the Sharp page can show the piles that rest on it
 
     # ---- the book the page shows: [kind, line, fair, best bid, best ask, last trade, first trade this round, bid size, ask size, exchange price, [bid levels, ask levels]]
     def levels(book: list[list]) -> list[list]:

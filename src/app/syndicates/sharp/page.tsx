@@ -4,7 +4,7 @@ import LocalDateTime from "@/components/LocalDateTime";
 import { rankIn, sharpOf, TIERS, tierOf } from "@/components/SharpMoney";
 import { SyndicateHeader } from "@/components/SyndicateParts";
 import { gameCards } from "@/lib/positions";
-import { fairOf, getAllOpenTrades, getExchange, getGamesFull, getPiles, type Lot, openLots, pct, traderLimit } from "@/lib/syndicates";
+import { fairOf, getAllOpenTrades, getExchange, getGamesFull, getPiles, getPilesArchive, type Lot, openLots, pct, traderLimit } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +30,7 @@ const cents = (x: number) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)}¢`;
 
 export default async function SharpPage({ searchParams }: { searchParams: Promise<Params> }) {
   const sp = await searchParams;
-  const [{ syndicates, members, meta }, open, rec] = await Promise.all([getExchange(), getAllOpenTrades(), getPiles()]);
+  const [{ syndicates, members, meta }, open, rec, archive] = await Promise.all([getExchange(), getAllOpenTrades(), getPiles(), getPilesArchive()]);
   const tSel = THRS.includes(Number(sp.t)) ? Number(sp.t) : 10;
   const sport = SPORTS.includes(sp.sport ?? "") ? sp.sport! : null;
   const minKey = MIN.find((m) => m[0] === sp.min)?.[0] ?? "leaning";
@@ -69,7 +69,7 @@ export default async function SharpPage({ searchParams }: { searchParams: Promis
 
   // where the sharp money piles up: every sharp trader's contracts on a line, weighted by sharpness
   // longW/longPx: sharpness-weighted contracts long 'yes' and the weighted price paid for them; shortW/shortPx the same for the other side (price paid is 1 minus the trade price); longQ/shortQ are raw contracts
-  type Pile = { gid: string; kind: string; line: number; v: number; long: number; short: number; best: string; bestS: number; longW: number; longPx: number; shortW: number; shortPx: number; longQ: number; shortQ: number };
+  type Pile = { gid: string; kind: string; line: number; v: number; v1: number; long: number; short: number; best: string; bestS: number; longW: number; longPx: number; shortW: number; shortPx: number; longQ: number; shortQ: number };
   const pile: Record<string, Pile> = {};
   for (const [key, ls] of Object.entries(byHolderGame)) {
     const [holder, gid] = key.split("|");
@@ -78,8 +78,9 @@ export default async function SharpPage({ searchParams }: { searchParams: Promis
     if (!m || s < minVal) continue;
     for (const l of ls) {
       const k = `${gid}|${l.kind}|${l.line}`;
-      const P = (pile[k] ??= { gid, kind: l.kind, line: l.line, v: 0, long: 0, short: 0, best: "", bestS: 0, longW: 0, longPx: 0, shortW: 0, shortPx: 0, longQ: 0, shortQ: 0 });
+      const P = (pile[k] ??= { gid, kind: l.kind, line: l.line, v: 0, v1: 0, long: 0, short: 0, best: "", bestS: 0, longW: 0, longPx: 0, shortW: 0, shortPx: 0, longQ: 0, shortQ: 0 });
       P.v += l.qty * s;
+      P.v1 += l.qty * Number((m.stats.sharp_clv ?? {})[g.sport] ?? 0);
       if (l.qty > 0) { P.long += 1; P.longW += l.qty * s; P.longPx += l.qty * s * l.price; P.longQ += l.qty; }
       else { P.short += 1; P.shortW += -l.qty * s; P.shortPx += -l.qty * s * (1 - l.price); P.shortQ += -l.qty; }
       if (s > P.bestS) { P.bestS = s; P.best = holder; }
@@ -176,13 +177,13 @@ export default async function SharpPage({ searchParams }: { searchParams: Promis
         )}
 
         <h3 className="mb-1 text-sm font-semibold text-foreground">Where the sharp money is piling up</h3>
-        <p className="mb-2 text-[11px] text-muted">Sharp-weighted contracts per line (each trader&rsquo;s contracts multiplied by its sharpness), with how many sharp accounts are on each side. Every line is its own row, so -20.5 and -19.5 are separate piles. <strong>Avg paid</strong> is what the sharp accounts paid for the leaning side on average (weighted by contracts and sharpness), <strong>Now</strong> is DraftKings&rsquo; current price for that side, and <strong>Moved</strong> is the difference: positive means the price has gone their way since they bought. A line with accounts on both sides is a disagreement, not a pile.</p>
+        <p className="mb-2 text-[11px] text-muted">Sharp-weighted contracts per line (each trader&rsquo;s contracts multiplied by its sharpness), with how many sharp accounts are on each side. A firm counts as sharp on its closing-line record, or on how well its model has done, but never on the model while its closing-line record is clearly negative (DraftKings keeps moving against what it takes). <strong>Proven</strong> counts the closing-line part alone. Every line is its own row, so -20.5 and -19.5 are separate piles. <strong>Avg paid</strong> is what the sharp accounts paid for the leaning side on average (weighted by contracts and sharpness), <strong>Now</strong> is DraftKings&rsquo; current price for that side, and <strong>Moved</strong> is the difference: positive means the price has gone their way since they bought. A line with accounts on both sides is a disagreement, not a pile.</p>
         {piles.length === 0 ? (
           <p className="text-xs text-muted">Nothing yet at this setting.</p>
         ) : (
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full min-w-[980px] text-xs">
-              <thead className="bg-surface text-left text-muted"><tr><th className="px-3 py-2">Game</th><th className="px-3 py-2">Leaning to</th><th className="px-3 py-2 text-right">Sharp-weighted</th><th className="px-3 py-2 text-right" title="Raw contracts held on the leaning side, and on the other side">Contracts for / against</th><th className="px-3 py-2 text-right" title="Average price the sharp accounts paid for the leaning side, weighted by contracts and sharpness">Avg paid</th><th className="px-3 py-2 text-right" title="The current DraftKings price (vig removed) for that side">Now</th><th className="px-3 py-2 text-right" title="Now minus average paid: positive means the price has moved their way">Moved</th><th className="px-3 py-2 text-right">Accounts for / against</th><th className="px-3 py-2">Sharpest on it</th></tr></thead>
+              <thead className="bg-surface text-left text-muted"><tr><th className="px-3 py-2">Game</th><th className="px-3 py-2">Leaning to</th><th className="px-3 py-2 text-right">Sharp-weighted</th><th className="px-3 py-2 text-right" title="The same pile counting only each account's closing-line record: DraftKings moving toward what it takes. A big number here, not just in the column to its left, means the accounts that have actually beaten the close are on this side. Negative means they are on the other side.">Proven</th><th className="px-3 py-2 text-right" title="Raw contracts held on the leaning side, and on the other side">Contracts for / against</th><th className="px-3 py-2 text-right" title="Average price the sharp accounts paid for the leaning side, weighted by contracts and sharpness">Avg paid</th><th className="px-3 py-2 text-right" title="The current DraftKings price (vig removed) for that side">Now</th><th className="px-3 py-2 text-right" title="Now minus average paid: positive means the price has moved their way">Moved</th><th className="px-3 py-2 text-right">Accounts for / against</th><th className="px-3 py-2">Sharpest on it</th></tr></thead>
               <tbody>
                 {piles.map((p) => {
                   const g = games[p.gid];
@@ -197,6 +198,7 @@ export default async function SharpPage({ searchParams }: { searchParams: Promis
                       <td className="px-3 py-1.5 text-foreground"><span className="mr-1.5 text-[10px] text-muted">{SPORT[g.sport]}</span><Link href={`/syndicates/games/${encodeURIComponent(p.gid)}?col=sharp`} className="hover:text-accent">{g.away.abbr} @ {g.home.abbr}</Link></td>
                       <td className="px-3 py-1.5 font-medium text-accent">{sideWords(g, p.kind, p.line, p.v)}</td>
                       <td className="px-3 py-1.5 text-right font-mono">{Math.abs(p.v).toFixed(1)}</td>
+                      <td className={`px-3 py-1.5 text-right font-mono ${p.v1 * Math.sign(p.v) < -0.5 ? "text-down" : p.v1 * Math.sign(p.v) >= 3 ? "text-up" : "text-muted"}`}>{(p.v1 * Math.sign(p.v)).toFixed(1)}</td>
                       <td className="px-3 py-1.5 text-right font-mono"><span className="text-foreground">{forQ.toFixed(0)}</span> / <span className={againstQ > 0.5 ? "text-down" : "text-muted"}>{againstQ.toFixed(0)}</span></td>
                       <td className="px-3 py-1.5 text-right font-mono">{paid == null ? "–" : pct(paid)}</td>
                       <td className="px-3 py-1.5 text-right font-mono">{nowP == null ? "–" : pct(nowP)}</td>
@@ -268,6 +270,35 @@ export default async function SharpPage({ searchParams }: { searchParams: Promis
             </tbody>
           </table>
         </div>
+        {archive && Object.keys(archive).length > 0 && (
+          <>
+            <h3 className="mb-1 mt-10 text-sm font-semibold text-foreground">The record before the change (kept for reference)</h3>
+            <p className="mb-3 max-w-3xl text-[11px] leading-relaxed text-muted">
+              Until Nov 5, a firm could count as sharp on its model&rsquo;s results alone, including firms DraftKings kept moving against (Fade Club and Ridge Rangers in college basketball). Those piles are in this record, so read it with that in mind. It is not
+              comparable with the one above, which starts fresh under the new rule. Replaying the old piles with today&rsquo;s scores made the old rule look better than it was (+2.9¢ per contract at 10+), and the same replay without the closing-line-negative firms
+              showed none (-0.65¢), so part of the old edge was the model weights being fitted on the same games.
+            </p>
+            <div className="mb-6 overflow-x-auto rounded-lg border border-border">
+              <table className="w-full min-w-[720px] text-xs">
+                <thead className="bg-surface text-left text-muted"><tr><th className="px-3 py-2">Pile reached</th><th className="px-3 py-2 text-right">Scored</th><th className="px-3 py-2 text-right">Right</th><th className="px-3 py-2 text-right">DraftKings moved toward it</th><th className="px-3 py-2 text-right">Made per contract</th></tr></thead>
+                <tbody className="font-mono">
+                  {THRS.map((th) => {
+                    const c = cstat(archive[`${th}|all`]);
+                    return c ? (
+                      <tr key={th} className="border-t border-border">
+                        <td className="px-3 py-1.5 font-sans text-foreground">{th}+ sharp-weighted contracts</td>
+                        <td className="px-3 py-1.5 text-right text-muted">{c.n}</td>
+                        <td className="px-3 py-1.5 text-right">{(c.hit * 100).toFixed(0)}%</td>
+                        <td className={`px-3 py-1.5 text-right ${c.mc == null ? "text-muted" : tone(c.mc * 100)}`}>{c.mc == null ? "–" : cents(c.mc)}</td>
+                        <td className={`px-3 py-1.5 text-right ${tone(c.m * 100)}`}>{cents(c.m)}</td>
+                      </tr>
+                    ) : null;
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </main>
     </div>
   );

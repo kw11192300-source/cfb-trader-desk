@@ -54,6 +54,8 @@ export type ExMemberStats = {
   s_games?: number;
   /** how much other traders should listen to this one's hits, 0 to 1, by sport */
   sharp?: Record<string, number>;
+  /** the closing-line part of the sharp score alone, per sport (the rest comes from a firm's proven model) */
+  sharp_clv?: Record<string, number>;
   /** its record as a taker: decayed sum of closing-line value (s), weight (w), trades (n), by sport */
   flow?: Record<string, { s: number; w: number; n: number }>;
   /** spread captured by this trader's quotes against DraftKings at the moment of each fill: sum of qty x capture, and contracts */
@@ -719,6 +721,13 @@ export async function getPiles(): Promise<{ openCount: number; cells: Record<str
   const { data } = await supabase.from("ex_meta").select("value").eq("key", "piles").maybeSingle();
   const v = (data?.value ?? {}) as { open?: Record<string, unknown>; cells?: Record<string, number[]>; recent?: PileRecent[] };
   return { openCount: Object.keys(v.open ?? {}).length, cells: v.cells ?? {}, recent: v.recent ?? [] };
+}
+
+/** The track record as it stood before sharpness stopped counting a firm whose closing-line record is clearly negative (kept for reference). */
+export async function getPilesArchive(): Promise<Record<string, number[]> | null> {
+  const { data } = await supabase.from("ex_meta").select("value").eq("key", "piles_v1").maybeSingle();
+  const v = (data?.value ?? null) as { cells?: Record<string, number[]> } | null;
+  return v?.cells ?? null;
 }
 
 /** A trader's per-game limit now: its base limit (100, or more for the maker lab and public money), scaled with how its bankroll has grown or shrunk (0.5x to 3x), and by sharpness in the sport. */
