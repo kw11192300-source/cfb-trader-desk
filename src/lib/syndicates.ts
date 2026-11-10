@@ -111,14 +111,14 @@ export type ExGame = {
   home_score: number | null;
   away_score: number | null;
   /** DraftKings' lines, or when DraftKings has not priced the game, a baseline (src is kalshi or model) built from Kalshi or our rating models */
-  ref: { spread: number | null; total: number | null; ml_home: number | null; ml_away: number | null; src?: string; mt?: [number, number]; seed?: [number, number]; rounds?: number } | null;
+  ref: { spread: number | null; total: number | null; ml_home: number | null; ml_away: number | null; spread_home?: number | null; spread_away?: number | null; over?: number | null; under?: number | null; src?: string; mt?: [number, number]; seed?: [number, number]; rounds?: number } | null;
   /** [kind, line, reference %, best bid, best ask, last trade] */
   /** [kind, line, fair, best bid, best ask, last trade, first trade, bid size, ask size, exchange price] */
   book: [string, number, number, number | null, number | null, number | null, number | null, number | null, number | null, number | null, [number, number, string?][][] | null][] | null;
   ref_open: { spread: number | null; total: number | null; ml_home: number | null } | null;
   /** Kalshi's real-money prices in our contract terms: [kind, line, mid, bid, ask, volume] */
   views?: {
-    kal?: [string, number, number, number, number, number][] | null;
+    kal?: [string, number, number, number, number, number, number?, number?][] | null; // [kind, line, mid, bid, ask, volume, contracts at the bid, contracts at the ask]
     /** the three main lines [kind, line], DraftKings price for each, the exchange price, and each syndicate's own view */
     lines?: [string, number][];
     /** college basketball: the two teams' conference tiers, strongest first (AA, AB, ... CC) */

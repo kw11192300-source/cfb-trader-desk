@@ -70,7 +70,7 @@ def _price(m: dict, key: str) -> float | None:
 
 
 def translate(sport: str, ev: dict, kind: str, game: dict) -> list[list]:
-    """Rows [kind, line, mid, bid, ask, volume] in OUR contract terms for one Kalshi event of one game."""
+    """Rows [kind, line, mid, bid, ask, volume, size at the bid, size at the ask] in OUR contract terms for one Kalshi event of one game."""
     away_name, home_name = game["away"]["name"], game["home"]["name"]
     rows = []
     for m in ev.get("markets", []):
@@ -78,11 +78,12 @@ def translate(sport: str, ev: dict, kind: str, game: dict) -> list[list]:
         if yb is None or ya is None or ya <= yb or ya - yb > MAX_SPREAD or yb <= 0 or ya >= 1:
             continue
         mid, vol = (yb + ya) / 2, _price(m, "volume_fp") or 0.0
+        sb, sa = _price(m, "yes_bid_size_fp") or 0.0, _price(m, "yes_ask_size_fp") or 0.0  # contracts waiting at the best bid and ask
         sub = (m.get("yes_sub_title") or m.get("title") or "")
         strike = m.get("floor_strike")
         if kind == "total":
             if strike is not None and "over" in sub.lower():
-                rows.append(["total", float(strike), mid, yb, ya, vol])
+                rows.append(["total", float(strike), mid, yb, ya, vol, sb, sa])
         elif kind == "spread":
             if strike is None:
                 continue
@@ -91,22 +92,22 @@ def translate(sport: str, ev: dict, kind: str, game: dict) -> list[list]:
                 continue
             f = float(strike)
             if _same_team(side.group(1), home_name):
-                rows.append(["spread", -f, mid, yb, ya, vol])  # home wins by more than f  ==  home covers at -f
+                rows.append(["spread", -f, mid, yb, ya, vol, sb, sa])  # home wins by more than f  ==  home covers at -f
             elif _same_team(side.group(1), away_name):
-                rows.append(["spread", f, 1 - mid, 1 - ya, 1 - yb, vol])  # away wins by more than f  ==  NOT (home covers at +f)
+                rows.append(["spread", f, 1 - mid, 1 - ya, 1 - yb, vol, sa, sb])  # away wins by more than f  ==  NOT (home covers at +f)
         else:  # winner
             who = re.match(r"^(.*?) wins", sub)
             if not who:
                 continue
             if _same_team(who.group(1), home_name):
-                rows.append(["ml", 0.0, mid, yb, ya, vol])
+                rows.append(["ml", 0.0, mid, yb, ya, vol, sb, sa])
             elif _same_team(who.group(1), away_name):
-                rows.append(["ml", 0.0, 1 - mid, 1 - ya, 1 - yb, vol])
+                rows.append(["ml", 0.0, 1 - mid, 1 - ya, 1 - yb, vol, sa, sb])
     return rows
 
 
 def fetch(games: dict[str, dict]) -> dict[str, list[list]]:
-    """{exchange game id: [[kind, line, mid, bid, ask, volume], ...]} for every listed game Kalshi has markets on."""
+    """{exchange game id: [[kind, line, mid, bid, ask, volume, bid size, ask size], ...]} for every listed game Kalshi has markets on."""
     sports = sorted({g["sport"] for g in games.values()})
     jobs = [(sp, kind, ser) for sp in sports for kind, ser in zip(("ml", "spread", "total"), SERIES[sp])]
     with ThreadPoolExecutor(6) as ex:

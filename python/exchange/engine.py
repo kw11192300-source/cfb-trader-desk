@@ -776,7 +776,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 eng_p[(s["id"], k)] = p_engine(dist, d, ml, markets[k]["kind"], markets[k]["line"])
             views["e"][s["id"]] = [round(eng_p[(s["id"], ckey(gid, kd, ln))], 4) for kd, ln in views["lines"]]
         prev_views[gid] = g.get("views")
-        views["kal"] = [[r[0], r[1], round(r[2], 4), round(r[3], 4), round(r[4], 4), round(r[5])] for r in list(kal.get(gid, {}).values())[:80]]
+        views["kal"] = [[r[0], r[1], round(r[2], 4), round(r[3], 4), round(r[4], 4), round(r[5]), round(r[6]), round(r[7])] for r in list(kal.get(gid, {}).values())[:80]]
         g["views"] = views if views["lines"] else None
     weights = {(sid, sp): syn_weight(s, sp) for sid, s in syns.items() for sp in espn.SPORTS}
     syn_cap: dict[str, float] = {}
