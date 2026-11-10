@@ -49,9 +49,13 @@ def _load(store) -> dict:
 
 def generate_cbb(client, now: datetime, have: set) -> list[dict]:
     """New CBB movement picks from the published board: one per game and market, the first time the predicted remaining move clears a tier."""
-    snap = client.table("cbb_odds_snapshots").select("captured_at").order("captured_at", desc=True).limit(1).execute().data or []
-    if not snap or now - datetime.fromisoformat(snap[0]["captured_at"].replace("Z", "+00:00")) > BOARD_MAX_AGE:
-        return []  # the lines themselves are stale (the odds timer or the Update scores & lines button has not run): no picks off old numbers
+    return [p for p in flagged_cbb(client, now) if p["id"] not in have]
+
+
+def flagged_cbb(client, now: datetime) -> list[dict]:
+    """Every college basketball play the movement model flags right now (tier A or B), from the board's current numbers. The Picks page, the picks log and the Open Movers firm all read this one list, so what the firm
+    trades is exactly what the page shows as flagged."""
+    # no snapshot-age check: the board takes its current lines from the exchange's own DraftKings feed (cbb_model/board_live.exchange_lines), and a board older than BOARD_MAX_AGE makes no picks
     rows = client.table("cbb_game_board").select("game_id,start_date,home_team,away_team,payload,updated_at").gte("start_date", (now + MIN_LEAD).isoformat()).gte("updated_at", (now - BOARD_MAX_AGE).isoformat()).execute().data or []
     out = []
     # the eligible games per market: a pick follows the move the model expects from the open, and never bets that a line which has already moved will drift back
@@ -81,7 +85,7 @@ def generate_cbb(client, now: datetime, have: set) -> list[dict]:
                 tier = "B"  # big enough for A but not among the biggest few eligible games on the board
             if tier == "B" and i >= math.ceil(SHARE_B * n):
                 tier = None
-            if pid in have or not tier:
+            if not tier:
                 continue
             out.append({
                 "id": pid, "source": "cbb_movement", "sport": "cbb", "game_id": r["game_id"], "kind": kind, "side": side, "line": line,
@@ -128,12 +132,63 @@ def grade_cbb(client, picks: dict, now: datetime) -> list[dict]:
     return done
 
 
-def run(store, now: datetime | None = None) -> dict:
+def _int(v):
+    return None if v is None else int(round(float(v)))
+
+
+CBB_ID_OFFSET = 7_000_000_000  # games.id = -(ESPN event id + this), as in src/lib/cbbOdds.ts
+
+
+def sync_closes(client, games, now: datetime) -> int:
+    """Save the closing numbers of finished college basketball games into cbb_game_opens, from the exchange's own last pre-game DraftKings line.
+
+    The site's odds job saves ESPN's closing number only if ESPN still shows odds on a finished game, which it almost never does, so no closes were ever stored: picks could not be graded and the
+    board's "how each team has done against the market" features were empty. The exchange stops updating a game's line when it starts, so its stored line is the close. Only games the board's tables
+    know (the same ESPN event ids) are written, and a close already there is never replaced."""
+    cands = []
+    for g in games or []:
+        ref = g.get("ref") or {}
+        if g.get("sport") != "cbb" or not g.get("completed") or g.get("voided") or ref.get("src", "dk") != "dk":
+            continue
+        if ref.get("spread") is None and ref.get("total") is None:
+            continue
+        if now - datetime.fromisoformat(g["start_utc"].replace("Z", "+00:00")) > timedelta(days=5):
+            continue
+        try:
+            gid = -(int(str(g["id"]).split(":")[-1]) + CBB_ID_OFFSET)
+        except ValueError:
+            continue
+        cands.append((gid, ref))
+    if not cands:
+        return 0
+    ids = [c[0] for c in cands]
+    have = set()
+    for i in range(0, len(ids), 200):
+        part = ids[i : i + 200]
+        inn = {r["id"] for r in client.table("games").select("id").in_("id", part).execute().data or []}
+        got = {r["game_id"] for r in client.table("cbb_game_opens").select("game_id,total_close,spread_home_close").in_("game_id", part).execute().data or [] if r.get("total_close") is not None or r.get("spread_home_close") is not None}
+        have |= got | (set(part) - inn)  # skip what already has a close and what the board's tables do not know
+    rows = [{"game_id": gid, "spread_home_close": ref.get("spread"), "total_close": ref.get("total"), "ml_home_close": _int(ref.get("ml_home")), "ml_away_close": _int(ref.get("ml_away"))} for gid, ref in cands if gid not in have]
+    for i in range(0, len(rows), 300):
+        client.table("cbb_game_opens").upsert(rows[i : i + 300], on_conflict="game_id").execute()
+    return len(rows)
+
+
+def run(store, now: datetime | None = None, games=None, flags: list[dict] | None = None) -> dict:
     """One pass: log new picks, grade the finished ones, tidy old ones. Safe to call every round; any failure is the caller's to swallow."""
     now = now or datetime.now(timezone.utc)
     st = _load(store)
     client = store.c
-    new = generate_cbb(client, now, set(st["open"]) | set(st["done"]))
+    try:
+        saved = sync_closes(client, list(games.values()) if isinstance(games, dict) else games, now)
+    except Exception as e:  # grading is only delayed a round if the closes cannot be saved
+        saved = 0
+        print(f"  (closes not saved: {str(e)[:120]})", flush=True)
+    fl = flags if flags is not None else flagged_cbb(client, now)
+    have = set(st["open"]) | set(st["done"])
+    new = [p for p in fl if p["id"] not in have]
+    live = {p["id"]: {"tier": p["tier"], "side": p["side"], "line": p["line"], "rem": p["rem"], "start": p["start"]} for p in fl}  # what is flagged this round, so the page can tell a live play from one flagged earlier whose line has since moved
+    store.upsert("ex_meta", [{"key": "picks_live", "value": {"ts": now.isoformat(), "items": live}}])
     for p in new:
         st["open"][p["id"]] = p
     graded = grade_cbb(client, st["open"], now)
@@ -144,4 +199,4 @@ def run(store, now: datetime | None = None) -> dict:
     st["done"] = {k: v for k, v in st["done"].items() if v.get("graded", "") >= cutoff}
     if new or graded:
         store.upsert("ex_meta", [{"key": "picks", "value": st}])
-    return {"new": len(new), "graded": len(graded), "open": len(st["open"]), "done": len(st["done"])}
+    return {"new": len(new), "graded": len(graded), "open": len(st["open"]), "done": len(st["done"]), "closes_saved": saved}

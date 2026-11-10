@@ -494,13 +494,16 @@ export type Pick = {
 };
 
 /** Paper picks (python/exchange/picks.py): open ones still waiting for the game, and graded ones with closing-line value and the result. */
-export async function getPicks(): Promise<{ open: Pick[]; done: Pick[]; boardAt: string | null }> {
-  const [{ data }, { data: b }] = await Promise.all([
+export type PickLive = Record<string, { tier: string; side: string; line: number; rem: number; start: string }>;
+export async function getPicks(): Promise<{ open: Pick[]; done: Pick[]; boardAt: string | null; live: PickLive; liveAt: string | null }> {
+  const [{ data }, { data: b }, { data: lv }] = await Promise.all([
     supabase.from("ex_meta").select("value").eq("key", "picks").maybeSingle(),
     supabase.from("cbb_game_board").select("updated_at").order("updated_at", { ascending: false }).limit(1),
+    supabase.from("ex_meta").select("value").eq("key", "picks_live").maybeSingle(),
   ]);
+  const l = (lv?.value ?? {}) as { ts?: string; items?: PickLive };
   const v = (data?.value ?? {}) as { open?: Record<string, Pick>; done?: Record<string, Pick> };
-  return { open: Object.values(v.open ?? {}), done: Object.values(v.done ?? {}), boardAt: (b?.[0] as { updated_at?: string } | undefined)?.updated_at ?? null };
+  return { open: Object.values(v.open ?? {}), done: Object.values(v.done ?? {}), boardAt: (b?.[0] as { updated_at?: string } | undefined)?.updated_at ?? null, live: l.items ?? {}, liveAt: l.ts ?? null };
 }
 
 export const SORTS: { key: string; label: string; get: (r: Row) => number | null }[] = [

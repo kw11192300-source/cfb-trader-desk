@@ -78,6 +78,35 @@ def form_for(t: pd.DataFrame, team_id: int, before: pd.Timestamp) -> dict:
     return {"f5_m": mean(m5), "f10_m": mean(m10), "f5_t": mean(t5), "f10_t": mean(t10), "rest": rest, "n": int(len(h)), "last": last}
 
 
+CBB_ID_OFFSET = 7_000_000_000  # games.id = -(ESPN event id + this), as in src/lib/cbbOdds.ts
+
+
+def exchange_lines(client) -> tuple[dict, dict]:
+    """(current lines, opening lines) per game id, from the exchange's own DraftKings feed (python/exchange), which is refreshed every few minutes.
+
+    The site's odds job only writes a snapshot when it runs and a price has moved, and it runs a handful of times a day, so the board's "number up now" could be hours old and the picks' freshness
+    check then hid every play. The exchange's last stored line for a game that has not started is DraftKings' current number, and its first stored line is the open. These replace the snapshot
+    numbers where they exist (an open already saved in cbb_game_opens is kept)."""
+    cur, opn = {}, {}
+    try:
+        rows = client.table("ex_games").select("id,ref,ref_open").eq("sport", "cbb").eq("state", "pre").execute().data or []
+    except Exception:
+        return cur, opn
+    for r in rows:
+        ref, ro = r.get("ref") or {}, r.get("ref_open") or {}
+        if ref.get("src", "dk") != "dk":
+            continue
+        try:
+            gid = -(int(str(r["id"]).split(":")[-1]) + CBB_ID_OFFSET)
+        except ValueError:
+            continue
+        cur[gid] = {"ml_home": ref.get("ml_home"), "ml_away": ref.get("ml_away"), "spread_home_line": ref.get("spread"), "spread_home_odds": ref.get("spread_home"),
+                    "total_line": ref.get("total"), "over_odds": ref.get("over"), "under_odds": ref.get("under")}
+        if ro:
+            opn[gid] = {"spread_home_open": ro.get("spread"), "total_open": ro.get("total"), "ml_home_open": ro.get("ml_home"), "ml_away_open": ro.get("ml_away")}
+    return cur, opn
+
+
 def refresh(days: int = 3, dry_run: bool = False) -> None:
     from cfbd_ingest.supabase_client import get_client
 
@@ -145,6 +174,16 @@ def refresh(days: int = 3, dry_run: bool = False) -> None:
     sn = pd.DataFrame(snaps)
     first = sn.drop_duplicates("game_id", keep="first").set_index("game_id") if len(sn) else pd.DataFrame()
     cur = sn.drop_duplicates("game_id", keep="last").set_index("game_id") if len(sn) else pd.DataFrame()
+    ex_cur, ex_open = exchange_lines(client)  # DraftKings' number as of the exchange's last round, in place of a snapshot that may be hours old
+    ex_cur = {g: v for g, v in ex_cur.items() if g in set(gids)}
+    if ex_cur:
+        cdf = pd.DataFrame.from_dict(ex_cur, orient="index")
+        cur = pd.concat([cur.drop(index=[i for i in cdf.index if i in cur.index]), cdf]) if len(cur) else cdf
+    ex_open = {g: v for g, v in ex_open.items() if g in set(gids)}
+    if ex_open:
+        odf = pd.DataFrame.from_dict(ex_open, orient="index")
+        op = pd.concat([op, odf.drop(index=[i for i in odf.index if i in op.index])]) if len(op) else odf
+    print(f"  lines from the exchange for {len(ex_cur)} games ({len(ex_open)} opens)", flush=True)
 
     rows = []
     for g in up.itertuples():

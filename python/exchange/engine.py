@@ -35,6 +35,8 @@ PANEL_W_NODK = 0.5  # the Ratings Panel's fair price on a game DraftKings has no
 PANEL_W_DK = 0.1  # ...and once DraftKings is up, this share: it defers to the market and keeps quoting
 PANEL_DK_SIZE = 0.4  # its quote size on a game DraftKings has priced, against full size on one it has not
 PANEL_SEED_M, PANEL_SEED_T = 0.9, 0.4  # share of the opening margin and total taken from the panel while its ratings are fresh
+MOVER_W = {"A": 1.0, "B": 0.75}  # the Open Movers' weight on the movement model's predicted move by tier (A the biggest predicted moves, B the next tranche), times each trader's own share
+MOVER_CAP = 300.0  # their combined worst case on one game
 PANEL_CAP = 400.0  # its combined worst case on one game (a pure market maker's is 200); its traders may risk 250 each: it is the one making the line before DraftKings has one
 W_FLOOR_EXCH = 0.5  # with no market to anchor to, a syndicate trusts its own model at least this much
 CUTOFF_MIN = 3
@@ -542,6 +544,24 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                     if pp_:
                         pdist[(gid, sy_)] = Dist("cbb", pp_[0], pp_[1] if pp_[1] is not None else d_.t)
 
+    flags_: list[dict] | None = None  # the movement model's flagged plays this round (exchange/picks.py), read once for the Open Movers and for the Picks page
+    mover_view: dict[tuple[str, str], tuple[float, str]] = {}  # (game, 'spread' or 'total') -> (the movement model's predicted move of the line from where it is now, signed, in points; tier): the plays the Open Movers trade
+    if hasattr(store, "c"):
+        try:
+            from . import picks as picks_
+
+            by_teams_: dict[tuple[str, str], list[str]] = {}
+            for gid_, g_ in games.items():
+                if g_["sport"] == "cbb" and g_["state"] == "pre" and (g_.get("ref") or {}).get("src", "dk") == "dk":
+                    by_teams_.setdefault((g_["home"]["name"], g_["away"]["name"]), []).append(gid_)
+            flags_ = picks_.flagged_cbb(store.c, now)
+            for fl_ in flags_:  # the same list the Picks page shows as flagged
+                for gid_ in by_teams_.get((fl_["home"], fl_["away"]), []):
+                    if abs((_pdate(games[gid_]["start_utc"]) - _pdate(fl_["start"])).total_seconds()) < 3 * 3600:
+                        mover_view[(gid_, fl_["kind"])] = (float(fl_["rem"]), fl_["tier"])
+        except Exception as e_:  # no board or no match: the Open Movers sit this round out
+            print(f"  (open movers: no plays this round: {str(e_)[:100]})", flush=True)
+
     def p_ref(gid: str, kind: str, line: float) -> float | None:
         r = refs.get(gid)
         if not r:
@@ -788,6 +808,9 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         if any(m["params"].get("panel") for m in ms_):
             syn_cap[sid_] = PANEL_CAP
             continue
+        if any(m["params"].get("mover") for m in ms_):
+            syn_cap[sid_] = MOVER_CAP
+            continue
         if any(m["params"].get("lab") for m in ms_):  # the maker lab gets the full limit from the start: its job is to quote everywhere and earn a thin spread
             syn_cap[sid_] = CAP_FULL
             continue
@@ -827,6 +850,15 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             base_ = wing.alt_price(mk["ref"], an[1], wing_rho[rk], wing.anchor(an[1], prev_eco.get(ckey(mk["gid"], mk["kind"], an[0]))))
             c_ = wing.cap(mk["off"])  # the first week's fills were 1.8 cents worse than DraftKings' price on average: a price that strays from the market's gets hit by whoever prices off it, so it stays close
             return clip(base_, mk["ref"] - c_, mk["ref"] + c_)
+        if m["params"].get("mover"):  # an Open Mover: the flagged line priced where the movement model says it will close (its share of the predicted move), and DraftKings' own price everywhere else
+            r_, mv_ = mk["ref"], mover_view.get((mk["gid"], mk["kind"]))
+            if not mv_ or mk["src"] != "dk" or mk["gid"] not in refs:
+                return r_
+            d_ = refs[mk["gid"]][0]
+            step_ = mv_[0] * MOVER_W.get(mv_[1], 0.0) * float(m["params"].get("mw", 1.0))
+            pe_ = prev_eco.get(k)
+            f_ = Dist("cbb", d_.m + (step_ if mk["kind"] == "spread" else 0.0), d_.t + (step_ if mk["kind"] == "total" else 0.0)).p(mk["kind"], mk["line"])
+            return clip(0.85 * f_ + 0.15 * pe_ if pe_ is not None else f_, r_ - BAND, r_ + BAND)
         pd_ = pdist.get((mk["gid"], m["params"].get("psys"))) or pdist.get((mk["gid"], None)) if m["params"].get("panel") else None
         if pd_ is not None:  # the Ratings Panel: the exchange's own line (which trading and sharp flow have moved) pulled toward the outside ratings' price; far less once DraftKings has priced the game
             r_ = mk["ref"]
@@ -853,6 +885,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
                 continue
             if m["params"].get("panel") and mk["sport"] != "cbb":
                 continue  # the Ratings Panel makes markets in college basketball only
+            if m["params"].get("mover") and ((mk["gid"], mk["kind"]) not in mover_view or mk["src"] != "dk" or not mk["near"]):
+                continue  # the Open Movers quote only the flagged markets of games DraftKings has priced, near the main number
             if m["params"].get("wing") and (mk["core"] or mk["kind"] == "ml" or mk["sport"] not in wing.WING_SPORTS or (mk["sport"], mk["kind"]) in wing.SKIP or mk["src"] != "dk" or (mk["gid"], mk["kind"]) not in anchors):
                 continue  # the Wing Desk quotes only the alternate lines, only where DraftKings has priced the main one, and not in hockey
             on = mk["sport"] in focus
@@ -884,7 +918,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         """(closing-line part, model-weight part) of a trader's sharpness in a sport, each 0 to 1. The model-weight part counts for nothing while the firm's closing-line record is clearly negative:
         a firm that bets against moves can have a model that beats results and still be the one DraftKings keeps moving away from (Fade Club in college basketball, 3.7 cents against it)."""
         m = members[mid]
-        if m["params"].get("public") or m["params"].get("panel") or (m["params"].get("mm") and not m["params"].get("lab")):  # labelled public money, the panel and the pure market makers (whose crossing fills are not information): never treated as informed, however a lucky run looks
+        if m["params"].get("public") or m["params"].get("panel") or m["params"].get("mover") or (m["params"].get("mm") and not m["params"].get("lab")):  # labelled public money, the panel and the pure market makers (whose crossing fills are not information): never treated as informed, however a lucky run looks
             return 0.0, 0.0
         rec = (m["stats"].get("clvs") or {}).get(sport)
         s1 = 0.0
@@ -1788,7 +1822,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         if hasattr(store, "c"):
             from . import picks
 
-            picks.run(store, now)
+            picks.run(store, now, games, flags_)
     except Exception as e:
         print(f"  (picks skipped: {str(e)[:120]})", flush=True)
     try:  # the nightly overnight snapshot (about 8 PM Eastern) and its scoring the next day; a failure here never touches the round

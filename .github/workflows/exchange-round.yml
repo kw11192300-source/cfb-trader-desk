@@ -38,3 +38,12 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
         run: python -m exchange round
+      - name: Keep the college basketball movement board fresh
+        if: always()
+        continue-on-error: true
+        working-directory: python
+        env:
+          PYTHONUNBUFFERED: "1"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: python -m exchange.boardkeep

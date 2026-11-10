@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export default function PicksPage() {
   return (
     <div className="flex min-h-screen flex-col">
-      <SiteHeader subtitle="Paper picks: what the models would play, graded" sport="desk" />
+      <SiteHeader subtitle="Paper picks: the plays the movement model flags, graded" sport="cbb" />
       <PicksView />
       <SiteFooter />
     </div>
