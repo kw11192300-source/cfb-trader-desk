@@ -495,6 +495,21 @@ export type Pick = {
 
 /** Paper picks (python/exchange/picks.py): open ones still waiting for the game, and graded ones with closing-line value and the result. */
 export type PickLive = Record<string, { tier: string; side: string; line: number; rem: number; start: string }>;
+/** The arbitrage log (python/exchange/arbs.py): every DraftKings-against-Kalshi arb from the round it appeared to the round it closed. */
+export type ArbRec = {
+  key: string; gid: string; sport: string; teams: string; start: string; kind: string; line: number; side: string; dk_label: string; dk_am: number; k_label: string; kp: number; cost: number; fee: number;
+  size: number | null; vol: number; width: number; first: string; last: string; rounds: number; best_cost: number; best_size: number | null; best_fee: number; best_at: string; max_size: number; first_size: number | null;
+  closed?: string; why?: string; dk_am0?: number; nv?: number; res?: number | null; pnl?: number; clv?: number | null; close_nv?: number | null;
+};
+export async function getArbs(): Promise<{ since: string | null; rounds: number; open: ArbRec[]; closed: ArbRec[] }> {
+  const [{ data: a }, { data: c }] = await Promise.all([
+    supabase.from("ex_meta").select("value").eq("key", "arbs").maybeSingle(),
+    supabase.from("ex_meta").select("value").eq("key", "arbs_closed").maybeSingle(),
+  ]);
+  const v = (a?.value ?? {}) as { since?: string; rounds?: number; open?: Record<string, ArbRec> };
+  return { since: v.since ?? null, rounds: v.rounds ?? 0, open: Object.values(v.open ?? {}), closed: (c?.value ?? []) as ArbRec[] };
+}
+
 export type PickInfo = Record<string, { since: number | null; why?: string }>;
 export async function getPicks(): Promise<{ open: Pick[]; done: Pick[]; boardAt: string | null; live: PickLive; liveAt: string | null; info: PickInfo }> {
   const [{ data }, { data: b }, { data: lv }] = await Promise.all([

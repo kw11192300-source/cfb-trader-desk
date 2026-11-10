@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import LocalDateTime from "@/components/LocalDateTime";
 import { SyndicateHeader } from "@/components/SyndicateParts";
-import { getExchange, getExchangeBoard, type ExGame } from "@/lib/syndicates";
+import { getArbs, getExchange, getExchangeBoard, type ArbRec, type ExGame } from "@/lib/syndicates";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +35,7 @@ export default async function KalshiPage({ searchParams }: { searchParams: Promi
   const lineMode = LINES.find(([k]) => k === sp.lines)?.[0] ?? "main";
   const maxW = WIDTHS.find(([w]) => String(w) === sp.w)?.[0] ?? 0.06;
   const minVol = VOLS.find(([v]) => String(v) === sp.v)?.[0] ?? 0;
-  const [board, { meta }] = await Promise.all([getExchangeBoard(hours), getExchange()]);
+  const [board, { meta }, arbLog] = await Promise.all([getExchangeBoard(hours), getExchange(), getArbs()]);
   const inScope = board.filter((g) => (!sport || g.sport === sport) && new Date(g.start_utc).getTime() > Date.now() && (g.ref?.src ?? "dk") === "dk");
 
   const q = (o: Partial<Params>) => {
@@ -198,6 +198,92 @@ export default async function KalshiPage({ searchParams }: { searchParams: Promi
             </div>
           )}
         </section>
+
+        {(() => {
+          // the arbitrage log: every arb from the round it appeared to the round it closed, so the record shows how often they come, how big, how long they last and what is left after Kalshi's fee
+          const all: ArbRec[] = [...arbLog.open, ...arbLog.closed].filter((r) => !sport || r.sport === sport);
+          const mins = (r: ArbRec) => Math.max(0, Math.round((new Date(r.last).getTime() - new Date(r.first).getTime()) / 60000));
+          const sz = (r: ArbRec) => Math.floor(r.best_size ?? 0);
+          const done = all.filter((r) => r.closed);
+          const lasted = done.map(mins).sort((a, b) => a - b);
+          const median = lasted.length ? lasted[Math.floor(lasted.length / 2)] : null;
+          const graded = all.filter((r) => r.res != null);
+          const wins = graded.filter((r) => r.res === 1).length, losses = graded.filter((r) => r.res === 0).length, pushes = graded.length - wins - losses;
+          const units = graded.reduce((a, r) => a + (r.pnl ?? 0), 0);
+          const withClv = graded.filter((r) => r.clv != null);
+          const avgClv = withClv.length ? (withClv.reduce((a, r) => a + (r.clv ?? 0), 0) / withClv.length) * 100 : null;
+          const beat = withClv.length ? withClv.filter((r) => (r.clv ?? 0) > 0).length / withClv.length : null;
+          const pending = done.length - graded.length;
+          const openNow = arbLog.open.filter((r) => !sport || r.sport === sport);
+          const recent = [...openNow, ...[...done].sort((a, b) => (b.closed ?? "").localeCompare(a.closed ?? ""))].slice(0, 25);
+          return (
+            <section className="mb-6">
+              <h3 className="mb-1 text-sm font-semibold text-foreground">Arbitrage history</h3>
+              <p className="mb-2 max-w-3xl text-[11px] leading-relaxed text-muted">
+                Logged every exchange round (about every five minutes) since {arbLog.since ? <LocalDateTime iso={arbLog.since} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} /> : "the log started"}, {arbLog.rounds.toLocaleString()} rounds so far.
+                An arb is logged from the round it first appears to the round it is gone, with its best price and the contracts waiting on Kalshi at that price. One that came and went inside a single round is never seen, so lifetimes are good to about one round.
+                &ldquo;After fee&rdquo; takes off Kalshi&rsquo;s taker fee, about 7% x price x (1 - price) per contract.
+              </p>
+              <div className="mb-3 grid grid-cols-3 gap-3">
+                {[
+                  ["Arbs seen", String(all.length)],
+                  ["Open now", String(openNow.length)],
+                  ["Typical life", median == null ? "–" : median === 0 ? "under a round" : `${median} min`],
+                ].map(([k, v]) => <div key={k} className="rounded-lg border border-border bg-surface px-3 py-2"><p className="text-[10px] uppercase tracking-wide text-muted">{k}</p><p className="text-base font-semibold text-foreground">{v}</p></div>)}
+              </div>
+              <p className="mb-1 text-[11px] font-medium text-foreground">Betting just the DraftKings side of each one (one unit at the price it first had, no Kalshi hedge)</p>
+              <p className="mb-2 max-w-3xl text-[11px] leading-relaxed text-muted">
+                An arb means Kalshi prices the other side low enough that the DraftKings side is worth more than DraftKings charges. This is the record of simply taking that side, graded when the game is final. Closing-line value is how far
+                DraftKings&rsquo; own no-vig price on that side moved toward it by the close (only where the line did not move). {pending > 0 ? `${pending} not graded yet.` : ""}
+              </p>
+              <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                {[
+                  ["Graded", String(graded.length)],
+                  ["Record", graded.length ? `${wins}-${losses}${pushes ? `-${pushes}` : ""}` : "–"],
+                  ["Units", graded.length ? `${units >= 0 ? "+" : ""}${units.toFixed(2)}` : "–"],
+                  ["ROI", graded.length ? `${units >= 0 ? "+" : ""}${((units / graded.length) * 100).toFixed(1)}%` : "–"],
+                  ["Avg closing value", avgClv == null ? "–" : `${avgClv >= 0 ? "+" : ""}${avgClv.toFixed(2)}¢${beat != null ? ` (${(beat * 100).toFixed(0)}% better)` : ""}`],
+                ].map(([k, v]) => <div key={k} className="rounded-lg border border-border bg-surface px-3 py-2"><p className="text-[10px] uppercase tracking-wide text-muted">{k}</p><p className="text-base font-semibold text-foreground">{v}</p></div>)}
+              </div>
+              {recent.length === 0 ? (
+                <p className="rounded-lg border border-border bg-surface px-4 py-4 text-center text-xs text-muted">No arbs logged yet at this setting. The log fills in as rounds run.</p>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-border">
+                  <table className="w-full min-w-[980px] text-xs">
+                    <thead className="bg-surface text-left text-muted">
+                      <tr>
+                        <th className="px-3 py-2">Game</th><th className="px-3 py-2">DraftKings</th><th className="px-3 py-2">Kalshi</th>
+                        <th className="px-3 py-2 text-right">Best cost</th><th className="px-3 py-2 text-right">Edge</th><th className="px-3 py-2 text-right">After fee</th>
+                        <th className="px-3 py-2 text-right">Best size</th><th className="px-3 py-2">First seen</th><th className="px-3 py-2 text-right">Lasted</th><th className="px-3 py-2">Ended</th><th className="px-3 py-2 text-right" title="One unit on the DraftKings side at its price when first seen">DK bet</th><th className="px-3 py-2 text-right" title="How far DraftKings' no-vig price on that side moved toward it by the close">Close value</th>
+                      </tr>
+                    </thead>
+                    <tbody className="font-mono">
+                      {recent.map((r) => {
+                        const edge = (1 / r.best_cost - 1) * 100, edgeNet = (1 / (r.best_cost + r.best_fee) - 1) * 100;
+                        return (
+                          <tr key={`${r.key}${r.first}`} className="border-t border-border align-top">
+                            <td className="px-3 py-1.5 font-sans text-foreground"><span className="mr-1.5 text-[10px] text-muted">{SPORT[r.sport]}</span>{r.teams}</td>
+                            <td className="px-3 py-1.5 font-sans text-foreground">{r.dk_label} <span className="font-mono text-muted">{r.dk_am > 0 ? "+" : ""}{r.dk_am}</span></td>
+                            <td className="px-3 py-1.5 font-sans text-foreground">{r.k_label} <span className="font-mono text-muted">{(r.kp * 100).toFixed(0)}¢</span></td>
+                            <td className="px-3 py-1.5 text-right">{(r.best_cost * 100).toFixed(1)}¢</td>
+                            <td className="px-3 py-1.5 text-right text-accent">+{edge.toFixed(2)}%</td>
+                            <td className={`px-3 py-1.5 text-right ${edgeNet > 0 ? "text-accent" : "text-muted"}`}>{edgeNet > 0 ? "+" : ""}{edgeNet.toFixed(2)}%</td>
+                            <td className={`px-3 py-1.5 text-right ${sz(r) < 20 ? "text-down" : "text-foreground"}`}>{r.best_size == null ? "–" : sz(r)}</td>
+                            <td className="px-3 py-1.5 font-sans text-muted"><LocalDateTime iso={r.first} options={{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }} /></td>
+                            <td className="px-3 py-1.5 text-right text-muted">{r.closed ? (mins(r) === 0 ? "< 1 round" : `${mins(r)} min`) : <span className="text-up">open, {mins(r)} min</span>}</td>
+                            <td className="px-3 py-1.5 font-sans text-muted">{r.closed ? r.why : "still open"}</td>
+                            <td className={`px-3 py-1.5 text-right ${r.res == null ? "text-muted" : (r.pnl ?? 0) > 0 ? "text-up" : (r.pnl ?? 0) < 0 ? "text-down" : "text-muted"}`}>{r.res == null ? (r.closed ? "pending" : "open") : r.res === 0.5 ? "push" : `${r.res === 1 ? "won" : "lost"} ${(r.pnl ?? 0) > 0 ? "+" : ""}${(r.pnl ?? 0).toFixed(2)}`}</td>
+                            <td className={`px-3 py-1.5 text-right ${r.clv == null ? "text-muted" : r.clv > 0 ? "text-up" : r.clv < 0 ? "text-down" : "text-muted"}`}>{r.clv == null ? "–" : `${r.clv > 0 ? "+" : ""}${(r.clv * 100).toFixed(1)}¢`}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          );
+        })()}
 
         {rows.length === 0 ? (
           <p className="rounded-lg border border-border bg-surface px-4 py-8 text-center text-sm text-muted">No lines to compare at this setting. Kalshi lists far fewer college basketball and NHL games than football, so try a longer window or looser limits.</p>

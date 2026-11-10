@@ -1835,6 +1835,15 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             picks.run(store, now, games, flags_)
     except Exception as e:
         print(f"  (picks skipped: {str(e)[:120]})", flush=True)
+    try:  # the arbitrage log: DraftKings against Kalshi, every arb from the round it appeared to the round it closed (python/exchange/arbs.py); a failure here never touches the round
+        from . import arbs
+
+        arb_state, arb_closed, arb_n = arbs.step(meta.get("arbs"), meta.get("arbs_closed"), games, kal, now)
+        store.upsert("ex_meta", [{"key": "arbs", "value": arb_state}])
+        if arb_n["closed"] or arb_n["graded"]:
+            store.upsert("ex_meta", [{"key": "arbs_closed", "value": arb_closed}])
+    except Exception as e:
+        print(f"  (arb log skipped: {str(e)[:120]})", flush=True)
     try:  # the nightly overnight snapshot (about 8 PM Eastern) and its scoring the next day; a failure here never touches the round
         if hasattr(store, "c"):
             from . import overnight
