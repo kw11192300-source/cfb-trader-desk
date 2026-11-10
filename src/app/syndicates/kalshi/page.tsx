@@ -210,10 +210,14 @@ export default async function KalshiPage({ searchParams }: { searchParams: Promi
           const graded = all.filter((r) => r.res != null);
           const wins = graded.filter((r) => r.res === 1).length, losses = graded.filter((r) => r.res === 0).length, pushes = graded.length - wins - losses;
           const units = graded.reduce((a, r) => a + (r.pnl ?? 0), 0);
-          const withClv = graded.filter((r) => r.clv != null);
+          const closed = all.filter((r) => r.closed);
+          const withPts = closed.filter((r) => r.clv_pts != null);
+          const avgPts = withPts.length ? withPts.reduce((a, r) => a + (r.clv_pts ?? 0), 0) / withPts.length : null;
+          const beatPts = withPts.length ? withPts.filter((r) => (r.clv_pts ?? 0) > 0).length / withPts.length : null;
+          const withClv = closed.filter((r) => r.clv != null);
           const avgClv = withClv.length ? (withClv.reduce((a, r) => a + (r.clv ?? 0), 0) / withClv.length) * 100 : null;
-          const beat = withClv.length ? withClv.filter((r) => (r.clv ?? 0) > 0).length / withClv.length : null;
           const pending = done.length - graded.length;
+          const ptsText = (n: number) => `${n > 0 ? "+" : ""}${n.toFixed(Math.abs(n) >= 10 ? 0 : 1)}`;
           const openNow = arbLog.open.filter((r) => !sport || r.sport === sport);
           const recent = [...openNow, ...[...done].sort((a, b) => (b.closed ?? "").localeCompare(a.closed ?? ""))].slice(0, 25);
           return (
@@ -233,16 +237,16 @@ export default async function KalshiPage({ searchParams }: { searchParams: Promi
               </div>
               <p className="mb-1 text-[11px] font-medium text-foreground">Betting just the DraftKings side of each one (one unit at the price it first had, no Kalshi hedge)</p>
               <p className="mb-2 max-w-3xl text-[11px] leading-relaxed text-muted">
-                An arb means Kalshi prices the other side low enough that the DraftKings side is worth more than DraftKings charges. This is the record of simply taking that side, graded when the game is final. Closing-line value is how far
-                DraftKings&rsquo; own no-vig price on that side moved toward it by the close (only where the line did not move). {pending > 0 ? `${pending} not graded yet.` : ""}
+                An arb means Kalshi prices the other side low enough that the DraftKings side is worth more than DraftKings charges. This is the record of simply taking that side. Closing-line value is filled in when the game starts: in points
+                (an Over taken at 53.5 that closes at 54.5 is +1.0, and a price that moved at the same line is turned into points too) and, where the line did not move, in cents of DraftKings&rsquo; no-vig price. The result is added when the game is final. {pending > 0 ? `${pending} results to come.` : ""}
               </p>
               <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
                 {[
-                  ["Graded", String(graded.length)],
+                  ["Closing value, points", avgPts == null ? "–" : `${ptsText(avgPts)} pts avg (${withPts.length})`],
+                  ["Moved your way", beatPts == null ? "–" : `${(beatPts * 100).toFixed(0)}% of ${withPts.length}`],
+                  ["Closing value, cents", avgClv == null ? "–" : `${avgClv >= 0 ? "+" : ""}${avgClv.toFixed(2)}¢ (${withClv.length})`],
                   ["Record", graded.length ? `${wins}-${losses}${pushes ? `-${pushes}` : ""}` : "–"],
-                  ["Units", graded.length ? `${units >= 0 ? "+" : ""}${units.toFixed(2)}` : "–"],
-                  ["ROI", graded.length ? `${units >= 0 ? "+" : ""}${((units / graded.length) * 100).toFixed(1)}%` : "–"],
-                  ["Avg closing value", avgClv == null ? "–" : `${avgClv >= 0 ? "+" : ""}${avgClv.toFixed(2)}¢${beat != null ? ` (${(beat * 100).toFixed(0)}% better)` : ""}`],
+                  ["Units / ROI", graded.length ? `${units >= 0 ? "+" : ""}${units.toFixed(2)} / ${units >= 0 ? "+" : ""}${((units / graded.length) * 100).toFixed(1)}%` : "–"],
                 ].map(([k, v]) => <div key={k} className="rounded-lg border border-border bg-surface px-3 py-2"><p className="text-[10px] uppercase tracking-wide text-muted">{k}</p><p className="text-base font-semibold text-foreground">{v}</p></div>)}
               </div>
               {recent.length === 0 ? (
@@ -254,7 +258,7 @@ export default async function KalshiPage({ searchParams }: { searchParams: Promi
                       <tr>
                         <th className="px-3 py-2">Game</th><th className="px-3 py-2">DraftKings</th><th className="px-3 py-2">Kalshi</th>
                         <th className="px-3 py-2 text-right">Best cost</th><th className="px-3 py-2 text-right">Edge</th><th className="px-3 py-2 text-right">After fee</th>
-                        <th className="px-3 py-2 text-right">Best size</th><th className="px-3 py-2">First seen</th><th className="px-3 py-2 text-right">Lasted</th><th className="px-3 py-2">Ended</th><th className="px-3 py-2 text-right" title="One unit on the DraftKings side at its price when first seen">DK bet</th><th className="px-3 py-2 text-right" title="How far DraftKings' no-vig price on that side moved toward it by the close">Close value</th>
+                        <th className="px-3 py-2 text-right">Best size</th><th className="px-3 py-2">First seen</th><th className="px-3 py-2 text-right">Lasted</th><th className="px-3 py-2">Ended</th><th className="px-3 py-2 text-right" title="One unit on the DraftKings side at its price when first seen">DK bet</th><th className="px-3 py-2 text-right" title="How far the closing number moved toward the bet, in points (a moved price at the same line is turned into points), and in cents where the line did not move">Close value</th>
                       </tr>
                     </thead>
                     <tbody className="font-mono">
@@ -273,7 +277,11 @@ export default async function KalshiPage({ searchParams }: { searchParams: Promi
                             <td className="px-3 py-1.5 text-right text-muted">{r.closed ? (mins(r) === 0 ? "< 1 round" : `${mins(r)} min`) : <span className="text-up">open, {mins(r)} min</span>}</td>
                             <td className="px-3 py-1.5 font-sans text-muted">{r.closed ? r.why : "still open"}</td>
                             <td className={`px-3 py-1.5 text-right ${r.res == null ? "text-muted" : (r.pnl ?? 0) > 0 ? "text-up" : (r.pnl ?? 0) < 0 ? "text-down" : "text-muted"}`}>{r.res == null ? (r.closed ? "pending" : "open") : r.res === 0.5 ? "push" : `${r.res === 1 ? "won" : "lost"} ${(r.pnl ?? 0) > 0 ? "+" : ""}${(r.pnl ?? 0).toFixed(2)}`}</td>
-                            <td className={`px-3 py-1.5 text-right ${r.clv == null ? "text-muted" : r.clv > 0 ? "text-up" : r.clv < 0 ? "text-down" : "text-muted"}`}>{r.clv == null ? "–" : `${r.clv > 0 ? "+" : ""}${(r.clv * 100).toFixed(1)}¢`}</td>
+                            <td className={`px-3 py-1.5 text-right ${r.clv_pts == null && r.clv == null ? "text-muted" : (r.clv_pts ?? r.clv ?? 0) > 0 ? "text-up" : (r.clv_pts ?? r.clv ?? 0) < 0 ? "text-down" : "text-muted"}`}>
+                              {r.clv_pts != null ? `${ptsText(r.clv_pts)} pts` : r.clv != null ? "–" : r.closed ? "at the start" : "–"}
+                              {r.clv != null && <span className="block text-[10px] text-muted">{r.clv > 0 ? "+" : ""}{(r.clv * 100).toFixed(1)}¢ same line</span>}
+                              {r.close_line != null && r.close_line !== r.line && <span className="block text-[10px] text-muted">line {r.line} to {r.close_line}</span>}
+                            </td>
                           </tr>
                         );
                       })}

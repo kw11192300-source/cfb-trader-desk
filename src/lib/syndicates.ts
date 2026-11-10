@@ -499,7 +499,7 @@ export type PickLive = Record<string, { tier: string; side: string; line: number
 export type ArbRec = {
   key: string; gid: string; sport: string; teams: string; start: string; kind: string; line: number; side: string; dk_label: string; dk_am: number; k_label: string; kp: number; cost: number; fee: number;
   size: number | null; vol: number; width: number; first: string; last: string; rounds: number; best_cost: number; best_size: number | null; best_fee: number; best_at: string; max_size: number; first_size: number | null;
-  closed?: string; why?: string; dk_am0?: number; nv?: number; res?: number | null; pnl?: number; clv?: number | null; close_nv?: number | null;
+  closed?: string; why?: string; dk_am0?: number; nv?: number; res?: number | null; pnl?: number; clv?: number | null; clv_pts?: number | null; close_line?: number | null; close_nv?: number | null;
 };
 export async function getArbs(): Promise<{ since: string | null; rounds: number; open: ArbRec[]; closed: ArbRec[] }> {
   const [{ data: a }, { data: c }] = await Promise.all([

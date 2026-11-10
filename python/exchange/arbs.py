@@ -9,8 +9,8 @@ price (each contract pays $1), when it first and last appeared, and when it clos
 one round.  The Kalshi tab shows it; run it by hand with python -m exchange.arbs to print what is open.
 
 Betting only the DraftKings side: an arb means Kalshi prices the other side so low that the DraftKings side is worth more than DraftKings charges for it. So each record also keeps the DraftKings bet at the price
-it first had when the arb appeared (dk_am0, one unit staked, no hedge on Kalshi), and when the game is final it is graded: res (1 win, 0 loss, 0.5 push), pnl in units at those odds, and clv, how far DraftKings'
-no-vig price on that side moved toward it by the close (same line only). That is the record of the idea "when Kalshi disagrees with DraftKings this way, take DraftKings' side"."""
+it first had when the arb appeared (dk_am0, one unit staked, no hedge on Kalshi). Its closing-line value is filled in when the game starts, in points (clv_pts) and, on an unmoved line, cents (clv), and the result
+(res, pnl in units) when the game is final. That is the record of the idea "when Kalshi disagrees with DraftKings this way, take DraftKings' side"."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -108,37 +108,67 @@ def _gone_why(g: dict | None, rec: dict, rows: list[list], now: datetime) -> str
     return "Kalshi moved its price"
 
 
-def grade(rec: dict, g: dict | None) -> bool:
-    """Grade the DraftKings-only bet of a closed record once its game is final. Returns True when it was graded this call."""
-    if rec.get("res") is not None or g is None or not g.get("completed") or g.get("voided"):
-        return False
-    hs, as_ = g.get("home_score"), g.get("away_score")
-    if hs is None or as_ is None or hs + as_ <= 0:
-        return False
-    from .pricing import outcome
+def _implied_value(kind: str, sport: str, line: float, p_yes: float) -> float | None:
+    """What a no-vig price at a line says the game's total (or home margin) is: the number whose fair price at that line is p_yes. This is what lets a closing price at the SAME line and a closing line that MOVED be
+    compared in points. Moneylines and hockey totals (no normal model) have none."""
+    from scipy.special import ndtri
 
-    out = outcome(rec["kind"], rec["line"], hs, as_)  # 1 when home covers / over / home wins
-    res = 0.5 if out == 0.5 else (out if rec["side"] == "A" else 1 - out)
-    rec["res"] = res
-    rec["pnl"] = round(profit_units(rec.get("dk_am0", rec["dk_am"])) if res == 1 else (-1.0 if res == 0 else 0.0), 4)
-    # closing-line value: DraftKings' no-vig price on this side at the close against the no-vig price when the arb appeared, only when the line did not move
+    from .pricing import SIGMA
+
+    if sport not in SIGMA or kind == "ml" or not (0.02 < p_yes < 0.98):
+        return None
+    if kind == "total":
+        return line + SIGMA[sport][1] * float(ndtri(p_yes))
+    return -line + SIGMA[sport][0] * float(ndtri(p_yes))  # home covers a spread of `line` when the home margin beats -line
+
+
+def grade(rec: dict, g: dict | None) -> bool:
+    """Work out what a closed record's DraftKings-only bet turned into, as the game gets there. Returns True when anything was added this call.
+
+    Closing-line value is filled in as soon as the game has started (DraftKings' line stops updating then, so its stored line is the close), without waiting for the result:
+      clv_pts  how far the close moved toward the bet in points of the game's total or margin (+1 = the number moved one point your way). It counts both a moved line (an Over bought at 53.5 that closes at 54.5)
+               and a moved price at the same line (turned into points through the sport's spread of results). Spreads and totals only.
+      clv      the move in DraftKings' no-vig probability on the bet's side, in cents, where the line did not move.
+    The result is added when the game is final: res (1 win, 0 loss, 0.5 push) and pnl in units at the odds when the arb appeared."""
+    if g is None or g.get("voided"):
+        return False
+    changed = False
     ref = g.get("ref") or {}
     kind, line, side = rec["kind"], rec["line"], rec["side"]
-    pair = None
-    if kind == "ml":
-        pair = (ref.get("ml_home"), ref.get("ml_away"))
-    elif kind == "spread" and ref.get("spread") is not None and abs(ref["spread"] - line) < 1e-6:
-        pair = (ref.get("spread_home"), ref.get("spread_away"))
-    elif kind == "total" and ref.get("total") is not None and abs(ref["total"] - line) < 1e-6:
-        pair = (ref.get("over"), ref.get("under"))
-    if pair and pair[0] is not None and pair[1] is not None:
-        ph, pa = implied(pair[0]), implied(pair[1])
-        nv_close = (ph if side == "A" else pa) / (ph + pa)
-        rec["close_nv"] = round(nv_close, 4)
-        rec["clv"] = round(nv_close - rec["nv"], 4)
-    else:
-        rec["close_nv"], rec["clv"] = None, None  # the line moved: the closing price is on a different number
-    return True
+    if g.get("state") != "pre" and not rec.get("clv_done"):
+        pair, cl_line = None, line
+        if kind == "ml":
+            pair = (ref.get("ml_home"), ref.get("ml_away"))
+        elif kind == "spread" and ref.get("spread") is not None:
+            pair, cl_line = (ref.get("spread_home"), ref.get("spread_away")), ref["spread"]
+        elif kind == "total" and ref.get("total") is not None:
+            pair, cl_line = (ref.get("over"), ref.get("under")), ref["total"]
+        rec["close_nv"] = rec["clv"] = rec["clv_pts"] = rec["close_line"] = None
+        if pair and pair[0] is not None and pair[1] is not None:
+            ph, pa = implied(pair[0]), implied(pair[1])
+            yes_close = ph / (ph + pa)  # home covers / over / home wins at the closing line
+            nv_close = yes_close if side == "A" else 1 - yes_close
+            rec["close_line"] = cl_line
+            if abs(cl_line - line) < 1e-6:
+                rec["close_nv"], rec["clv"] = round(nv_close, 4), round(nv_close - rec["nv"], 4)
+            yes_bet = rec["nv"] if side == "A" else 1 - rec["nv"]
+            v0, v1 = _implied_value(kind, rec["sport"], line, yes_bet), _implied_value(kind, rec["sport"], cl_line, yes_close)
+            if v0 is not None and v1 is not None:
+                rec["clv_pts"] = round((1 if side == "A" else -1) * (v1 - v0), 2)
+            elif kind != "ml" and abs(cl_line - line) > 1e-6:  # no model for this sport's results (hockey totals): the moved line alone, in points
+                rec["clv_pts"] = round((1 if side == "A" else -1) * ((cl_line - line) if kind == "total" else -(cl_line - line)), 2)
+        rec["clv_done"] = True
+        changed = True
+    hs, as_ = g.get("home_score"), g.get("away_score")
+    if rec.get("res") is None and g.get("completed") and hs is not None and as_ is not None and hs + as_ > 0:
+        from .pricing import outcome
+
+        out = outcome(kind, line, hs, as_)  # 1 when home covers / over / home wins
+        res = 0.5 if out == 0.5 else (out if side == "A" else 1 - out)
+        rec["res"] = res
+        rec["pnl"] = round(profit_units(rec.get("dk_am0", rec["dk_am"])) if res == 1 else (-1.0 if res == 0 else 0.0), 4)
+        changed = True
+    return changed
 
 
 def step(state: dict | None, closed_log: list | None, games: dict, kal: dict, now: datetime) -> tuple[dict, list, dict]:
