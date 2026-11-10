@@ -76,7 +76,7 @@ const HEAD = (first: string) => (
 
 /** The paper-picks scoreboard: open picks, the weekly record, and each kind of pick on its own. Shown on the Desk's Picks page. */
 export default async function PicksView() {
-  const { open, done, boardAt, live, liveAt } = await getPicks();
+  const { open, done, boardAt, live, liveAt, info } = await getPicks();
   const stale = !boardAt || Date.now() - new Date(boardAt).getTime() > 3 * 3600000;
   const total = summary(done);
   const weeks = [...new Set(done.map((p) => weekOf(p.start)))].sort().reverse();
@@ -134,6 +134,10 @@ export default async function PicksView() {
                     <td className="px-3 py-1.5 font-sans">
                       {isLive(p) && !liveStale ? <span className="font-semibold text-up">Live now</span> : <span className="text-muted">{liveStale ? "Unknown" : "No longer flagged"}</span>}
                       {isLive(p) && live[p.id].line !== p.line && <span className="block text-[10px] text-muted">now {sideText({ ...p, line: live[p.id].line })}</span>}
+                      {!liveStale && info[p.id]?.why && <span className="block max-w-[260px] whitespace-normal text-[10px] leading-snug text-muted">{info[p.id].why}</span>}
+                      {!liveStale && info[p.id]?.since != null && Math.abs(info[p.id].since!) >= 0.5 && (
+                        <span className={`block text-[10px] ${info[p.id].since! > 0 ? "text-up" : "text-down"}`}>{sg(info[p.id].since!, 1)} pts since flagged</span>
+                      )}
                     </td>
                     <td className="px-3 py-1.5 font-sans text-muted">{isLive(p) ? live[p.id].tier : p.tier}</td>
                     <td className="px-3 py-1.5 text-right text-muted">{Math.abs(p.rem).toFixed(1)} pts</td>

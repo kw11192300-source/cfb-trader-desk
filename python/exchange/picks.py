@@ -47,6 +47,77 @@ def _load(store) -> dict:
     return {"open": v.get("open", {}), "done": v.get("done", {})}
 
 
+def _calls(rows: list[dict]) -> tuple[dict, dict]:
+    """From board rows: (eligible plays per market, every game's raw call). A play follows the move the model expects from the open, and never bets that a line which has already moved will drift back toward where it opened.
+    elig[kind] is a list of (size, row, side, rem, line, opened, market); info[(game_id, kind)] is (side, rem, line, predicted move, opened) for every game, eligible or not."""
+    elig: dict[str, list] = {"spread": [], "total": []}
+    info: dict = {}
+    for r in rows:
+        p = r["payload"] or {}
+        mk, mv, bets = p.get("market") or {}, p.get("move") or {}, p.get("bets") or {}
+        for kind in ("spread", "total"):
+            side = (bets.get(kind) or {}).get("side")
+            rem = mv.get("remaining_spread" if kind == "spread" else "remaining_total")
+            line = mk.get("cur_margin" if kind == "spread" else "cur_total")
+            pred = mv.get("spread" if kind == "spread" else "total")
+            opened = mk.get("open_margin" if kind == "spread" else "open_total")
+            info[(r["game_id"], kind)] = (side, rem, line, pred, opened)
+            if not side or rem is None or line is None or pred is None or pred * rem <= 0:
+                continue
+            if opened is not None and (float(line) - float(opened)) * rem < 0 and abs(float(line) - float(opened)) >= MOVED:
+                continue
+            elig[kind].append((abs(float(rem)), r, side, float(rem), float(line), opened, mk))
+    return elig, info
+
+
+def explain(client, now: datetime, open_picks: list[dict], live: dict) -> dict:
+    """For every open pick: how the number has moved since it was flagged (points toward the call, so + is in the pick's favour) and, when it is no longer flagged, why, in plain words."""
+    rows = []
+    ids = sorted({int(p["game_id"]) for p in open_picks})
+    for i in range(0, len(ids), 150):
+        rows += client.table("cbb_game_board").select("game_id,start_date,payload,updated_at").in_("game_id", ids[i : i + 150]).execute().data or []
+    by = {r["game_id"]: r for r in rows}
+    _, info = _calls(rows)
+    ranks: dict = {}  # a play's rank among every eligible play on the board, as the tiers do
+    allrows = client.table("cbb_game_board").select("game_id,start_date,payload").gte("start_date", (now + MIN_LEAD).isoformat()).execute().data or []
+    elig_all, _ = _calls(allrows)
+    for kind, lst in elig_all.items():
+        rk = sorted(lst, key=lambda x: -x[0])
+        for i, x in enumerate(rk):
+            ranks[(x[1]["game_id"], kind)] = (i + 1, len(rk), x[0])
+    out = {}
+    for p in open_picks:
+        gid, kind = p["game_id"], p["kind"]
+        d = 1.0 if p["rem"] > 0 else -1.0
+        side, rem, line, pred, opened = info.get((gid, kind), (None,) * 5)
+        since = None if line is None else round(d * (float(line) - float(p["line"])), 2) + 0.0  # + 0.0 turns a -0.0 into 0.0
+        item = {"since": since}
+        if p["id"] in live and live[p["id"]].get("side") == p["side"]:
+            out[p["id"]] = item
+            continue
+        mins = (datetime.fromisoformat(p["start"]) - now).total_seconds() / 60
+        nm = "total" if kind == "total" else "margin"
+        if mins <= 0:
+            why = "The game has started."
+        elif mins < MIN_LEAD.total_seconds() / 60:
+            why = "Inside the last hour before the start: the number is about to be the close."
+        elif gid not in by or line is None or rem is None:
+            why = "The model has no current read on this game."
+        elif pred * rem <= 0:
+            why = f"The line has moved {abs(since):.1f} points {'toward' if since and since > 0 else 'against'} the call and is now past where the model sees it closing: the edge is used up." if since else "The line is now past where the model sees it closing: the edge is used up."
+        elif opened is not None and (float(line) - float(opened)) * rem < 0 and abs(float(line) - float(opened)) >= MOVED:
+            why = f"The line has moved {abs(float(line) - float(opened)):.1f} points the opposite way to the call since it opened, and a play never bets that a moved line comes back."
+        elif (gid, kind) in ranks:
+            i, n, sz = ranks[(gid, kind)]
+            cut = math.ceil(SHARE_B * n)
+            why = f"Still a {sz:.1f}-point predicted move, but it now ranks {i} of {n} and only the top {cut} are flagged" + (f"; the line has moved {abs(since):.1f} points {'toward' if since > 0 else 'against'} the call." if since and abs(since) >= 0.5 else ".")
+        else:
+            why = "The predicted move has shrunk below the minimum."
+        item["why"] = why
+        out[p["id"]] = item
+    return out
+
+
 def generate_cbb(client, now: datetime, have: set) -> list[dict]:
     """New CBB movement picks from the published board: one per game and market, the first time the predicted remaining move clears a tier."""
     return [p for p in flagged_cbb(client, now) if p["id"] not in have]
@@ -58,23 +129,7 @@ def flagged_cbb(client, now: datetime) -> list[dict]:
     # no snapshot-age check: the board takes its current lines from the exchange's own DraftKings feed (cbb_model/board_live.exchange_lines), and a board older than BOARD_MAX_AGE makes no picks
     rows = client.table("cbb_game_board").select("game_id,start_date,home_team,away_team,payload,updated_at").gte("start_date", (now + MIN_LEAD).isoformat()).gte("updated_at", (now - BOARD_MAX_AGE).isoformat()).execute().data or []
     out = []
-    # the eligible games per market: a pick follows the move the model expects from the open, and never bets that a line which has already moved will drift back
-    # toward where it opened. Tiers are then a share of the eligible games, biggest predicted move first.
-    elig: dict[str, list] = {"spread": [], "total": []}
-    for r in rows:
-        p = r["payload"] or {}
-        mk, mv, bets = p.get("market") or {}, p.get("move") or {}, p.get("bets") or {}
-        for kind in ("spread", "total"):
-            side = (bets.get(kind) or {}).get("side")
-            rem = mv.get("remaining_spread" if kind == "spread" else "remaining_total")
-            line = mk.get("cur_margin" if kind == "spread" else "cur_total")
-            pred = mv.get("spread" if kind == "spread" else "total")
-            opened = mk.get("open_margin" if kind == "spread" else "open_total")
-            if not side or rem is None or line is None or pred is None or pred * rem <= 0:
-                continue
-            if opened is not None and (float(line) - float(opened)) * rem < 0 and abs(float(line) - float(opened)) >= MOVED:
-                continue
-            elig[kind].append((abs(float(rem)), r, side, float(rem), float(line), opened, mk))
+    elig, _info = _calls(rows)
     for kind in ("spread", "total"):
         ranked = sorted(elig[kind], key=lambda x: -x[0])
         n = len(ranked)
@@ -188,7 +243,12 @@ def run(store, now: datetime | None = None, games=None, flags: list[dict] | None
     have = set(st["open"]) | set(st["done"])
     new = [p for p in fl if p["id"] not in have]
     live = {p["id"]: {"tier": p["tier"], "side": p["side"], "line": p["line"], "rem": p["rem"], "start": p["start"]} for p in fl}  # what is flagged this round, so the page can tell a live play from one flagged earlier whose line has since moved
-    store.upsert("ex_meta", [{"key": "picks_live", "value": {"ts": now.isoformat(), "items": live}}])
+    try:
+        info_ = explain(client, now, [p for p in {**st["open"], **{p["id"]: p for p in new}}.values() if datetime.fromisoformat(p["start"]) > now - timedelta(hours=1)], live)
+    except Exception as e:  # the reasons are a convenience: the live list is stored without them rather than not at all
+        info_ = {}
+        print(f"  (pick reasons skipped: {str(e)[:120]})", flush=True)
+    store.upsert("ex_meta", [{"key": "picks_live", "value": {"ts": now.isoformat(), "items": live, "info": info_}}])
     for p in new:
         st["open"][p["id"]] = p
     graded = grade_cbb(client, st["open"], now)

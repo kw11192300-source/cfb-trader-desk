@@ -35,6 +35,7 @@ PANEL_W_NODK = 0.5  # the Ratings Panel's fair price on a game DraftKings has no
 PANEL_W_DK = 0.1  # ...and once DraftKings is up, this share: it defers to the market and keeps quoting
 PANEL_DK_SIZE = 0.4  # its quote size on a game DraftKings has priced, against full size on one it has not
 PANEL_SEED_M, PANEL_SEED_T = 0.9, 0.4  # share of the opening margin and total taken from the panel while its ratings are fresh
+KAL_LOG_MIN = 0.01  # a change of at least a cent in Kalshi's mid on a main line is worth a mark row of its own
 MOVER_W = {"A": 1.0, "B": 0.75}  # the Open Movers' weight on the movement model's predicted move by tier (A the biggest predicted moves, B the next tranche), times each trader's own share
 MOVER_CAP = 300.0  # their combined worst case on one game
 PANEL_CAP = 400.0  # its combined worst case on one game (a pure market maker's is 200); its traders may risk 250 each: it is the one making the line before DraftKings has one
@@ -1652,8 +1653,17 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         prior = (old or {}).get("x") or [None] * len(v["x"])
         moved = (not old or old.get("r") != v["r"] or old.get("lines") != v["lines"]
                  or any((a is None) != (b is None) or (a is not None and abs(a - b) >= 0.005) for a, b in zip(v["x"], prior)))
-        if moved:
-            marks.append({"ts": _iso(now), "game_id": gid, "lines": v["lines"], "r": v["r"], "e": v["x"]})
+        # Kalshi's price on each main line goes into the same mark row as extra entries of kind "kal:<kind>" (r holds Kalshi's mid, e is empty), and a change in it alone writes a row, so the history shows
+        # whether Kalshi moves before DraftKings does (python -m exchange.kalshi_lead). Everything that reads marks looks lines up by kind, so these entries are ignored elsewhere.
+        old_k = {(r_[0], r_[1]): r_[2] for r_ in (old or {}).get("kal") or []}
+        kl_, kr_ = [], []
+        for r_ in v.get("kal") or []:
+            if [r_[0], r_[1]] in v["lines"]:
+                kl_.append(["kal:" + r_[0], r_[1]])
+                kr_.append(r_[2])
+        k_moved = any(abs(m_ - old_k.get((l_[0][4:], l_[1]), -9)) >= KAL_LOG_MIN for l_, m_ in zip(kl_, kr_))
+        if moved or k_moved:
+            marks.append({"ts": _iso(now), "game_id": gid, "lines": v["lines"] + kl_, "r": v["r"] + kr_, "e": v["x"] + [None] * len(kr_)})
         if v.get("src", "dk") == "dk":
             signals.scan(sig, g, v, two_sided, delta, markets, ckey, now, _pdate(g["start_utc"]))
             try:  # a tracking error must never stop a round
