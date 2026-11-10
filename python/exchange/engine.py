@@ -7,6 +7,7 @@ reserve that is never committed. Trades happen at the maker's price. A push refu
 """
 from __future__ import annotations
 
+import json
 import random
 import time
 import zlib
@@ -345,7 +346,16 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             t["rem_b"] = t["qty"]
         if t.get("rem_s") is None:
             t["rem_s"] = t["qty"]
-    open_trades, void_commit = voiding.apply(store, meta, members, open_trades, games, now)  # trades on a game that traded at a wrong price, voided on request (exchange/voiding.py)
+    void_commit = None
+    try:  # trades on a game that traded at a wrong price, voided on request (exchange/voiding.py); a failed void must never stop a round
+        snap_members = {k: json.loads(json.dumps(v)) for k, v in members.items()} if (meta.get("void_requests") or {}).get("games") else None
+        open_trades, void_commit = voiding.apply(store, meta, members, open_trades, games, now)
+    except Exception as e_:  # leave the accounts as they were and say so
+        if snap_members is not None:
+            for k_, v_ in snap_members.items():
+                members[k_].update(v_)
+        store.upsert("ex_meta", [{"key": "void_requests", "value": {"games": [], "reason": "", "error": str(e_)[:300]}}])
+        void_commit = None
     traded_games = {t["game_id"] for t in open_trades}
     clvs_backfilled = None
     if "clvs_v1" not in meta:  # once: each taker's whole closing-line record per sport, from the settled trades still in the ledger
@@ -1613,7 +1623,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
         if v.get("src", "dk") == "dk":
             signals.scan(sig, g, v, two_sided, delta, markets, ckey, now, _pdate(g["start_utc"]))
             try:  # a tracking error must never stop a round
-                v["mv"], evs_, ups_ = linemoves.step(g, old, v, now, linemoves.open_values(g.get("ref_open")), span_min)
+                v["mv"], evs_, ups_ = linemoves.step(g, old, v, now, linemoves.open_values(g.get("ref_open"), g["sport"]), span_min)
                 move_events.extend(evs_)
                 move_updates.extend(ups_)
             except Exception:

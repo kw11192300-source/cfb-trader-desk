@@ -28,47 +28,28 @@ def _order(t: dict) -> tuple[int, int]:
 
 
 def reverse(trades: list[dict], members: dict) -> dict:
-    """Replay the game's trades in fill order, check the replay reproduces what the ledger holds, then undo every effect on `members` in place. Returns a summary."""
+    """Undo every effect of the game's trades on `members` in place, from the ledger's final state, with no replay of the netting order.
+
+    A member's profit banked by netting (what close_lots paid out) is, over the whole game, exactly
+        (what it sold the yes side for - what it paid for it) + cost basis of what it still holds long - proceeds basis of what it still holds short,
+    because each netted pair adds (sell price - buy price) and what is still held is carried at its entry price. That needs only each trade's price, size and remaining size, all in the ledger. The
+    collateral still locked behind what it holds is the sum of rem * price on the long side and rem * (1 - price) on the short side. cash, locked and realized go back by those amounts, so
+    cash + locked - realized is untouched for every member.
+
+    The split of banked profit between the maker and taker counters depends on which trade did each netting, which the ledger does not keep; it is shared in proportion to the member's volume in each role."""
     ts = sorted(trades, key=_order)
-    lots: dict[str, list[dict]] = defaultdict(list)  # member -> lots in fill order, each {"t", "side", "rem", "px"}
-    acc: dict[str, dict] = defaultdict(lambda: {"pnl": 0.0, "pnl_maker": 0.0, "pnl_taker": 0.0, "n_maker": 0, "n_taker": 0, "vol_maker": 0.0, "vol_taker": 0.0, "cap_sum": 0.0, "cap_q": 0.0})
-    rem: dict[str, dict] = {}
-
-    def close(mid: str, t: dict, closing_long: bool, px: float, qty: float, role: str) -> float:
-        left, done = qty, 0.0
-        for lot in lots[mid]:
-            if left < 1e-9:
-                break
-            lt = lot["t"]
-            if lt["kind"] != t["kind"] or lt["line"] != t["line"]:
-                continue
-            if closing_long and lot["side"] == "b" and lot["rem"] > 1e-9:
-                u = min(lot["rem"], left)
-                pnl = u * (px - lot["px"])
-            elif not closing_long and lot["side"] == "s" and lot["rem"] > 1e-9:
-                u = min(lot["rem"], left)
-                pnl = u * (lot["px"] - px)
-            else:
-                continue
-            lot["rem"] -= u
-            a = acc[mid]
-            a["pnl"] += pnl
-            a[f"pnl_{role}"] += pnl
-            left -= u
-            done += u
-        return done
-
+    acc: dict[str, dict] = defaultdict(lambda: {"flow": 0.0, "basis": 0.0, "cost": 0.0, "n_maker": 0, "n_taker": 0, "vol_maker": 0.0, "vol_taker": 0.0, "cap_sum": 0.0, "cap_q": 0.0})
     for t in ts:
         px, q = t["price"], t["qty"]
         b, s = t["buyer"], t["seller"]
-        cb = close(b, t, False, px, q, "maker" if t["maker"] == b else "taker")  # the buyer buys back what it was short
-        cs = close(s, t, True, px, q, "maker" if t["maker"] == s else "taker")  # the seller sells out of what it was long
-        rb, rs = q - cb, q - cs
-        rem[t["id"]] = {"b": rb, "s": rs}
-        if rb > 1e-9:
-            lots[b].append({"t": t, "side": "b", "rem": rb, "px": px, "id": t["id"]})
-        if rs > 1e-9:
-            lots[s].append({"t": t, "side": "s", "rem": rs, "px": px, "id": t["id"]})
+        rb = t["rem_b"] if t.get("rem_b") is not None else q
+        rs = t["rem_s"] if t.get("rem_s") is not None else q
+        acc[b]["flow"] -= q * px
+        acc[s]["flow"] += q * px
+        acc[b]["basis"] += rb * px  # still held long, carried at the entry price
+        acc[s]["basis"] -= rs * px  # still held short, carried at the entry price
+        acc[b]["cost"] += rb * px
+        acc[s]["cost"] += rs * (1 - px)
         for who, buyer in ((b, True), (s, False)):
             role = "maker" if t["maker"] == who else "taker"
             a = acc[who]
@@ -77,39 +58,26 @@ def reverse(trades: list[dict], members: dict) -> dict:
         ref = t.get("ref_p")
         if ref is not None:
             cap = (px - ref) if t["maker"] == s else (ref - px)  # what the maker earned against DraftKings at the fill
-            a = acc[t["maker"]]
-            a["cap_sum"] += q * cap
-            a["cap_q"] += q
-    # the replay must reproduce what the ledger holds, or something is not as assumed: refuse rather than guess
-    bad = []
-    left_lots: dict[str, float] = defaultdict(float)
-    for mid, ls in lots.items():
-        for lot in ls:
-            left_lots[lot["id"] + lot["side"]] = lot["rem"]
-    for t in ts:
-        rb = left_lots.get(t["id"] + "b", 0.0)
-        rs = left_lots.get(t["id"] + "s", 0.0)
-        sb = t["rem_b"] if t.get("rem_b") is not None else t["qty"]
-        ss = t["rem_s"] if t.get("rem_s") is not None else t["qty"]
-        if abs(rb - sb) > 1e-4 or abs(rs - ss) > 1e-4:
-            bad.append((t["id"], round(rb, 4), round(sb, 4), round(rs, 4), round(ss, 4)))
-    if bad:
-        raise RuntimeError(f"replay does not match the ledger on {len(bad)} trades, e.g. {bad[:3]}; nothing was changed")
+            acc[t["maker"]]["cap_sum"] += q * cap
+            acc[t["maker"]]["cap_q"] += q
     out = {"trades": len(ts), "members": {}}
     for mid, a in acc.items():
-        cost = sum(l["rem"] * (l["px"] if l["side"] == "b" else 1 - l["px"]) for l in lots[mid])  # collateral still locked behind what it holds
+        banked = a["flow"] + a["basis"]
+        cost = a["cost"]
         m = members[mid]
-        m["cash"] += cost - a["pnl"]
+        m["cash"] += cost - banked
         m["locked"] -= cost
-        m["realized"] -= a["pnl"]
+        m["realized"] -= banked
         st = m["stats"]
+        v_tot = a["vol_maker"] + a["vol_taker"]
         for role in ("maker", "taker"):
-            st[f"pnl_{role}"] = st.get(f"pnl_{role}", 0.0) - a[f"pnl_{role}"]
+            share = (a[f"vol_{role}"] / v_tot) if v_tot > 0 else 0.0
+            st[f"pnl_{role}"] = st.get(f"pnl_{role}", 0.0) - banked * share
             st[f"n_{role}"] = st.get(f"n_{role}", 0) - a[f"n_{role}"]
             st[f"vol_{role}"] = st.get(f"vol_{role}", 0.0) - a[f"vol_{role}"]
         st["cap_sum"] = st.get("cap_sum", 0.0) - a["cap_sum"]
         st["cap_q"] = st.get("cap_q", 0.0) - a["cap_q"]
-        out["members"][mid] = {"cost": round(cost, 3), "banked": round(a["pnl"], 3)}
+        out["members"][mid] = {"cost": round(cost, 3), "banked": round(banked, 3)}
     return out
 
 

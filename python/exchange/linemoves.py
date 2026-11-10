@@ -31,23 +31,42 @@ def devig(h: float | None, a: float | None) -> float | None:
     return None if ph is None or pa is None else ph / (ph + pa)
 
 
-def open_values(ref_open: dict | None) -> dict:
-    """The opening spread, total and moneyline (home win probability) from the game's stored opening line."""
+def open_values(ref_open: dict | None, sport: str | None = None) -> dict:
+    """The opening spread, total and moneyline (home win probability), as the market's price-implied margin and total when the sport is known (see _main)."""
     if not ref_open:
         return {}
     out = {"spread": ref_open.get("spread"), "total": ref_open.get("total"), "ml": devig(ref_open.get("ml_home"), ref_open.get("ml_away"))}
+    if sport:
+        try:
+            from . import pricing
+
+            d, _ = pricing.fit(sport, ref_open)
+            if d:
+                out["spread"], out["total"] = -round(d.m, 3), round(d.t, 3)
+        except Exception:
+            pass
     return {k: v for k, v in out.items() if v is not None}
 
 
 def _main(v: dict | None) -> dict:
-    """{market: (line, DraftKings price, exchange price)} for the three main lines of a game's views."""
+    """{market: (tracked value, DraftKings price, exchange price, rendered line)} for the three main lines of a game's views.
+
+    The tracked value of a spread or total is the market's price-implied margin or total (views["rd"], the centre of the distribution fitted to DraftKings' line and prices), not the number ESPN renders:
+    ESPN shows a whole-number DraftKings line (-9) as the half point on one side or the other (-9.5 at 48 cents, then -8.5 at 52 cents) and flips between them, which looks like a one-point move and is not
+    one. The implied margin barely moves across the flip. A spread is written as the home team's number, so the implied margin of 9.0 is -9.0."""
     out: dict = {}
     if not v or not v.get("lines") or not v.get("r"):
         return out
     xs = v.get("x") or [None] * len(v["lines"])
+    rd = v.get("rd")
     for i, (kind, line) in enumerate(v["lines"]):
         if kind in MKTS:
-            out[kind] = (line, v["r"][i], xs[i] if i < len(xs) else None)
+            val = line
+            if rd and kind == "spread":
+                val = -float(rd[0])
+            elif rd and kind == "total":
+                val = float(rd[1])
+            out[kind] = (val, v["r"][i], xs[i] if i < len(xs) else None, line)
     return out
 
 
@@ -75,6 +94,9 @@ def step(g: dict, old: dict | None, v: dict, now: datetime, open_vals: dict, spa
             continue  # a hockey puck line is always 1.5 and changes sign when the favourite switches: that is not a move (the moneyline shows the real one)
         val = _val(m, c)
         st = dict(prev_mv.get(m) or {})
+        if st and not st.get("iv"):
+            st = {}  # kept in the old units (the rendered line): start over in price-implied units
+        st["iv"] = 1
         p = prev.get(m)
         pv = _val(m, p) if p is not None else val
         if "o" not in st:  # first time this market is tracked: its open (or the value it had a round ago), and the range includes where it was a round ago
@@ -124,9 +146,9 @@ def step(g: dict, old: dict | None, v: dict, now: datetime, open_vals: dict, spa
         else:
             st.pop("pend", None)
             st["c"] = base
-        if not moved and p is not None and p[2] is not None and c[2] is not None and abs(p[0] - c[0]) < 1e-9 and abs(c[2] - p[2]) >= TH_X - 1e-9 and abs(val - base) < TH[m] - 1e-9:
+        if not moved and p is not None and p[2] is not None and c[2] is not None and abs(p[3] - c[3]) < 1e-9 and abs(c[2] - p[2]) >= TH_X - 1e-9 and abs(val - base) < TH[m] - 1e-9:
             events.append({"ts": ts, "gid": g["id"], "sport": g["sport"], "teams": teams, "start": g["start_utc"], "mkt": m, "src": "exch", "frm": round(p[2], 4), "to": round(c[2], 4), "d": round(c[2] - p[2], 4),
-                           "line": c[0], "dk": round(c[1], 4), "gap": round(c[2] - c[1], 4), "span": span_min})
+                           "line": c[3], "dk": round(c[1], 4), "gap": round(c[2] - c[1], 4), "span": span_min})
         st["hi"], st["lo"] = max(st["hi"], st.get("c", val)), min(st["lo"], st.get("c", val))
         st = {k: (round(x, 4) if isinstance(x, float) else x) for k, x in st.items()}
         state[m] = st

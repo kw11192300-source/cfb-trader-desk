@@ -21,7 +21,7 @@ type Ev = {
   ts: string; gid: string; sport: string; teams: string; start: string; mkt: "spread" | "total" | "ml"; src: "dk" | "exch"; frm: number; to: number; d: number;
   o?: number; hi?: number; lo?: number; retrace?: number; gp?: number | null; led?: boolean; span?: number | null; line?: number; dk?: number; gap?: number; ok?: boolean; bounced?: boolean;
 };
-type Mv = { o: number; hi: number; lo: number; ts?: string; d?: number };
+type Mv = { o: number; hi: number; lo: number; c?: number; ts?: string; d?: number };
 type Params = { sport?: string; h?: string; w?: string; mkt?: string; view?: string; sort?: string };
 
 const imp = (o: number) => (o < 0 ? -o / (-o + 100) : 100 / (o + 100));
@@ -42,8 +42,8 @@ const ago = (iso: string) => {
 const dur = (min: number) => (min < 90 ? `${Math.round(min)} min` : `${(min / 60).toFixed(min < 600 ? 1 : 0)} h`);
 
 const sg = (n: number, d = 1) => `${n > 0 ? "+" : ""}${n.toFixed(d)}`;
-const lineTxt = (n: number) => (n > 0 ? `+${n}` : `${n}`);
-const val = (mkt: string, v: number, home: string) => (mkt === "ml" ? `${home} ${(v * 100).toFixed(0)}%` : mkt === "spread" ? `${home} ${lineTxt(v)}` : `${v}`);
+const lineTxt = (n: number) => { const v = Number(n.toFixed(1)); return v > 0 ? `+${v}` : `${v}`; };
+const val = (mkt: string, v: number, home: string) => (mkt === "ml" ? `${home} ${(v * 100).toFixed(0)}%` : mkt === "spread" ? `${home} ${lineTxt(v)}` : `${Number(v.toFixed(1))}`);
 const delta = (mkt: string, d: number) => (mkt === "ml" ? `${sg(d * 100)}¢` : sg(d));
 const side = (mkt: string, d: number, home: string, away: string) => (mkt === "spread" ? (d < 0 ? home : away) : mkt === "total" ? (d > 0 ? "over" : "under") : d > 0 ? home : away);
 const MK: Record<string, string> = { spread: "Spread", total: "Total", ml: "Moneyline" };
@@ -124,7 +124,7 @@ export default async function MovementPage({ searchParams }: { searchParams: Pro
     for (const m of ["spread", "total", "ml"] as const) {
       if (mkt !== "all" && mkt !== m) continue;
       if (m === "spread" && g.sport === "nhl") continue; // a hockey puck line is always 1.5 and changes sign when the favourite switches
-      const now = m === "ml" ? devig(rn?.ml_home, rn?.ml_away) : rn?.[m];
+      const now = st[m]?.c ?? (m === "ml" ? devig(rn?.ml_home, rn?.ml_away) : rn?.[m]);
       const o = st[m]?.o ?? (m === "ml" ? devig(ro?.ml_home, ro?.ml_away) : ro?.[m]);
       if (now == null || o == null) continue;
       orows.push({ g, mkt: m, o, now, hi: st[m]?.hi ?? null, lo: st[m]?.lo ?? null, ts: st[m]?.ts ?? null, score: norm(m, g.sport, now - o) });
