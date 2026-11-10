@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
-from . import cbbtiers, espn, house, kalshi, linemoves, modelcal, news, panel, pricing, piles, ratings, reliability, results, risk, seedcal, signals, wing
+from . import cbbtiers, espn, house, kalshi, linemoves, modelcal, news, panel, pricing, piles, ratings, reliability, results, risk, seedcal, signals, voiding, wing
 from .agents import manage as agent_manage, sandbox as agent_sandbox
 from .members import roster
 from .pricing import Dist, ckey, clip
@@ -345,6 +345,7 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
             t["rem_b"] = t["qty"]
         if t.get("rem_s") is None:
             t["rem_s"] = t["qty"]
+    open_trades, void_commit = voiding.apply(store, meta, members, open_trades, games, now)  # trades on a game that traded at a wrong price, voided on request (exchange/voiding.py)
     traded_games = {t["game_id"] for t in open_trades}
     clvs_backfilled = None
     if "clvs_v1" not in meta:  # once: each taker's whole closing-line record per sport, from the settled trades still in the ledger
@@ -1726,6 +1727,8 @@ def run_round(store, sports: list[str], seed: int | None = None, verbose: bool =
     changed = [t for tid, t in modified.items() if tid not in new_ids] + settled_rows
     if changed:
         store.upsert("ex_trades", list({t["id"]: t for t in changed}.values()))
+    if void_commit:
+        void_commit()
     store.upsert("ex_members", list(members.values()))
     store.upsert("ex_syndicates", list(syns.values()))
     gv: dict[str, list[float]] = {}  # contracts and trades so far on every game that has not finished, for the Games tab

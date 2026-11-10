@@ -38,6 +38,16 @@ def devig(a: float | None, b: float | None) -> float | None:
     return pa / (pa + pb)
 
 
+def one_sided(home: float | None, away: float | None) -> float:
+    """Fair probability of the home side of a spread when DraftKings posts only one side's price (it does this on some very big favourites, and sometimes on a game with no moneyline): that side's implied
+    probability less half a typical 4.5% overround. With neither price the line itself is the median, so 50%. Without this the margin silently stayed at zero and a 33-point favourite priced at 1 cent."""
+    if home is not None and prob(home) is not None:
+        return float(prob(home)) / 1.045
+    if away is not None and prob(away) is not None:
+        return 1.0 - float(prob(away)) / 1.045
+    return 0.5
+
+
 def clip(p: float, lo: float = 0.01, hi: float = 0.99) -> float:
     return min(hi, max(lo, p))
 
@@ -118,14 +128,15 @@ def fit(sport: str, snap: dict | None) -> tuple[Dist | None, float | None]:
     m = 0.0
     if snap.get("spread") is not None:
         pc = devig(snap.get("spread_home"), snap.get("spread_away"))
-        if pc is not None:
-            s = -snap["spread"]
+        if pc is None:
+            pc = one_sided(snap.get("spread_home"), snap.get("spread_away"))
+        s = -snap["spread"]
 
-            def f(x):
-                w, l = Dist(sport, x, t)._win_lose_m(s)
-                return w / (w + l)
+        def f(x):
+            w, l = Dist(sport, x, t)._win_lose_m(s)
+            return w / (w + l)
 
-            m = _bisect(f, -span, span, clip(pc, 0.03, 0.97))
+        m = _bisect(f, -span, span, clip(pc, 0.03, 0.97))
     elif ml is not None:
         m = _bisect(lambda x: Dist(sport, x, t).p_ml(), -span, span, clip(ml, 0.03, 0.97))
     return Dist(sport, m, t), ml
@@ -150,7 +161,7 @@ def lines_for(sport: str, snap: dict | None) -> list[tuple[str, float]]:
     out: list[tuple[str, float]] = []
     if snap.get("ml_home") is not None and snap.get("ml_away") is not None:
         out.append(("ml", 0.0))
-    if snap.get("spread") is not None and snap.get("spread_home") is not None:
+    if snap.get("spread") is not None and (snap.get("spread_home") is not None or snap.get("spread_away") is not None):  # one side priced is enough: fit() prices the other from it
         if sport == "nhl":
             out += [("spread", x) for x in HK_SPREADS]
         else:
