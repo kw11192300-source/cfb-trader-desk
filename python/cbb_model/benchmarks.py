@@ -108,7 +108,18 @@ def parse_workbook(path: str) -> None:
     import re
 
     col = [r[0] for r in sheet("Evan Miya Teams", "em tm").iter_rows(values_only=True)]
-    if col and str(col[0]).strip().isdigit():
+    # The Nov 14 export puts a few filter lines first ("Conference: All", "Updated ...", "Year: 2026-27"), then one team after another: rank, team (with emoji), CONFERENCE, off, def, relative
+    # rating, three rank fields, tempo at position 9, then more ranks - 22 values a team, and footer text at the end. Records are found by shape (a number, then two text cells) rather than by position.
+    def _is_rec_start(i: int) -> bool:
+        return (i + 2 < len(col) and isinstance(col[i], (int, float)) and not isinstance(col[i], bool) and isinstance(col[i + 1], str)
+                and isinstance(col[i + 2], str) and not col[i + 1].replace(".", "").replace("-", "").isdigit())
+
+    starts = [i for i in range(len(col)) if _is_rec_start(i)]
+    if len(starts) >= 100:
+        recs = [col[a_:b_] for a_, b_ in zip(starts, starts[1:] + [len(col)])]
+        recs = [r for r in recs if len(r) >= 20][:]
+        em = pd.DataFrame([{"rank": float(r[0]), "team": re.sub(r"[^\w\s.&'()\-]", "", str(r[1])).strip(), "conf": r[2], "off": float(r[3]), "def": float(r[4]), "net": float(r[5]), "tempo": float(r[9])} for r in recs])
+    elif col and str(col[0]).strip().isdigit():
         n = 21
         recs = [col[i : i + n] for i in range(0, len(col) - n + 1, n) if str(col[i]).strip().isdigit() and isinstance(col[i + 1], str)]
         em = pd.DataFrame([{"rank": float(r[0]), "team": re.sub(r"[^\w\s.&'()\-]", "", str(r[1])).strip(), "off": float(r[2]), "def": float(r[3]), "net": float(r[4]), "tempo": float(r[8])} for r in recs])
@@ -126,6 +137,9 @@ def parse_workbook(path: str) -> None:
 
     # EvanMiya players: the first export had a 14-field header then 14 values per player; the November export has no header (two lead-in rows, then 14 values per player)
     col = [r[0] for r in sheet("Evan Miya Players", "em plyr").iter_rows(values_only=True)]
+    if not [v for v in col if v is not None]:  # the sheet is blank: keep the player file from the last export as it is
+        print("evanmiya players: sheet is blank - left the existing file unchanged")
+        return
     n = 14
     old = pd.read_csv(OUT / "oct13" / "evanmiya_players.csv").columns.tolist() if (OUT / "oct13" / "evanmiya_players.csv").exists() else None
     if col and col[0] is None or (len(col) > 2 and str(col[2]).strip().isdigit()):

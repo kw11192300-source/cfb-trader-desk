@@ -207,16 +207,20 @@ export default async function KalshiPage({ searchParams }: { searchParams: Promi
           const done = all.filter((r) => r.closed);
           const lasted = done.map(mins).sort((a, b) => a - b);
           const median = lasted.length ? lasted[Math.floor(lasted.length / 2)] : null;
-          const graded = all.filter((r) => r.res != null);
+          // the same bet can open, close and open again (Kalshi's quote vanishing and coming back): the DraftKings-only record counts each game, line and side once, from its first appearance
+          const firstOf = new Map<string, ArbRec>();
+          for (const r of [...all].sort((a, b) => a.first.localeCompare(b.first))) if (!firstOf.has(r.key)) firstOf.set(r.key, r);
+          const bets = [...firstOf.values()];
+          const graded = bets.filter((r) => r.res != null);
           const wins = graded.filter((r) => r.res === 1).length, losses = graded.filter((r) => r.res === 0).length, pushes = graded.length - wins - losses;
           const units = graded.reduce((a, r) => a + (r.pnl ?? 0), 0);
-          const closed = all.filter((r) => r.closed);
+          const closed = bets.filter((r) => r.closed);
           const withPts = closed.filter((r) => r.clv_pts != null);
           const avgPts = withPts.length ? withPts.reduce((a, r) => a + (r.clv_pts ?? 0), 0) / withPts.length : null;
           const beatPts = withPts.length ? withPts.filter((r) => (r.clv_pts ?? 0) > 0).length / withPts.length : null;
           const withClv = closed.filter((r) => r.clv != null);
           const avgClv = withClv.length ? (withClv.reduce((a, r) => a + (r.clv ?? 0), 0) / withClv.length) * 100 : null;
-          const pending = done.length - graded.length;
+          const pending = bets.filter((r) => r.closed).length - graded.length;
           const ptsText = (n: number) => `${n > 0 ? "+" : ""}${n.toFixed(Math.abs(n) >= 10 ? 0 : 1)}`;
           const openNow = arbLog.open.filter((r) => !sport || r.sport === sport);
           const recent = [...openNow, ...[...done].sort((a, b) => (b.closed ?? "").localeCompare(a.closed ?? ""))].slice(0, 25);
@@ -230,7 +234,7 @@ export default async function KalshiPage({ searchParams }: { searchParams: Promi
               </p>
               <div className="mb-3 grid grid-cols-3 gap-3">
                 {[
-                  ["Arbs seen", String(all.length)],
+                  ["Arbs seen", bets.length === all.length ? String(all.length) : `${all.length} (${bets.length} bets)`],
                   ["Open now", String(openNow.length)],
                   ["Typical life", median == null ? "–" : median === 0 ? "under a round" : `${median} min`],
                 ].map(([k, v]) => <div key={k} className="rounded-lg border border-border bg-surface px-3 py-2"><p className="text-[10px] uppercase tracking-wide text-muted">{k}</p><p className="text-base font-semibold text-foreground">{v}</p></div>)}
