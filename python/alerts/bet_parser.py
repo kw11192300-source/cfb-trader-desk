@@ -51,6 +51,7 @@ KNOWN_BOOKS: dict[str, str] = {
     "wh": "Caesars",
     "espn bet": "ESPN Bet",
     "fanatics": "Fanatics",
+    "novig": "Novig",
     "pinnacle": "Pinnacle",
     "circa": "Circa",
     "bet365": "Bet365",

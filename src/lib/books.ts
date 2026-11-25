@@ -8,6 +8,7 @@ export const COMMON_BOOKS = [
   "Caesars",
   "ESPN Bet",
   "Fanatics",
+  "Novig",
   "STN",
   "Pinnacle",
   "Circa",
